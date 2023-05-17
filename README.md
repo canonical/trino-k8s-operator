@@ -1,0 +1,1 @@
+# trino-k8s-operator
