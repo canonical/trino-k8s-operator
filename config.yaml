@@ -1,0 +1,31 @@
+# This file defines charm config options, and populates the Configure tab on Charmhub.
+# If your charm does not require configuration options, delete this file entirely.
+#
+# See https://juju.is/docs/config for guidance.
+
+options:
+  log-level:
+    description: |
+      Trino server logging level. 
+      Valid values: info, debug, warn, error.
+    default: info
+    type: string
+  int-comms-secret:
+    description: |
+      The secret Trino uses to communicate between nodes.
+    type: string
+  k8s-tls-cert-name:
+    description: |
+      Name of TLS certificate as K8s secret
+    default: "not-provided"
+    type: string
+  google-client-id:
+    description: |
+      Client id from Google Oauth setup
+    default: "not-provided"
+    type: string
+  google-client-secret:
+    description: |
+      Client pwd from Google Oauth setup
+    default: "not-provided"
+    type: string

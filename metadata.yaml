@@ -1,0 +1,25 @@
+# This file populates the Overview on Charmhub.
+# See https://juju.is/docs/sdk/metadata-reference for a checklist and guidance.
+
+name: trino-k8s
+
+display-name: Trino Server
+
+summary: Trino server operator
+
+description: |
+  Trino is a distributed SQL query engine designed to query large data
+  sets distributed over one or more heterogeneous data sources.
+
+maintainers:
+  - Commercial Systems <jaas-crew@lists.canonical.com>
+
+containers:
+  trino:
+    resource: trino-image
+
+resources:
+  trino-image:
+    type: oci-image
+    description: OCI image for trino
+    upstream-source: trinodb/trino
