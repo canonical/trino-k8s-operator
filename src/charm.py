@@ -103,21 +103,6 @@ class TrinoK8SCharm(ops.CharmBase):
         container.restart(self.name)
         self.unit.status = ActiveStatus()
 
-    def _establish_container_conn(self, event):
-        """Establish a connection with the Trino container.
-
-        Args:
-            event: The event that triggered when action was run
-
-        Returns:
-            container: trino container
-        """
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            event.defer()
-            return None
-        return container
-
     def _validate_db_conn_params(
         self, container, db_name, db_conn_string, db_type
     ):
@@ -155,11 +140,15 @@ class TrinoK8SCharm(ops.CharmBase):
         Args:
             event: The event triggered by the connect-database action
         """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
         db_type = event.params["db-type"]
         db_name = event.params["db-name"]
         db_conn_string = event.params["db-conn-string"]
 
-        container = self._establish_container_conn(event)
         try:
             self._validate_db_conn_params(
                 container, db_name, db_conn_string, db_type
@@ -217,11 +206,14 @@ class TrinoK8SCharm(ops.CharmBase):
         Args:
             event: The event triggered by the remove-database action
         """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
         db_name = event.params["db-name"]
         db_user = event.params["db-user"]
         db_pwd = event.params["db-pwd"]
-
-        container = self._establish_container_conn(event)
 
         try:
             self._validate_db_remove_params(
@@ -243,7 +235,11 @@ class TrinoK8SCharm(ops.CharmBase):
         Args:
             event:The event triggered by the restart action
         """
-        container = self._establish_container_conn(event)
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
@@ -282,11 +278,15 @@ class TrinoK8SCharm(ops.CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        container = self._establish_container_conn(event)
         try:
             self._validate_config_params()
         except ValueError as err:
             self.unit.status = BlockedStatus(str(err))
+            return
+        
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
             return
 
         logger.info("configuring trino")

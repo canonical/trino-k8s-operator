@@ -21,9 +21,6 @@ This charm is used to deploy Trino Server in a k8s cluster. For local deployment
 # Install Microk8s from snap:
 sudo snap install microk8s --classic --channel=1.25
 
-# Install charmcraft from snap:
-sudo snap install charmcraft --classic
-
 # Add the 'ubuntu' user to the Microk8s group:
 sudo usermod -a -G microk8s ubuntu
 
@@ -38,15 +35,19 @@ microk8s enable hostpath-storage dns
 ```
 ### Install Charmcraft
 ```
+# Install lxd from snap:
+sudo snap install lxd --classic --channel=5.12/stable
+
+# Install charmcraft from snap:
+sudo snap install charmcraft --classic --channel=2.2/stable
+
 # Charmcraft relies on LXD. Configure LXD:
 lxd init --auto
-# Install Charmcraft:
-sudo snap install charmcraft --classic
 ```
 ### Set up the Juju OLM
 ```
 # Install the Juju CLI client, juju:
-sudo snap install juju --channel 3.1/stable
+sudo snap install juju --channel=3.1/stable
 
 # Install a "juju" controller into your "microk8s" cloud:
 juju bootstrap microk8s trino-controller
