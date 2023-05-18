@@ -1,0 +1,46 @@
+# Copyright 2023 Canonical Ltd
+# See LICENSE file for licensing details.
+
+add-database:
+  description: Connect database to Trino.
+  params:
+    db-name:
+      description: |
+        The name of the database you are connecting to Trino
+        If not provided this value is overridden by database name from jdbc
+      type: string
+    db-type:
+      description: |
+        The type of database being connected to Trino.
+        Current accepted values are 'postgresql' and 'mysql'. 
+        Visit https://trino.io/docs/current/connector.html 
+        for connectors that could be supported (in future).
+      type: string
+    db-conn-string:
+      description: |
+        The JDBC connection string for the database.
+        Of the following format jdbc:<db-type>://<host>:<port>/<database>
+      type: string
+    db-user:
+      description: The username for connection to the database.
+      type: string
+    db-pwd:
+      description: The password for connection to the database.
+      type: string
+  required: [db-name, db-type, db-conn-string, db-user, db-pwd]
+  additionalProperties: false
+remove-database:
+  description: Remove database from Trino. 
+  params:
+    db-name:
+      description: The name of the database to be removed.
+      type: string
+    db-user:
+      description: The username for connection to the database.
+      type: string
+    db-pwd:
+      description: The password for connection to the database.
+      type: string
+  required: [db-name, db-user, db-pwd]
+restart:
+    description: Restart the Trino server.
