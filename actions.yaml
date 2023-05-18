@@ -16,7 +16,6 @@ add-database:
         Visit https://trino.io/docs/current/connector.html 
         for connectors that could be supported (in future).
       type: string
-      default: postgresql
     db-conn-string:
       description: |
         The JDBC connection string for postgres database.

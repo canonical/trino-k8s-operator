@@ -22,4 +22,4 @@ resources:
   trino-image:
     type: oci-image
     description: OCI image for trino
-    upstream-source: trinodb/trino
+    upstream-source: trinodb/trino:418
