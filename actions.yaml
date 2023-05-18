@@ -18,14 +18,14 @@ add-database:
       type: string
     db-conn-string:
       description: |
-        The JDBC connection string for postgres database.
-        Of the following format jdbc:postgresql://<host>:<port>/<database>
+        The JDBC connection string for the database.
+        Of the following format jdbc:<db-type>://<host>:<port>/<database>
       type: string
     db-user:
-      description: The username for connection to the postgres database.
+      description: The username for connection to the database.
       type: string
     db-pwd:
-      description: The password for connection to the postgres database.
+      description: The password for connection to the database.
       type: string
   required: [db-name, db-type, db-conn-string, db-user, db-pwd]
   additionalProperties: false
@@ -33,13 +33,13 @@ remove-database:
   description: Remove database from Trino. 
   params:
     db-name:
-      description: The name of the database you are removing from Trino
+      description: The name of the database to be removed.
       type: string
     db-user:
-      description: Database username
+      description: The username for connection to the database.
       type: string
     db-pwd:
-      description: Database password
+      description: The password for connection to the database.
       type: string
   required: [db-name, db-user, db-pwd]
 restart:
