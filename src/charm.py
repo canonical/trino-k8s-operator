@@ -14,10 +14,10 @@ import logging
 import os
 import re
 
-import ops
 from jinja2 import Environment, FileSystemLoader
+from ops.charm import (ActionEvent, CharmBase, PebbleReadyEvent, ConfigChangedEvent)
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus)
-
+from ops.main import main
 from log import log_event_handler
 
 # Log messages can be retrieved using juju debug-log
@@ -45,7 +45,7 @@ def render(template_name, context):
     )
 
 
-class TrinoK8SCharm(ops.CharmBase):
+class TrinoK8SCharm(CharmBase):
     """Charm the service."""
 
     def __init__(self, *args):
@@ -75,7 +75,7 @@ class TrinoK8SCharm(ops.CharmBase):
         self.unit.status = MaintenanceStatus("installing trino")
 
     @log_event_handler(logger)
-    def _on_pebble_ready(self, event: ops.PebbleReadyEvent):
+    def _on_pebble_ready(self, event: PebbleReadyEvent):
         """Define and start a workload using the Pebble API.
 
         Args:
@@ -84,7 +84,7 @@ class TrinoK8SCharm(ops.CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
-    def _on_config_changed(self, event: ops.ConfigChangedEvent):
+    def _on_config_changed(self, event: ConfigChangedEvent):
         """Handle changed configuration.
 
         Args:
@@ -134,7 +134,7 @@ class TrinoK8SCharm(ops.CharmBase):
             raise ValueError(f"connect-database: {db_name!r} already exists!")
 
     @log_event_handler(logger)
-    def _on_add_database(self, event: ops.ActionEvent):
+    def _on_add_database(self, event: ActionEvent):
         """Connect a new database, action handler.
 
         Args:
@@ -324,4 +324,4 @@ class TrinoK8SCharm(ops.CharmBase):
 
 
 if __name__ == "__main__":
-    ops.main(TrinoK8SCharm)
+    main(TrinoK8SCharm)
