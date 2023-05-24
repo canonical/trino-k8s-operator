@@ -244,7 +244,32 @@ class TrinoK8SCharm(CharmBase):
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
 
-    def _push_file(self, container, context, jinja_file, path):
+    @log_event_handler(logger)
+    def _configure_ranger_plugin(self, container):
+        """Prepares Ranger plugin.
+
+        Args:
+            container: The application container
+
+        Raises:
+            RuntimeError: ranger-trino-plugin.tar.gz is not present
+        """
+        RANGER_VERSION = self.config['ranger-version']
+        path = f"/root/ranger-{RANGER_VERSION}-trino-plugin.tar.gz"
+        if (container.exists(path) is False):
+            raise RuntimeError(f"ranger-plugin: {path!r} does not exist, check your Trino image!")
+
+        policy_context = {"POLICY_MGR_URL": RANGER_VERSION}
+        jinja_file = "plugin-install.jinja"
+        trino_path = "/root/install.properties"
+        self._push_file(container, policy_context, jinja_file, trino_path)
+
+        entrypoint_context = {"RANGER_VERSION": self.config['ranger-version']}
+        jinja_file = "trino-entrypoint.jinja"
+        trino_path = "/trino-entrypoint.sh"
+        self._push_file(container, entrypoint_context, jinja_file, trino_path, 0o744)
+
+    def _push_file(self, container, context, jinja_file, path, permission=0o644):
         """Pushes files to application.
 
         Args:
@@ -252,12 +277,13 @@ class TrinoK8SCharm(CharmBase):
             context: The subset of config values for the file
             jinja_file: The template file
             path: The path for file in the application
+            permission: File permission (default 0o644)
 
         Returns:
             A dictionary of variables for jinja file
         """
         properties = render(jinja_file, context)
-        container.push(path, properties, make_dirs=True)
+        container.push(path, properties, make_dirs=True, permissions=permission)
         return context
 
     def _validate_config_params(self):
@@ -302,8 +328,18 @@ class TrinoK8SCharm(CharmBase):
         config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
         config_env = self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
 
-        logger.info("planning trino execution")
+        if self.config['ranger-acl'] is True:
+            try:
+                self._configure_ranger_plugin(container)
+                command = "/trino-entrypoint.sh"
+            except RuntimeError as err:
+                logger.exception(err)
+                self.unit.status = BlockedStatus(str(err))
+                return 
+        else: 
+            command = "/usr/lib/trino/bin/run-trino"
 
+        logger.info("planning trino execution")
         pebble_layer = {
             "summary": "trino layer",
             "description": "pebble config layer for trino",
@@ -311,7 +347,7 @@ class TrinoK8SCharm(CharmBase):
                 self.name: {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": command,
                     "startup": "enabled",
                     "environment": config_env,
                 }
