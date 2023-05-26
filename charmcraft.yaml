@@ -2,6 +2,13 @@
 # See https://juju.is/docs/sdk/charmcraft-config for guidance.
 
 type: charm
+parts:
+  charm:
+    build-packages:
+      - libffi-dev
+      - libssl-dev
+      - rustc
+      - cargo
 bases:
   - build-on:
     - name: ubuntu
