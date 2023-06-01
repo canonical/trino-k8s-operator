@@ -103,10 +103,10 @@ juju run trino-k8s/0 restart
 ```
 ## Accessing Trino
 ```
-# Port forward
+# Port forward (http)
 kubectl port-forward pod/trino-k8s-0 8080:8080
 
-# Connect to Trino server
+# Connect to Trino server (http):
 ./cli/trino --server http://localhost:8080 --user dev
 
 # View databases
@@ -125,6 +125,9 @@ juju config trino-k8s google-client-id=<id> google-client-secret=<secret>
 
 # relate with the Trino charm:
 juju relate tls-certificates-operator trino-k8s
+
+# check relation has been created:
+juju status --relations
 ```
 Note: currently only Google Oauth authentication is supported.
 For information on how to set this up on Google see [here](https://developers.google.com/identity/protocols/oauth2).
