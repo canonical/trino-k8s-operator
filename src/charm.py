@@ -19,6 +19,9 @@ from ops.charm import (ActionEvent, CharmBase, PebbleReadyEvent, ConfigChangedEv
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus)
 from ops.main import main
 from log import log_event_handler
+from tls import TrinoTLS
+from state import State
+from literals import CONF_PATH
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -56,6 +59,8 @@ class TrinoK8SCharm(CharmBase):
         """
         super().__init__(*args)
         self.name = "trino"
+        self._state = State(self.app, lambda: self.model.get_relation("peer"))
+        self.tls = TrinoTLS(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -321,11 +326,14 @@ class TrinoK8SCharm(CharmBase):
         _ = self._push_file(container, log_context, "logging.jinja","/etc/trino/log.properties")
         
         config_options = {
-            "k8s-tls-cert-name": "K8S_TLS_CERT_NAME",
             "google-client-id": "OAUTH_CLIENT_ID",
             "google-client-secret": "OAUTH_CLIENT_SECRET",
         }
         config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
+        config_context.update({
+            "KEYSTORE_PASS": self._state.keystore_password,
+            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+        })
         config_env = self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
 
         if self.config['ranger-acl'] is True:

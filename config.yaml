@@ -14,20 +14,13 @@ options:
     description: |
       The secret Trino uses to communicate between nodes.
     type: string
-  k8s-tls-cert-name:
-    description: |
-      Name of TLS certificate as K8s secret
-    default: "not-provided"
-    type: string
   google-client-id:
     description: |
       Client id from Google Oauth setup
-    default: "not-provided"
     type: string
   google-client-secret:
     description: |
       Client password from Google Oauth setup
-    default: "not-provided"
     type: string
   ranger-acl:
     description: |
