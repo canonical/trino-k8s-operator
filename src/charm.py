@@ -249,6 +249,28 @@ class TrinoK8SCharm(CharmBase):
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
 
+    def _enable_https(self, container):
+        google_id = self.config.get('google-client-id')
+        google_secret = self.config.get('google-client-secret')
+
+        if google_id is None or google_secret is None:
+            raise ValueError("Oauth credentials not provided")
+        
+        path = f"{CONF_PATH}/keystore.p12"
+        if (container.exists(path) is False):
+            raise RuntimeError(f"{path} does not exist, have you related a TLS operator?")
+        
+        config_options = {
+            "google-client-id": "OAUTH_CLIENT_ID",
+            "google-client-secret": "OAUTH_CLIENT_SECRET",
+        }
+        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
+        config_context.update({
+            "KEYSTORE_PASS": self._state.keystore_password,
+            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+        })
+        self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
+
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):
         """Prepares Ranger plugin.
@@ -325,16 +347,13 @@ class TrinoK8SCharm(CharmBase):
         log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
         _ = self._push_file(container, log_context, "logging.jinja","/etc/trino/log.properties")
         
-        config_options = {
-            "google-client-id": "OAUTH_CLIENT_ID",
-            "google-client-secret": "OAUTH_CLIENT_SECRET",
-        }
-        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
-        config_context.update({
-            "KEYSTORE_PASS": self._state.keystore_password,
-            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
-        })
-        config_env = self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
+        if self.config['https-enabled'] is True:
+            try:
+                self._enable_https(container)
+            except (RuntimeError, ValueError) as err:
+                logger.exception(err)
+                self.unit.status = BlockedStatus(str(err))
+                return
 
         if self.config['ranger-acl'] is True:
             try:
@@ -357,7 +376,6 @@ class TrinoK8SCharm(CharmBase):
                     "summary": "trino server",
                     "command": command,
                     "startup": "enabled",
-                    "environment": config_env,
                 }
             },
         }
