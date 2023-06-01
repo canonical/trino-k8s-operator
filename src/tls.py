@@ -1,7 +1,6 @@
 """Manager for handling Trino TLS configuration."""
 
 import logging
-import os
 from charms.tls_certificates_interface.v2.tls_certificates import (
     TLSCertificatesRequiresV2,
     generate_csr,
@@ -37,7 +36,7 @@ class TrinoTLS(Object):
             self.certificates.on.certificate_available, self._on_certificate_available
         )
         self.framework.observe(
-            self.charm.on[TLS_RELATION].relation_broken, self._on_tls_relation_broken
+            self.charm.on[TLS_RELATION].relation_broken, self._tls_relation_broken
         )
 
     @log_event_handler(logger)
@@ -130,7 +129,6 @@ class TrinoTLS(Object):
         if not self.charm._state.keystore_password:
             keystore_password =  generate_password()
             self.charm._state.keystore_password = keystore_password
-        os.environ["KEYSTORE_PASS"] = self.charm._state.keystore_password
 
         if container.exists(f"{CONF_PATH}/keystore.p12"):
             return logging.info("keystore.p12 already exists")
@@ -165,30 +163,24 @@ class TrinoTLS(Object):
             logger.exception(err)
             return
 
-    # @log_event_handler(logger)
-    # def _on_tls_relation_broken(self, event:  RelationBrokenEvent):
-    #     logging.info("relation broken")
-    #     if not self.charm._state.is_ready():
-    #         self.charm.model.unit.status = WaitingStatus("Waiting for peer relation to be created")
-    #         event.defer()
-    #         return
+    @log_event_handler(logger)
+    def _tls_relation_broken(self, event):
+        if not self.charm._state.is_ready():
+            self.charm.model.unit.status = WaitingStatus("Waiting for peer relation to be created")
+            event.defer()
+            return
 
-    #     container = self.charm.model.unit.get_container(self.charm.name)
-    #     if not container.can_connect():
-    #         event.defer()
-    #         return
+        container = self.charm.model.unit.get_container(self.charm.name)
+        if not container.can_connect():
+            event.defer()
+            return
 
-    #     if container.exists('/etc/temporal/tls/server.key'):
-    #         container.remove_path(path=f"{CONF_PATH}/server.key")
+        for file in ["server.key", "ca.pem", "server.crt", "truststore.jks", "keystore.p12"]:
+            if container.exists(f'{CONF_PATH}/{file}'):
+                container.remove_path(path=f"{CONF_PATH}/{file}")
 
-    #     if container.exists('/etc/temporal/tls/ca.pem'):
-    #         container.remove_path(path=f"{CONF_PATH}/ca.pem")
+        state_values = ["certificate", "ca", "truststore_password", "keystore_password"]
+        for value in state_values:
+            setattr(self.charm._state, value, None)
 
-    #     if container.exists('/etc/temporal/tls/server.crt'):
-    #         container.remove_path(path=f"{CONF_PATH}/server.crt")
-
-    #     self.charm._state.certificate = ""
-    #     self.charm._state.ca = ""
-    #     self.charm._state.chain = ""
-
-    #     self.charm._update(event)
+        self.charm._update(event)
