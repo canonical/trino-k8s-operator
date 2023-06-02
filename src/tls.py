@@ -21,11 +21,6 @@ class TrinoTLS(Object):
     """Handler for managing the client and unit TLS keys/certs."""
 
     def __init__(self, charm):
-        """Construct.
-
-        Args:
-            charm: Ignore.
-        """
         super().__init__(charm, "tls")
         self.charm = charm
         self.cert_subject = "trino-k8s"
