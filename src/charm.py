@@ -250,6 +250,15 @@ class TrinoK8SCharm(CharmBase):
         event.set_results({"result": "trino successfully restarted"})
 
     def _enable_https(self, container):
+        """Enables HTTPS in configuration.
+
+        Args:
+            container: Trino server container
+
+        Raises:
+            ValueError: In case no Oauth credentials are provided
+            RuntimeError: In case keystore does not exist
+        """
         google_id = self.config.get('google-client-id')
         google_secret = self.config.get('google-client-secret')
 
@@ -351,7 +360,6 @@ class TrinoK8SCharm(CharmBase):
             try:
                 self._enable_https(container)
             except (RuntimeError, ValueError) as err:
-                logger.exception(err)
                 self.unit.status = BlockedStatus(str(err))
                 return
 
@@ -360,7 +368,6 @@ class TrinoK8SCharm(CharmBase):
                 self._configure_ranger_plugin(container)
                 command = "/trino-entrypoint.sh"
             except RuntimeError as err:
-                logger.exception(err)
                 self.unit.status = BlockedStatus(str(err))
                 return 
         else: 

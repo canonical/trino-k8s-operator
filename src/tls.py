@@ -132,7 +132,6 @@ class TrinoTLS(Object):
 
         if container.exists(f"{CONF_PATH}/keystore.p12"):
             return logging.info("keystore.p12 already exists")
-        
 
         try:
             container.exec(["yum", "install", "openssl", "--assumeyes"]).wait_output()
@@ -165,6 +164,7 @@ class TrinoTLS(Object):
 
     @log_event_handler(logger)
     def _tls_relation_broken(self, event):
+        """Handler for relation broken event."""
         if not self.charm._state.is_ready():
             self.charm.model.unit.status = WaitingStatus("Waiting for peer relation to be created")
             event.defer()
