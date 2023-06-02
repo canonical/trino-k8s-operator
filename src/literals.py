@@ -9,4 +9,4 @@ INSTALL_PROPERTIES_PATH = "/root/install.properties"
 
 TLS_RELATION = "certificates"
 CONF_PATH = "/etc/trino/conf"
-CATALOG_PATH = "/etc/trino/catalog/"
+CATALOG_PATH = "/etc/trino/catalog"

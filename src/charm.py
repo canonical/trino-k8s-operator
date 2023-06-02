@@ -15,13 +15,16 @@ import os
 import re
 
 from jinja2 import Environment, FileSystemLoader
-from ops.charm import (ActionEvent, CharmBase, PebbleReadyEvent, ConfigChangedEvent)
-from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus)
+from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
+                       PebbleReadyEvent)
 from ops.main import main
+from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
+                       WaitingStatus)
+
+from literals import CATALOG_PATH, CONF_PATH
 from log import log_event_handler
-from tls import TrinoTLS
 from state import State
-from literals import CONF_PATH
+from tls import TrinoTLS
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -135,7 +138,7 @@ class TrinoK8SCharm(CharmBase):
                 f"connect-database: invalid database type {db_type!r}"
             )
 
-        if container.exists(f"/etc/trino/catalog/{db_name}.properties"):
+        if container.exists(f"{CATALOG_PATH}/{db_name}.properties"):
             raise ValueError(f"connect-database: {db_name!r} already exists!")
 
     @log_event_handler(logger)
@@ -173,7 +176,7 @@ class TrinoK8SCharm(CharmBase):
             container,
             db_context,
             "db-conn.jinja",
-            f"/etc/trino/catalog/{db_name}.properties",
+            f"{CATALOG_PATH}/{db_name}.properties",
         )
         self._restart_trino(container)
         event.set_results({"result": "database successfully added"})
@@ -191,7 +194,7 @@ class TrinoK8SCharm(CharmBase):
             ValueError: In case database does not exist
                         In case credentials are not valid
         """
-        path = f"/etc/trino/catalog/{db_name}.properties"
+        path = f"{CATALOG_PATH}/{db_name}.properties"
         if (container.exists(path) is False):
             raise ValueError(f"remove-database: {db_name!r} does not exist!")
 
@@ -229,7 +232,7 @@ class TrinoK8SCharm(CharmBase):
             event.fail(f"Failed to remove {db_name}")
             return
 
-        container.remove_path(f"/etc/trino/catalog/{db_name}.properties")
+        container.remove_path(f"{CATALOG_PATH}/{db_name}.properties")
         self._restart_trino(container)
         event.set_results({"result": "database successfully removed"})
 
@@ -250,7 +253,7 @@ class TrinoK8SCharm(CharmBase):
         event.set_results({"result": "trino successfully restarted"})
 
     def _enable_https(self, container):
-        """Enables HTTPS in configuration.
+        """Enable HTTPS in configuration.
 
         Args:
             container: Trino server container
@@ -264,11 +267,11 @@ class TrinoK8SCharm(CharmBase):
 
         if google_id is None or google_secret is None:
             raise ValueError("Oauth credentials not provided")
-        
+
         path = f"{CONF_PATH}/keystore.p12"
         if (container.exists(path) is False):
-            raise RuntimeError(f"{path} does not exist, have you related a TLS operator?")
-        
+            raise RuntimeError(f"{path} does not exist, check TLS relation")
+
         config_options = {
             "google-client-id": "OAUTH_CLIENT_ID",
             "google-client-secret": "OAUTH_CLIENT_SECRET",
@@ -278,11 +281,13 @@ class TrinoK8SCharm(CharmBase):
             "KEYSTORE_PASS": self._state.keystore_password,
             "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
         })
-        self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
+        jinja_file = "config.jinja"
+        trino_path = "/etc/trino/config.properties"
+        self._push_file(container, config_context, jinja_file, trino_path)
 
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):
-        """Prepares Ranger plugin.
+        """Prepare Ranger plugin.
 
         Args:
             container: The application container
@@ -290,12 +295,12 @@ class TrinoK8SCharm(CharmBase):
         Raises:
             RuntimeError: ranger-trino-plugin.tar.gz is not present
         """
-        RANGER_VERSION = self.config['ranger-version']
-        path = f"/root/ranger-{RANGER_VERSION}-trino-plugin.tar.gz"
+        ranger_version = self.config['ranger-version']
+        path = f"/root/ranger-{ranger_version}-trino-plugin.tar.gz"
         if (container.exists(path) is False):
-            raise RuntimeError(f"ranger-plugin: {path!r} does not exist, check your Trino image!")
+            raise RuntimeError(f"ranger-plugin: no {path!r}, check the image")
 
-        policy_context = {"POLICY_MGR_URL": RANGER_VERSION}
+        policy_context = {"POLICY_MGR_URL": self.config['policy-mgr-url']}
         jinja_file = "plugin-install.jinja"
         trino_path = "/root/install.properties"
         self._push_file(container, policy_context, jinja_file, trino_path)
@@ -345,7 +350,7 @@ class TrinoK8SCharm(CharmBase):
         except ValueError as err:
             self.unit.status = BlockedStatus(str(err))
             return
-        
+
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()
@@ -354,8 +359,8 @@ class TrinoK8SCharm(CharmBase):
         logger.info("configuring trino")
         log_options = {"log-level": "LOG_LEVEL"}
         log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
-        _ = self._push_file(container, log_context, "logging.jinja","/etc/trino/log.properties")
-        
+        _ = self._push_file(container, log_context, "logging.jinja", "/etc/trino/log.properties")
+
         if self.config['https-enabled'] is True:
             try:
                 self._enable_https(container)
@@ -369,8 +374,8 @@ class TrinoK8SCharm(CharmBase):
                 command = "/trino-entrypoint.sh"
             except RuntimeError as err:
                 self.unit.status = BlockedStatus(str(err))
-                return 
-        else: 
+                return
+        else:
             command = "/usr/lib/trino/bin/run-trino"
 
         logger.info("planning trino execution")

@@ -1,3 +1,7 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""Manager for handling the charm state."""
 
 import json
 

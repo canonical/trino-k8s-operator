@@ -6,7 +6,7 @@ The operator charm comes with features such as:
 
 ## Relations
 ### tls-certificates
-The `tls-certificates` interface is used wth the `tls-certificates-operator` charm. 
+The `tls-certificates` interface is used with the `tls-certificates-operator` charm. 
 
 Note: The TLS settings here are for self-signed-certificates which are not recommended for production clusters, the tls-certificates-operator charm offers a variety of configurations, read more on the TLS charm [here](https://charmhub.io/tls-certificates-operator)
 
@@ -33,7 +33,7 @@ To disable TLS:
 juju remove-relation trino-k8s tls-certificates-operator --force
 ```
 ## Contributing
-Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidence.
+Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
 
 ## License
 The Charmed Trino K8s Operator is free software, distributed under the Apache Software License, version 2.0. See [License](LICENSE) for more details. 
