@@ -126,7 +126,10 @@ juju config trino-k8s google-client-id=<id> google-client-secret=<secret>
 # relate with the Trino charm:
 juju relate tls-certificates-operator trino-k8s
 
-# check relation has been created:
+# enable https:
+juju config trino-k8s https-enabled=true
+
+# check relation has been created and is active:
 juju status --relations
 ```
 Note: currently only Google Oauth authentication is supported.
@@ -134,6 +137,9 @@ For information on how to set this up on Google see [here](https://developers.go
 
 ## Cleanup
 ```
+# Disable https:
+juju config trino-k8s https-enabled=false
+
 # Remove TLS relation: 
 juju remove-relation tls-certificates-operator trino-k8s --force
 
