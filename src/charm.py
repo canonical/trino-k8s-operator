@@ -21,7 +21,7 @@ from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
-from literals import CATALOG_PATH, CONF_PATH
+from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
@@ -252,11 +252,14 @@ class TrinoK8SCharm(CharmBase):
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
 
-    def _enable_https(self, container):
+    def _configure_https(self, container):
         """Enable HTTPS in configuration.
 
         Args:
             container: Trino server container
+
+        Returns:
+            config_context: config values for enabling https
 
         Raises:
             ValueError: In case no Oauth credentials are provided
@@ -280,10 +283,9 @@ class TrinoK8SCharm(CharmBase):
         config_context.update({
             "KEYSTORE_PASS": self._state.keystore_password,
             "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+            "HTTPS_ENABLED": True,
         })
-        jinja_file = "config.jinja"
-        trino_path = "/etc/trino/config.properties"
-        self._push_file(container, config_context, jinja_file, trino_path)
+        return config_context
 
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):
@@ -361,12 +363,16 @@ class TrinoK8SCharm(CharmBase):
         log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
         _ = self._push_file(container, log_context, "logging.jinja", "/etc/trino/log.properties")
 
-        if self.config['https-enabled'] is True:
+        if self._state.tls == "enabled":
             try:
-                self._enable_https(container)
+                config_context = self._configure_https(container)
             except (RuntimeError, ValueError) as err:
                 self.unit.status = BlockedStatus(str(err))
                 return
+        else:
+            config_context = {"HTTPS_ENABLED": False}
+
+        self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
 
         if self.config['ranger-acl'] is True:
             try:

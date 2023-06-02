@@ -8,7 +8,7 @@ import logging
 from charms.tls_certificates_interface.v2.tls_certificates import (
     TLSCertificatesRequiresV2, generate_csr, generate_private_key)
 from ops.framework import Object
-from ops.model import WaitingStatus
+from ops.model import BlockedStatus, WaitingStatus
 
 from literals import CONF_PATH, TLS_RELATION
 from log import log_event_handler
@@ -93,6 +93,12 @@ class TrinoTLS(Object):
             event.defer()
             return
 
+        if not event.certificate:
+            self.charm._state.tls = "disabled"
+            self.charm.status = BlockedStatus("TLS relation is blocked")
+            return
+
+        self.charm._state.tls = "enabled"
         self.charm._state.certificate = event.certificate
         self.charm._state.ca = event.ca
 
@@ -233,5 +239,5 @@ class TrinoTLS(Object):
         ]
         for value in state_values:
             setattr(self.charm._state, value, None)
-
+        self.charm._state.tls = "disabled"
         self.charm._update(event)

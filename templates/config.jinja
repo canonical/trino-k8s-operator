@@ -5,7 +5,7 @@ node.internal-address-source=FQDN
 node-scheduler.include-coordinator=true
 internal-communication.shared-secret={{ INT_COMMS_SECRET | default("changeme")}}
 
-{% if KEYSTORE_PASS is not none and OAUTH_CLIENT_ID is not none and OAUTH_CLIENT_SECRET is not none %}
+{% if HTTPS_ENABLED == True %}
 http-server.https.enabled=true
 http-server.https.port=8443
 http-server.https.keystore.path={{ KEYSTORE_PATH }}
