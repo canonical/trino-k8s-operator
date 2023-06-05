@@ -195,7 +195,7 @@ class TrinoK8SCharm(CharmBase):
                         In case credentials are not valid
         """
         path = f"{CATALOG_PATH}/{db_name}.properties"
-        if (container.exists(path) is False):
+        if not container.exists(path):
             raise ValueError(f"remove-database: {db_name!r} does not exist!")
 
         db_config = container.pull(path).read()
@@ -275,7 +275,7 @@ class TrinoK8SCharm(CharmBase):
             raise ValueError("Google secret not provided for Oauth")
 
         path = f"{CONF_PATH}/keystore.p12"
-        if (container.exists(path) is False):
+        if not container.exists(path):
             raise RuntimeError(f"{path} does not exist, check TLS relation")
 
         config_options = {
@@ -302,7 +302,7 @@ class TrinoK8SCharm(CharmBase):
         """
         ranger_version = self.config['ranger-version']
         path = f"/root/ranger-{ranger_version}-trino-plugin.tar.gz"
-        if (container.exists(path) is False):
+        if not container.exists(path):
             raise RuntimeError(f"ranger-plugin: no {path!r}, check the image")
 
         policy_context = {"POLICY_MGR_URL": self.config['policy-mgr-url']}
@@ -379,7 +379,7 @@ class TrinoK8SCharm(CharmBase):
 
         self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
 
-        if self.config['ranger-acl-enabled'] is True:
+        if self.config['ranger-acl-enabled']:
             try:
                 command = self._configure_ranger_plugin(container)
             except RuntimeError as err:
