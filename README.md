@@ -1,8 +1,8 @@
 # trino-k8s-charm
-The Charmed Trino K8s Operator delivers automated management on Trino data vitulization software on top of a Kubernetes cluter. Trino is a distributed SQL query engine designed to query large data sets distributed over one or more heterogeneous data sources.
+The Charmed Trino K8s Operator delivers automated management on Trino data virtualization software on top of a Kubernetes cluster. Trino is a distributed SQL query engine designed to query large data sets distributed over one or more heterogeneous data sources.
 
 The operator charm comes with features such as:
-- Access control management supported with Ranger provided ACLs
+- Access control management supported with Ranger-provided ACLs
 
 ## Relations
 ### tls-certificates
@@ -23,20 +23,14 @@ juju config trino-k8s google-client-id=<id> google-client-secret=<secret>
 
 # relate with the Trino charm:
 juju relate tls-certificates-operator trino-k8s
-
-# enable https:
-juju config trino-k8s https-enabled=true
 ```
 Note: currently only Google Oauth authentication is supported.
 For information on how to set this up on Google see [here](https://developers.google.com/identity/protocols/oauth2).
 
 To disable TLS:
 ```
-# disable https:
-juju config trino-k8s https-enabled=false
-
 # remove relation:
-juju remove-relation trino-k8s tls-certificates-operator --force
+juju remove-relation trino-k8s tls-certificates-operator
 ```
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.

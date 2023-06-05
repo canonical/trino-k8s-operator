@@ -262,14 +262,17 @@ class TrinoK8SCharm(CharmBase):
             config_context: config values for enabling https
 
         Raises:
-            ValueError: In case no Oauth credentials are provided
+            ValueError: In case no Google ID is provided for Oauth
+            ValueError: In case no Google secret is provided for Oauth
             RuntimeError: In case keystore does not exist
         """
         google_id = self.config.get('google-client-id')
         google_secret = self.config.get('google-client-secret')
 
-        if google_id is None or google_secret is None:
-            raise ValueError("Oauth credentials not provided")
+        if google_id is None:
+            raise ValueError("Google ID not provided for Oauth")
+        if google_secret is None:
+            raise ValueError("Google secret not provided for Oauth")
 
         path = f"{CONF_PATH}/keystore.p12"
         if (container.exists(path) is False):
@@ -311,6 +314,8 @@ class TrinoK8SCharm(CharmBase):
         jinja_file = "trino-entrypoint.jinja"
         trino_path = "/trino-entrypoint.sh"
         self._push_file(container, entrypoint_context, jinja_file, trino_path, 0o744)
+        command = "/trino-entrypoint.sh"
+        return command
 
     def _push_file(self, container, context, jinja_file, path, permission=0o644):
         """Pushes files to application.
@@ -374,10 +379,9 @@ class TrinoK8SCharm(CharmBase):
 
         self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
 
-        if self.config['ranger-acl'] is True:
+        if self.config['ranger-acl-enabled'] is True:
             try:
-                self._configure_ranger_plugin(container)
-                command = "/trino-entrypoint.sh"
+                command = self._configure_ranger_plugin(container)
             except RuntimeError as err:
                 self.unit.status = BlockedStatus(str(err))
                 return

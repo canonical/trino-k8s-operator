@@ -14,13 +14,6 @@ options:
     description: |
       The secret Trino uses to communicate between nodes.
     type: string
-  https-enabled:
-    description: | 
-      To enable HTTPS secure communication protocol.
-      google-client-id and google-client-secret must also be provided.
-      A relation with the tls-certificates-operator must also be in place.
-    type: boolean
-    default: False
   google-client-id:
     description: |
       Client id from Google Oauth setup
@@ -29,7 +22,7 @@ options:
     description: |
       Client password from Google Oauth setup
     type: string
-  ranger-acl:
+  ranger-acl-enabled:
     description: |
       Enabling/disabling Ranger plugin for Trino
     default: False

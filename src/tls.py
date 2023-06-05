@@ -50,6 +50,9 @@ class TrinoTLS(Object):
         Args:
             event: The event triggered when the relation is created.
         """
+        if not self.charm.unit.is_leader():
+            return
+
         if not self.charm._state.is_ready():
             event.defer()
             return
@@ -209,6 +212,9 @@ class TrinoTLS(Object):
         Args:
             event: The event triggered when the relation is broken
         """
+        if not self.charm.unit.is_leader():
+            return
+
         if not self.charm._state.is_ready():
             self.charm.model.unit.status = WaitingStatus(
                 "Waiting for peer relation to be created"
