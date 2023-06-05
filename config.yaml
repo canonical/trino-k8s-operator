@@ -14,18 +14,26 @@ options:
     description: |
       The secret Trino uses to communicate between nodes.
     type: string
-  k8s-tls-cert-name:
-    description: |
-      Name of TLS certificate as K8s secret
-    default: "not-provided"
-    type: string
   google-client-id:
     description: |
       Client id from Google Oauth setup
-    default: "not-provided"
     type: string
   google-client-secret:
     description: |
       Client password from Google Oauth setup
-    default: "not-provided"
+    type: string
+  ranger-acl-enabled:
+    description: |
+      Enabling/disabling Ranger plugin for Trino
+    default: False
+    type: boolean
+  policy-mgr-url:
+    description: |
+      Ranger URL for policy management
+    default: "http:ranger-admin:6080"
+    type: string
+  ranger-version:
+    description: |
+      Version of Ranger for Trino plugin
+    default: "2.3.0"
     type: string

@@ -103,10 +103,10 @@ juju run trino-k8s/0 restart
 ```
 ## Accessing Trino
 ```
-# Port forward
+# Port forward (http)
 kubectl port-forward pod/trino-k8s-0 8080:8080
 
-# Connect to Trino server
+# Connect to Trino server (http):
 ./cli/trino --server http://localhost:8080 --user dev
 
 # View databases
@@ -114,11 +114,29 @@ SHOW CATALOGS;
 ```
 ## Enabling HTTPS
 ```
-#TODO: Use TLS to enable trino HTTPS
+# deploy the TLS charm:
+juju deploy tls-certificates-operator --channel=edge
+
+# add necessary configurations for TLS:
+juju config tls-certificates-operator generate-self-signed-certificates="true" ca-common-name="trino-server"
+
+# provide google credentials:
+juju config trino-k8s google-client-id=<id> google-client-secret=<secret>
+
+# relate with the Trino charm:
+juju relate tls-certificates-operator trino-k8s
+
+# check relation has been created and is active:
+juju status --relations
 ```
+Note: currently only Google Oauth authentication is supported.
+For information on how to set this up on Google see [here](https://developers.google.com/identity/protocols/oauth2).
 
 ## Cleanup
 ```
+# Remove TLS relation: 
+juju remove-relation tls-certificates-operator trino-k8s
+
 # Remove the application before retrying
 juju remove-application trino-k8s --force
 ```

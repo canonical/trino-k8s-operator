@@ -23,3 +23,13 @@ resources:
     type: oci-image
     description: OCI image for trino
     upstream-source: trinodb/trino:418
+
+requires:
+  certificates:
+    interface: tls-certificates
+    limit: 1
+    optional: true
+
+peers:
+  peer:
+    interface: trino

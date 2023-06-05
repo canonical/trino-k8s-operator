@@ -14,11 +14,17 @@ import logging
 import os
 import re
 
-import ops
 from jinja2 import Environment, FileSystemLoader
-from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus)
+from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
+                       PebbleReadyEvent)
+from ops.main import main
+from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
+                       WaitingStatus)
 
+from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH
 from log import log_event_handler
+from state import State
+from tls import TrinoTLS
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -45,7 +51,7 @@ def render(template_name, context):
     )
 
 
-class TrinoK8SCharm(ops.CharmBase):
+class TrinoK8SCharm(CharmBase):
     """Charm the service."""
 
     def __init__(self, *args):
@@ -56,6 +62,8 @@ class TrinoK8SCharm(ops.CharmBase):
         """
         super().__init__(*args)
         self.name = "trino"
+        self._state = State(self.app, lambda: self.model.get_relation("peer"))
+        self.tls = TrinoTLS(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -75,7 +83,7 @@ class TrinoK8SCharm(ops.CharmBase):
         self.unit.status = MaintenanceStatus("installing trino")
 
     @log_event_handler(logger)
-    def _on_pebble_ready(self, event: ops.PebbleReadyEvent):
+    def _on_pebble_ready(self, event: PebbleReadyEvent):
         """Define and start a workload using the Pebble API.
 
         Args:
@@ -84,7 +92,7 @@ class TrinoK8SCharm(ops.CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
-    def _on_config_changed(self, event: ops.ConfigChangedEvent):
+    def _on_config_changed(self, event: ConfigChangedEvent):
         """Handle changed configuration.
 
         Args:
@@ -130,11 +138,11 @@ class TrinoK8SCharm(ops.CharmBase):
                 f"connect-database: invalid database type {db_type!r}"
             )
 
-        if container.exists(f"/etc/trino/catalog/{db_name}.properties"):
+        if container.exists(f"{CATALOG_PATH}/{db_name}.properties"):
             raise ValueError(f"connect-database: {db_name!r} already exists!")
 
     @log_event_handler(logger)
-    def _on_add_database(self, event: ops.ActionEvent):
+    def _on_add_database(self, event: ActionEvent):
         """Connect a new database, action handler.
 
         Args:
@@ -168,7 +176,7 @@ class TrinoK8SCharm(ops.CharmBase):
             container,
             db_context,
             "db-conn.jinja",
-            f"/etc/trino/catalog/{db_name}.properties",
+            f"{CATALOG_PATH}/{db_name}.properties",
         )
         self._restart_trino(container)
         event.set_results({"result": "database successfully added"})
@@ -186,8 +194,8 @@ class TrinoK8SCharm(ops.CharmBase):
             ValueError: In case database does not exist
                         In case credentials are not valid
         """
-        path = f"/etc/trino/catalog/{db_name}.properties"
-        if (container.exists(path) is False):
+        path = f"{CATALOG_PATH}/{db_name}.properties"
+        if not container.exists(path):
             raise ValueError(f"remove-database: {db_name!r} does not exist!")
 
         db_config = container.pull(path).read()
@@ -224,7 +232,7 @@ class TrinoK8SCharm(ops.CharmBase):
             event.fail(f"Failed to remove {db_name}")
             return
 
-        container.remove_path(f"/etc/trino/catalog/{db_name}.properties")
+        container.remove_path(f"{CATALOG_PATH}/{db_name}.properties")
         self._restart_trino(container)
         event.set_results({"result": "database successfully removed"})
 
@@ -244,7 +252,72 @@ class TrinoK8SCharm(ops.CharmBase):
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
 
-    def _push_file(self, container, context, jinja_file, path):
+    def _configure_https(self, container):
+        """Enable HTTPS in configuration.
+
+        Args:
+            container: Trino server container
+
+        Returns:
+            config_context: config values for enabling https
+
+        Raises:
+            ValueError: In case no Google ID is provided for Oauth
+            ValueError: In case no Google secret is provided for Oauth
+            RuntimeError: In case keystore does not exist
+        """
+        google_id = self.config.get('google-client-id')
+        google_secret = self.config.get('google-client-secret')
+
+        if google_id is None:
+            raise ValueError("Google ID not provided for Oauth")
+        if google_secret is None:
+            raise ValueError("Google secret not provided for Oauth")
+
+        path = f"{CONF_PATH}/keystore.p12"
+        if not container.exists(path):
+            raise RuntimeError(f"{path} does not exist, check TLS relation")
+
+        config_options = {
+            "google-client-id": "OAUTH_CLIENT_ID",
+            "google-client-secret": "OAUTH_CLIENT_SECRET",
+        }
+        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
+        config_context.update({
+            "KEYSTORE_PASS": self._state.keystore_password,
+            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+            "HTTPS_ENABLED": True,
+        })
+        return config_context
+
+    @log_event_handler(logger)
+    def _configure_ranger_plugin(self, container):
+        """Prepare Ranger plugin.
+
+        Args:
+            container: The application container
+
+        Raises:
+            RuntimeError: ranger-trino-plugin.tar.gz is not present
+        """
+        ranger_version = self.config['ranger-version']
+        path = f"/root/ranger-{ranger_version}-trino-plugin.tar.gz"
+        if not container.exists(path):
+            raise RuntimeError(f"ranger-plugin: no {path!r}, check the image")
+
+        policy_context = {"POLICY_MGR_URL": self.config['policy-mgr-url']}
+        jinja_file = "plugin-install.jinja"
+        trino_path = "/root/install.properties"
+        self._push_file(container, policy_context, jinja_file, trino_path)
+
+        entrypoint_context = {"RANGER_VERSION": self.config['ranger-version']}
+        jinja_file = "trino-entrypoint.jinja"
+        trino_path = "/trino-entrypoint.sh"
+        self._push_file(container, entrypoint_context, jinja_file, trino_path, 0o744)
+        command = "/trino-entrypoint.sh"
+        return command
+
+    def _push_file(self, container, context, jinja_file, path, permission=0o644):
         """Pushes files to application.
 
         Args:
@@ -252,12 +325,13 @@ class TrinoK8SCharm(ops.CharmBase):
             context: The subset of config values for the file
             jinja_file: The template file
             path: The path for file in the application
+            permission: File permission (default 0o644)
 
         Returns:
             A dictionary of variables for jinja file
         """
         properties = render(jinja_file, context)
-        container.push(path, properties, make_dirs=True)
+        container.push(path, properties, make_dirs=True, permissions=permission)
         return context
 
     def _validate_config_params(self):
@@ -283,7 +357,7 @@ class TrinoK8SCharm(ops.CharmBase):
         except ValueError as err:
             self.unit.status = BlockedStatus(str(err))
             return
-        
+
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()
@@ -292,18 +366,29 @@ class TrinoK8SCharm(ops.CharmBase):
         logger.info("configuring trino")
         log_options = {"log-level": "LOG_LEVEL"}
         log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
-        _ = self._push_file(container, log_context, "logging.jinja","/etc/trino/log.properties")
-        
-        config_options = {
-            "k8s-tls-cert-name": "K8S_TLS_CERT_NAME",
-            "google-client-id": "OAUTH_CLIENT_ID",
-            "google-client-secret": "OAUTH_CLIENT_SECRET",
-        }
-        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
-        config_env = self._push_file(container, config_context, "config.jinja", "/etc/trino/config.properties")
+        _ = self._push_file(container, log_context, "logging.jinja", "/etc/trino/log.properties")
+
+        if self._state.tls == "enabled":
+            try:
+                config_context = self._configure_https(container)
+            except (RuntimeError, ValueError) as err:
+                self.unit.status = BlockedStatus(str(err))
+                return
+        else:
+            config_context = {"HTTPS_ENABLED": False}
+
+        self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
+
+        if self.config['ranger-acl-enabled']:
+            try:
+                command = self._configure_ranger_plugin(container)
+            except RuntimeError as err:
+                self.unit.status = BlockedStatus(str(err))
+                return
+        else:
+            command = "/usr/lib/trino/bin/run-trino"
 
         logger.info("planning trino execution")
-
         pebble_layer = {
             "summary": "trino layer",
             "description": "pebble config layer for trino",
@@ -311,9 +396,8 @@ class TrinoK8SCharm(ops.CharmBase):
                 self.name: {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": command,
                     "startup": "enabled",
-                    "environment": config_env,
                 }
             },
         }
@@ -324,4 +408,4 @@ class TrinoK8SCharm(ops.CharmBase):
 
 
 if __name__ == "__main__":
-    ops.main(TrinoK8SCharm)
+    main(TrinoK8SCharm)
