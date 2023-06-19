@@ -7,6 +7,8 @@
 import logging
 import secrets
 import string
+import os
+from jinja2 import Environment, FileSystemLoader
 
 from ops.model import Container
 
@@ -36,3 +38,24 @@ def push(container: Container, content: str, path: str) -> None:
         path: the full path of the desired file
     """
     container.push(path, content, make_dirs=True)
+
+
+def render(template_name, context):
+    """Render the template with the given name using the given context dict.
+
+    Args:
+        template_name: File name to read the template from.
+        context: Dict used for rendering.
+
+    Returns:
+        A dict containing the rendered template.
+    """
+    charm_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir)
+    )
+    loader = FileSystemLoader(os.path.join(charm_dir, "templates"))
+    return (
+        Environment(loader=loader, autoescape=True)
+        .get_template(template_name)
+        .render(**context)
+    )

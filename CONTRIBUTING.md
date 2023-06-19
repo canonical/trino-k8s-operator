@@ -132,6 +132,17 @@ juju status --relations
 Note: currently only Google Oauth authentication is supported.
 For information on how to set this up on Google see [here](https://developers.google.com/identity/protocols/oauth2).
 
+## Relating a PostgreSQL database
+```
+# deploy postgres database:
+juju deploy postgresql-k8s --channel 14/stable
+
+# relate postgres charm to trino charm:
+juju relate postgresql-k8s trino-k8s
+
+```
+For information on accessing the PostgreSQL database see [here](https://charmhub.io/postgresql/docs/t-deploy-postgresql).
+
 ## Cleanup
 ```
 # Remove TLS relation: 

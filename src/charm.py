@@ -11,10 +11,8 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
-import os
 import re
 
-from jinja2 import Environment, FileSystemLoader
 from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
                        PebbleReadyEvent)
 from ops.main import main
@@ -25,34 +23,20 @@ from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
+from database import Postgresql
+from charms.data_platform_libs.v0.data_models import TypedCharmBase
+from structured_config import CharmConfig
+from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
+from utils import render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
 
 
-def render(template_name, context):
-    """Render the template with the given name using the given context dict.
-
-    Args:
-        template_name: File name to read the template from.
-        context: Dict used for rendering.
-
-    Returns:
-        A dict containing the rendered template.
-    """
-    charm_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), os.pardir)
-    )
-    loader = FileSystemLoader(os.path.join(charm_dir, "templates"))
-    return (
-        Environment(loader=loader, autoescape=True)
-        .get_template(template_name)
-        .render(**context)
-    )
-
-
-class TrinoK8SCharm(CharmBase):
+class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     """Charm the service."""
+
+    config_type = CharmConfig
 
     def __init__(self, *args):
         """Construct.
@@ -63,7 +47,11 @@ class TrinoK8SCharm(CharmBase):
         super().__init__(*args)
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
+
+        # Hanle relations
         self.tls = TrinoTLS(self)
+        self.database = DatabaseRequires(self, relation_name="database", database_name="example-db")
+        self.postgresql = Postgresql(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -387,7 +375,18 @@ class TrinoK8SCharm(CharmBase):
                 return
         else:
             command = "/usr/lib/trino/bin/run-trino"
-
+        
+        if self._state.database_connections:
+            db_conn = self._state.database_connections["database"]
+            env = {
+                    "DB_NAME": db_conn["DB_NAME"],
+                    "DB_HOST": db_conn["DB_HOST"],
+                    "DB_PORT": db_conn["DB_PORT"],
+                    "DB_USER": db_conn["DB_USER"],
+                    "DB_PSWD": db_conn["DB_PSWD"],
+                    }
+        else:
+            env = ""
         logger.info("planning trino execution")
         pebble_layer = {
             "summary": "trino layer",
@@ -398,6 +397,7 @@ class TrinoK8SCharm(CharmBase):
                     "summary": "trino server",
                     "command": command,
                     "startup": "enabled",
+                    "environment": env,
                 }
             },
         }
