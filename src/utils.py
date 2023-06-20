@@ -59,3 +59,20 @@ def render(template_name, context):
         .get_template(template_name)
         .render(**context)
     )
+
+def read(file_name, file_directory):
+    """Read the file with the given name using the given directory.
+
+    Args:
+        file_name: File name to read from.
+
+    Returns:
+        A string of the file provided's content.
+    """
+    charm_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir)
+    )
+    template_path = os.path.join(charm_dir, file_directory)
+    file_path = os.path.join(template_path, file_name)
+    with open(file_path) as f: content = f.read()
+    return content

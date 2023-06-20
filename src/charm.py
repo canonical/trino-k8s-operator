@@ -27,7 +27,7 @@ from database import Postgresql
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from structured_config import CharmConfig
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
-from utils import render
+from utils import render, read
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
 
-        # Hanle relations
+        # Handle relations
         self.tls = TrinoTLS(self)
         self.database = DatabaseRequires(self, relation_name="database", database_name="example-db")
         self.postgresql = Postgresql(self)
@@ -334,6 +334,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
 
+    def _update_jvm(self, container):
+        """Update jvm.config file with Postgres compatable timezone
+
+        Args:
+            container: Trino container
+        """
+        content = read("jvm.config","templates")
+        container.push("/etc/trino/jvm.config", content, make_dirs=True)
+
     def _update(self, event):
         """Update the Trino server configuration and replan its execution.
 
@@ -376,8 +385,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         else:
             command = "/usr/lib/trino/bin/run-trino"
         
-        if self._state.database_connections:
-            db_conn = self._state.database_connections["database"]
+        db_connections = self._state.database_connections
+        if db_connections and "database" in db_connections:
+            db_conn = db_connections["database"]
             env = {
                     "DB_NAME": db_conn["DB_NAME"],
                     "DB_HOST": db_conn["DB_HOST"],
@@ -387,6 +397,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                     }
         else:
             env = ""
+        self._update_jvm(container)
         logger.info("planning trino execution")
         pebble_layer = {
             "summary": "trino layer",
