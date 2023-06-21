@@ -23,7 +23,7 @@ from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
-from database import Postgresql
+from database import Database
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from structured_config import CharmConfig
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
@@ -50,8 +50,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         # Handle relations
         self.tls = TrinoTLS(self)
-        self.database = DatabaseRequires(self, relation_name="database", database_name="example-db")
-        self.postgresql = Postgresql(self)
+        self.postgresql_db = DatabaseRequires(self, relation_name="postgresql_db", database_name="example-db")
+        self.mysql_db = DatabaseRequires(self, relation_name="mysql_db", database_name="example-db")
+        self.database = Database(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -386,17 +387,18 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             command = "/usr/lib/trino/bin/run-trino"
         
         db_connections = self._state.database_connections
-        if db_connections and "database" in db_connections:
-            db_conn = db_connections["database"]
-            env = {
-                    "DB_NAME": db_conn["DB_NAME"],
-                    "DB_HOST": db_conn["DB_HOST"],
-                    "DB_PORT": db_conn["DB_PORT"],
-                    "DB_USER": db_conn["DB_USER"],
-                    "DB_PSWD": db_conn["DB_PSWD"],
-                    }
-        else:
-            env = ""
+        env = {}
+        if db_connections:
+            for database, db_env in db_connections.items():
+                env.update(
+                {
+                    f"{database}_NAME": db_env["DB_NAME"],
+                    f"{database}_HOST": db_env["DB_HOST"],
+                    f"{database}_PORT": db_env["DB_PORT"],
+                    f"{database}_USER": db_env["DB_USER"],
+                    f"{database}_PSWD": db_env["DB_PSWD"],
+                    })
+
         self._update_jvm(container)
         logger.info("planning trino execution")
         pebble_layer = {

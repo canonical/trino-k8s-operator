@@ -29,8 +29,10 @@ requires:
     interface: tls-certificates
     limit: 1
     optional: true
-  database:
+  postgresql_db:
     interface: postgresql_client
+  mysql_db:
+    interface: mysql_client
 
 peers:
   peer:

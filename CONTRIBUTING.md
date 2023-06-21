@@ -138,15 +138,31 @@ For information on how to set this up on Google see [here](https://developers.go
 juju deploy postgresql-k8s --channel 14/stable
 
 # relate postgres charm to trino charm:
-juju relate postgresql-k8s trino-k8s
+juju relate postgresql-k8s:database trino-k8s:postgresql_db
 
 ```
 For information on accessing the PostgreSQL database see [here](https://charmhub.io/postgresql/docs/t-deploy-postgresql).
+
+## Relating a MySQL database
+```
+# deploy mysql database:
+juju deploy mysql-k8s --channel 8.0/stable
+
+# relate mysql charm to trino charm:
+juju relate mysql-k8s:database trino-k8s:mysql_db
+
+```
 
 ## Cleanup
 ```
 # Remove TLS relation: 
 juju remove-relation tls-certificates-operator trino-k8s
+
+# Remove Postgresql relation: 
+juju remove-relation postgresql-k8s trino-k8s
+
+# Remove MySQL relation:
+juju remove-relation mysql-k8s trino-k8s
 
 # Remove the application before retrying
 juju remove-application trino-k8s --force

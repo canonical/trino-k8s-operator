@@ -5,18 +5,19 @@
 
 import logging
 
-from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
+from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent
 from ops import framework
 from ops.model import ActiveStatus
 from log import log_event_handler
 from literals import CATALOG_PATH
 from utils import render, push
+import re
 
 logger = logging.getLogger(__name__)
 
 
 
-class Postgresql(framework.Object):
+class Database(framework.Object):
     """Client for trino:database relations."""
 
     def __init__(self, charm):
@@ -27,9 +28,13 @@ class Postgresql(framework.Object):
         """
         super().__init__(charm, "database")
         self.charm = charm
-        self.framework.observe(charm.database.on.database_created, self._on_database_changed)
-        self.framework.observe(charm.database.on.endpoints_changed, self._on_database_changed)
-        # self.framework.observe(charm.on.database_relation_broken, self._on_database_relation_broken)
+        self.framework.observe(charm.postgresql_db.on.database_created, self._on_database_changed)
+        self.framework.observe(charm.postgresql_db.on.endpoints_changed, self._on_database_changed)
+        # self.framework.observe(charm.on.postgresql_db_relation_broken, self._on_database_relation_broken)
+
+        self.framework.observe(charm.mysql_db.on.database_created, self._on_database_changed)
+        self.framework.observe(charm.mysql_db.on.endpoints_changed, self._on_database_changed)
+        # self.framework.observe(charm.on.mysql_db_relation_broken, self._on_database_relation_broken)
 
     @log_event_handler(logger)
     def _on_database_changed(self, event: DatabaseCreatedEvent) -> None:
@@ -38,52 +43,61 @@ class Postgresql(framework.Object):
         if not self.charm.unit.is_leader():
             return
 
+        rel_name = event.relation.name
+        cluster_name = event.relation.app.name
+        db_name = event.database
+
         user = event.username
         password = event.password
         host, port = event.endpoints.split(",", 1)[0].split(":")
-        name = event.database
 
         # TODO: Add validation that event values have been received.
         # TODO: Add validation that a database with this name does not already exist
         self.charm.unit.status = ActiveStatus("received database credentials")
 
-        db_context = self._create_db_context(user, password, host, port, name)
-        rel_name = event.relation.name
-        self._add_config_file(event, name, db_context)
-        self._update_database_connections(db_context, rel_name)
+        db_context = self._create_db_context(user, password, host, port, db_name, rel_name)
+
+        self._add_config_file(event, db_name, db_context, cluster_name)
+        self._update_database_connections(db_context, cluster_name, db_name)
         self.charm._update(event)
 
     
-    def _create_db_context(self, user, password, host, port, name):
-        conn_string = f"jdbc:postgresql://{host}:{port}/{name}"
+    def _create_db_context(self, user, password, host, port, db_name, rel_name):
+        db_type = re.match(r"(.+?)_db", rel_name).group(1)
+        if db_type == "mysql":
+            conn_string = f"jdbc:{db_type}://{host}:{port}"
+        if db_type == "postgresql":
+            conn_string = f"jdbc:{db_type}://{host}:{port}/{db_name}"
+        
         return {
-            "DB_TYPE": "postgresql",
+            "DB_TYPE": db_type,
             "DB_CONN_STRING": conn_string,
-            "DB_NAME": name,
+            "DB_NAME": db_name,
             "DB_PORT": port,
             "DB_HOST": host,
             "DB_USER": user,
             "DB_PSWD": password,
         }
 
-    def _add_config_file(self, event, name, db_context):
+    def _add_config_file(self, event, name, db_context, cluster_name):
         
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             event.defer()
             return
-       
+
         db_file= render("db-conn.jinja", db_context)
-        path = f"{CATALOG_PATH}/{name}.properties"
+        path = f"{CATALOG_PATH}/{cluster_name}-{name}.properties"
         push(container, db_file, path)
 
 
-    def _update_database_connections(self, db_env, rel_name):
+    def _update_database_connections(self, db_env, cluster_name, db_name):
         if self.charm._state.database_connections:
             database_connections = self.charm._state.database_connections
         else:
             database_connections = {}
-        database_connections[rel_name] = db_env
+        unique_id = f"{cluster_name}-{db_name}"
+        database_connections[unique_id] = db_env
         self.charm._state.database_connections = database_connections
 
 
@@ -96,8 +110,8 @@ class Postgresql(framework.Object):
             event.defer()
             return
 
-        name = event.database
-        if container.exists(f"{CATALOG_PATH}/{name}"):
-                container.remove_path(path=f"{CATALOG_PATH}/{name}")
-        self._update_database_connections(event.relation.name, None)
-        self.charm._update(event)
+        # if container.exists(f"{CATALOG_PATH}/{name}"):
+        #         container.remove_path(path=f"{CATALOG_PATH}/{name}")
+        # self._update_database_connections(event.relation.name, None)
+        # self.charm._update(event)
+    
