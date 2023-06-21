@@ -400,6 +400,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                     })
 
         self._update_jvm(container)
+
         logger.info("planning trino execution")
         pebble_layer = {
             "summary": "trino layer",

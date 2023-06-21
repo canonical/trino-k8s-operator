@@ -30,11 +30,11 @@ class Database(framework.Object):
         self.charm = charm
         self.framework.observe(charm.postgresql_db.on.database_created, self._on_database_changed)
         self.framework.observe(charm.postgresql_db.on.endpoints_changed, self._on_database_changed)
-        # self.framework.observe(charm.on.postgresql_db_relation_broken, self._on_database_relation_broken)
+        self.framework.observe(charm.on.postgresql_db_relation_departed, self._on_database_relation_departed)
 
         self.framework.observe(charm.mysql_db.on.database_created, self._on_database_changed)
         self.framework.observe(charm.mysql_db.on.endpoints_changed, self._on_database_changed)
-        # self.framework.observe(charm.on.mysql_db_relation_broken, self._on_database_relation_broken)
+        self.framework.observe(charm.on.mysql_db_relation_broken, self._on_database_relation_departed)
 
     @log_event_handler(logger)
     def _on_database_changed(self, event: DatabaseCreatedEvent) -> None:
@@ -55,14 +55,14 @@ class Database(framework.Object):
         # TODO: Add validation that a database with this name does not already exist
         self.charm.unit.status = ActiveStatus("received database credentials")
 
-        db_context = self._create_db_context(user, password, host, port, db_name, rel_name)
+        db_context = self._create_db_context(user, password, host, port, db_name, rel_name, cluster_name)
 
         self._add_config_file(event, db_name, db_context, cluster_name)
-        self._update_database_connections(db_context, cluster_name, db_name)
+        self._add_database_to_state(db_context, cluster_name, db_name)
         self.charm._update(event)
 
     
-    def _create_db_context(self, user, password, host, port, db_name, rel_name):
+    def _create_db_context(self, user, password, host, port, db_name, rel_name, cluster_name):
         db_type = re.match(r"(.+?)_db", rel_name).group(1)
         if db_type == "mysql":
             conn_string = f"jdbc:{db_type}://{host}:{port}"
@@ -70,6 +70,7 @@ class Database(framework.Object):
             conn_string = f"jdbc:{db_type}://{host}:{port}/{db_name}"
         
         return {
+            "CLUSTER": cluster_name,
             "DB_TYPE": db_type,
             "DB_CONN_STRING": conn_string,
             "DB_NAME": db_name,
@@ -91,7 +92,7 @@ class Database(framework.Object):
         push(container, db_file, path)
 
 
-    def _update_database_connections(self, db_env, cluster_name, db_name):
+    def _add_database_to_state(self, db_env, cluster_name, db_name):
         if self.charm._state.database_connections:
             database_connections = self.charm._state.database_connections
         else:
@@ -100,8 +101,8 @@ class Database(framework.Object):
         database_connections[unique_id] = db_env
         self.charm._state.database_connections = database_connections
 
-
-    def _on_database_relation_broken(self, event):
+    @log_event_handler(logger)
+    def _on_database_relation_departed(self, event):
         if not self.charm.unit.is_leader():
             return
 
@@ -110,8 +111,19 @@ class Database(framework.Object):
             event.defer()
             return
 
-        # if container.exists(f"{CATALOG_PATH}/{name}"):
-        #         container.remove_path(path=f"{CATALOG_PATH}/{name}")
-        # self._update_database_connections(event.relation.name, None)
-        # self.charm._update(event)
+        cluster_name = event.relation.app.name
+        database_connections = self.charm._state.database_connections
+        databases_to_remove = []
+        for database, values in database_connections.items():
+            if values["CLUSTER"] == cluster_name:
+                logging.info(f"removing {database} from configuration")
+                if container.exists(f"{CATALOG_PATH}/{database}.properties"):
+                    container.remove_path(path=f"{CATALOG_PATH}/{database}.properties")
+                databases_to_remove.append(database)
+        
+        for relation in databases_to_remove:
+            del database_connections[relation]
+
+        self.charm._state.database_connections = database_connections
+        self.charm._update(event)
     
