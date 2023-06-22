@@ -56,10 +56,10 @@ class Database(framework.Object):
         self.charm.unit.status = ActiveStatus("received database credentials")
 
         db_context = self._create_db_context(user, password, host, port, db_name, rel_name, cluster_name)
-
-        self._add_config_file(event, db_name, db_context, cluster_name)
-        self._add_database_to_state(db_context, cluster_name, db_name)
-        self.charm._update(event)
+        logging.info(db_context)
+        # self._add_config_file(event, db_name, db_context, cluster_name)
+        # self._add_database_to_state(db_context, cluster_name, db_name)
+        # self.charm._update(event)
 
     
     def _create_db_context(self, user, password, host, port, db_name, rel_name, cluster_name):
