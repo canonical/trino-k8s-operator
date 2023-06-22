@@ -37,3 +37,14 @@ options:
       Version of Ranger for Trino plugin
     default: "2.3.0"
     type: string
+  external-hostname:
+    description: |
+        The DNS listing used for external connections. 
+        Will default to the name of the deployed application.
+    type: string
+    default: trino-k8s
+  tls-secret-name:
+    description: |
+        Name of the k8s secret which contains the TLS certificate to be used by ingress.
+    default: "trino-tls"
+    type: string

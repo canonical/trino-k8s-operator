@@ -21,10 +21,11 @@ from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
-from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH
+from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH, TRINO_PORTS
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
+from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -72,6 +73,20 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(self.on.add_database_action, self._on_add_database)
         self.framework.observe(self.on.remove_database_action, self._on_remove_database)
         self.framework.observe(self.on.restart_action, self._on_restart)
+
+        # Handle Ingress
+        self._require_nginx_route()
+
+    def _require_nginx_route(self):
+        """Require nginx-route relation based on current configuration."""
+        require_nginx_route(
+            charm=self,
+            service_hostname=self.config["external-hostname"],
+            service_name=self.app.name,
+            service_port=TRINO_PORTS["HTTPS"],
+            tls_secret_name=self.config["tls-secret-name"],
+            backend_protocol="HTTPS",
+        )
 
     @log_event_handler(logger)
     def _on_install(self, event):

@@ -12,3 +12,8 @@ CONF_PATH = "/etc/trino/conf"
 CATALOG_PATH = "/etc/trino/catalog"
 CONFIG_JINJA = "config.jinja"
 CONFIG_PATH = "/etc/trino/config.properties"
+
+TRINO_PORTS = {
+        "HTTPS": 8443,
+        "HTTP": 8080,
+        }
