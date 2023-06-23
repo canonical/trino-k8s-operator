@@ -413,7 +413,7 @@ class TrinoK8SCharm(CharmBase):
                     "summary": "trino server",
                     "command": command,
                     "startup": "enabled",
-                    "environment": config_context
+                    "environment": config_context,
                 }
             },
         }
