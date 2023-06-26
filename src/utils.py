@@ -9,6 +9,7 @@ import secrets
 import string
 import os
 from jinja2 import Environment, FileSystemLoader
+import psycopg2
 
 from ops.model import Container
 
@@ -76,3 +77,27 @@ def read(file_name, file_directory):
     file_path = os.path.join(template_path, file_name)
     with open(file_path) as f: content = f.read()
     return content
+
+def connect_to_database(host, port, database, user, password):
+    try:
+        connection = psycopg2.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password
+        )
+        logging.info("Successfully connected to the database")
+        return connection
+    except psycopg2.Error as error:
+        logging.info("Error connecting to the database:", error)
+
+def get_all_databases(connection):
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT datname FROM pg_database;")
+        databases = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return databases
+    except psycopg2.Error as error:
+        logging.info("Error retrieving databases:", error)

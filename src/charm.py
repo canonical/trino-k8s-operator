@@ -50,8 +50,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         # Handle relations
         self.tls = TrinoTLS(self)
-        self.postgresql_db = DatabaseRequires(self, relation_name="postgresql_db", database_name="example-db", extra_user_roles="admin")
-        self.mysql_db = DatabaseRequires(self, relation_name="mysql_db", database_name="example-db", extra_user_roles="admin")
+        self.postgresql_db = DatabaseRequires(self, relation_name="postgresql_db", database_name="example-db")
+        self.mysql_db = DatabaseRequires(self, relation_name="mysql_db", database_name="example-db")
         self.database = Database(self)
 
         # Handle basic charm lifecycle

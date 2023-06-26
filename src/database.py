@@ -10,7 +10,7 @@ from ops import framework
 from ops.model import ActiveStatus
 from log import log_event_handler
 from literals import CATALOG_PATH
-from utils import render, push
+from utils import render, push, connect_to_database, get_all_databases
 import re
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class Database(framework.Object):
         self.charm = charm
         self.framework.observe(charm.postgresql_db.on.database_created, self._on_database_changed)
         self.framework.observe(charm.postgresql_db.on.endpoints_changed, self._on_database_changed)
-        self.framework.observe(charm.on.postgresql_db_relation_departed, self._on_database_relation_departed)
+        # self.framework.observe(charm.on.postgresql_db_relation_departed, self._on_database_relation_departed)
 
         self.framework.observe(charm.mysql_db.on.database_created, self._on_database_changed)
         self.framework.observe(charm.mysql_db.on.endpoints_changed, self._on_database_changed)
@@ -51,8 +51,11 @@ class Database(framework.Object):
         password = event.password
         host, port = event.endpoints.split(",", 1)[0].split(":")
 
+        connection = connect_to_database(host, port, db_name, user, password)
+        databases = get_all_databases(connection)
+        logging.info(databases)
+
         # TODO: Add validation that event values have been received.
-        # TODO: Add validation that a database with this name does not already exist
         self.charm.unit.status = ActiveStatus("received database credentials")
 
         db_context = self._create_db_context(user, password, host, port, db_name, rel_name, cluster_name)

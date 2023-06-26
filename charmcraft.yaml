@@ -9,6 +9,8 @@ parts:
       - libssl-dev
       - rustc
       - cargo
+    charm-binary-python-packages:
+      - psycopg2-binary==2.9.6
 bases:
   - build-on:
     - name: ubuntu
