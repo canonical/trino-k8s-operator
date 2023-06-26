@@ -32,6 +32,37 @@ To disable TLS:
 # remove relation:
 juju remove-relation trino-k8s tls-certificates-operator
 ```
+
+### Ingress
+The Trino operator exposes its ports using the Nginx Ingress Integrator operator. You must first make sure to have an Nginx Ingress Controller deployed. To enable TLS connections, you must have a TLS certificate stored as a k8s secret (default name is "trino-tls"). A self-signed certificate for development purposes can be created as follows:
+
+```
+# Generate private key
+openssl genrsa -out server.key 2048
+
+# Generate a certificate signing request
+openssl req -new -key server.key -out server.csr -subj "/CN=trino-k8s"
+
+# Create self-signed certificate
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt -extfile <(printf "subjectAltName=DNS:trino-k8s")
+
+# Create a k8s secret
+kubectl create secret tls trino-tls --cert=server.crt --key=server.key
+```
+This operator can then be deployed and connected to the Trino operator using the Juju command line as follows:
+
+```
+# Deploy ingress controller.
+microk8s enable ingress:default-ssl-certificate=trino-k8s/trino-tls
+
+juju deploy nginx-ingress-integrator --channel edge --revision 71
+juju relate trino-k8s nginx-ingress-integrator
+```
+
+Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
+
+Note: for HTTPS on port 8443 (default) the Trino operator must have a certificates relation.
+
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
 

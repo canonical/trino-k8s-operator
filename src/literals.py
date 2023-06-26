@@ -14,3 +14,8 @@ CONFIG_JINJA = "config.jinja"
 CONFIG_PATH = "/etc/trino/config.properties"
 LOG_PATH = "/etc/trino/log.properties"
 LOG_JINJA = "logging.jinja"
+
+TRINO_PORTS = {
+        "HTTPS": 8443,
+        "HTTP": 8080,
+        }
