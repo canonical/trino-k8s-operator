@@ -5,7 +5,6 @@ node.internal-address-source=FQDN
 node-scheduler.include-coordinator=true
 internal-communication.shared-secret={{ INT_COMMS_SECRET | default("changeme")}}
 
-{% if HTTPS_ENABLED == True %}
 http-server.https.enabled=true
 http-server.https.port=8443
 http-server.https.keystore.path={{ KEYSTORE_PATH }}
@@ -19,7 +18,3 @@ http-server.authentication.oauth2.principal-field=email
 http-server.authentication.oauth2.scopes=https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,openid
 http-server.authentication.oauth2.client-id={{ OAUTH_CLIENT_ID }}
 http-server.authentication.oauth2.client-secret={{ OAUTH_CLIENT_SECRET }}
-
-{% else %}
-http-server.https.enabled=false
-{% endif%}

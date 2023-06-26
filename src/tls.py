@@ -174,9 +174,6 @@ class TrinoTLS(Object):
 
         try:
             container.exec(
-                ["yum", "install", "openssl", "--assumeyes"]
-            ).wait_output()
-            container.exec(
                 [
                     "openssl",
                     "pkcs12",

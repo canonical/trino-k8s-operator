@@ -21,7 +21,8 @@ from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
-from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH, TRINO_PORTS
+
+from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
@@ -130,6 +131,22 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = MaintenanceStatus("restarting trino")
         container.restart(self.name)
         self.unit.status = ActiveStatus()
+
+    def ready_to_start(self):
+        """Check if TLS is enabled and peer relations established
+        
+        Returns:
+            True if TLS enabled and peer relation established, else False.
+        """
+        if not self._state.is_ready():
+            self.unit.status = WaitingStatus("Waiting for peer relation.")
+            return False
+        
+        if not self._state.tls == "enabled":
+            self.unit.status = BlockedStatus("Needs a certificates relation for TLS")
+            return False
+
+        return True
 
     def _validate_db_conn_params(
         self, container, db_name, db_conn_string, db_type
@@ -272,44 +289,6 @@ class TrinoK8SCharm(CharmBase):
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
 
-    def _configure_https(self, container):
-        """Enable HTTPS in configuration.
-
-        Args:
-            container: Trino server container
-
-        Returns:
-            config_context: config values for enabling https
-
-        Raises:
-            ValueError: In case no Google ID is provided for Oauth
-            ValueError: In case no Google secret is provided for Oauth
-            RuntimeError: In case keystore does not exist
-        """
-        google_id = self.config.get('google-client-id')
-        google_secret = self.config.get('google-client-secret')
-
-        if google_id is None:
-            raise ValueError("Google ID not provided for Oauth")
-        if google_secret is None:
-            raise ValueError("Google secret not provided for Oauth")
-
-        path = f"{CONF_PATH}/keystore.p12"
-        if not container.exists(path):
-            raise RuntimeError(f"{path} does not exist, check TLS relation")
-
-        config_options = {
-            "google-client-id": "OAUTH_CLIENT_ID",
-            "google-client-secret": "OAUTH_CLIENT_SECRET",
-        }
-        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
-        config_context.update({
-            "KEYSTORE_PASS": self._state.keystore_password,
-            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
-            "HTTPS_ENABLED": True,
-        })
-        return config_context
-
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):
         """Prepare Ranger plugin.
@@ -352,19 +331,55 @@ class TrinoK8SCharm(CharmBase):
         """
         properties = render(jinja_file, context)
         container.push(path, properties, make_dirs=True, permissions=permission)
-        return context
 
-    def _validate_config_params(self):
+    def _validate_config_params(self, container):
         """Validate that configuration is valid.
 
         Raises:
-            ValueError: in case of invalid configuration.
+            ValueError: in case of invalid log configuration.
+            ValueError: in case of Google ID not provided
+            ValueError: in case of Google secret not provided
+            RuntimeError: in case keystore does not exist
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
 
         log_level = self.model.config["log-level"].lower()
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
+        
+        google_id = self.config.get('google-client-id')
+        google_secret = self.config.get('google-client-secret')
+
+        if google_id is None:
+            raise ValueError("Google ID not provided for Oauth")
+        if google_secret is None:
+            raise ValueError("Google secret not provided for Oauth")
+
+        path = f"{CONF_PATH}/keystore.p12"
+        if not container.exists(path):
+            raise RuntimeError(f"{path} does not exist, check TLS relation")
+
+    def get_params(self):
+        """ Creates Jinja file specific dictionaries from relevant config values.
+
+        Returns:
+            log_context: A dictionary of log options
+            config_context: A dictionary of config file options
+        """
+        log_options = {"log-level": "LOG_LEVEL"}
+        log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
+
+        config_options = {
+            "google-client-id": "OAUTH_CLIENT_ID",
+            "google-client-secret": "OAUTH_CLIENT_SECRET",
+        }
+        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
+        config_context.update({
+            "KEYSTORE_PASS": self._state.keystore_password,
+            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+        })
+        return log_context, config_context
+        
 
     def _update(self, event):
         """Update the Trino server configuration and replan its execution.
@@ -372,32 +387,29 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        try:
-            self._validate_config_params()
-        except ValueError as err:
-            self.unit.status = BlockedStatus(str(err))
-            return
-
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()
             return
 
+        if not self.ready_to_start():
+            event.defer()
+            return
+
+        try:
+            self._validate_config_params(container)
+        except (RuntimeError, ValueError) as err:
+            self.unit.status = BlockedStatus(str(err))
+            return
+
         logger.info("configuring trino")
-        log_options = {"log-level": "LOG_LEVEL"}
-        log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
-        _ = self._push_file(container, log_context, "logging.jinja", "/etc/trino/log.properties")
-
-        if self._state.tls == "enabled":
-            try:
-                config_context = self._configure_https(container)
-            except (RuntimeError, ValueError) as err:
-                self.unit.status = BlockedStatus(str(err))
-                return
-        else:
-            config_context = {"HTTPS_ENABLED": False}
-
+        log_context, config_context = self.get_params()
+        self._push_file(container, log_context, LOG_JINJA, LOG_PATH)
         self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
+
+        env = {}
+        for params in [config_context, log_context]:
+            env.update(params)
 
         if self.config['ranger-acl-enabled']:
             try:
@@ -418,7 +430,7 @@ class TrinoK8SCharm(CharmBase):
                     "summary": "trino server",
                     "command": command,
                     "startup": "enabled",
-                    "environment": config_context,
+                    "environment": env,
                 }
             },
         }
