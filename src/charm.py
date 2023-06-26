@@ -117,7 +117,7 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             True if TLS enabled and peer relation established, else False.
         """
-        if not self._state:
+        if not self._state.is_ready():
             self.unit.status = WaitingStatus("Waiting for peer relation.")
             return False
         
