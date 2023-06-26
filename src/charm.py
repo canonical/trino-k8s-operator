@@ -55,6 +55,11 @@ def render(template_name, context):
 class TrinoK8SCharm(CharmBase):
     """Charm the service."""
 
+    @property
+    def external_hostname(self):
+        """Return the DNS listing used for external connections."""
+        return self.config["external-hostname"] or self.app.name
+
     def __init__(self, *args):
         """Construct.
 
@@ -81,7 +86,7 @@ class TrinoK8SCharm(CharmBase):
         """Require nginx-route relation based on current configuration."""
         require_nginx_route(
             charm=self,
-            service_hostname=self.config["external-hostname"],
+            service_hostname=self.external_hostname,
             service_name=self.app.name,
             service_port=TRINO_PORTS["HTTPS"],
             tls_secret_name=self.config["tls-secret-name"],
