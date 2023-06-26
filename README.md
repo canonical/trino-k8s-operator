@@ -55,18 +55,10 @@ This operator can then be deployed and connected to the Trino operator using the
 # Deploy ingress controller.
 microk8s enable ingress:default-ssl-certificate=trino-k8s/trino-tls
 
-juju deploy nginx-ingress-integrator
+juju deploy nginx-ingress-integrator --channel edge --revision 71
 juju relate trino-k8s nginx-ingress-integrator
 ```
 
-In order to enable HTTPS manual edit of the ingress is required.
-```
-# edit ingress:
-kubectl edit ingress trino-k8s-ingress
-
-# add the following file under annotations:
-nginx.ingress.kubernetes.io/backend-protocol: HTTPS
-```
 Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
 
 Note: for HTTPS on port 8443 (default) the Trino operator must have a certificates relation.
