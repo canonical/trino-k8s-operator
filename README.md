@@ -63,6 +63,38 @@ Once deployed, the hostname will default to the name of the application (trino-k
 
 Note: for HTTPS on port 8443 (default) the Trino operator must have a certificates relation.
 
+### Connecting a database to Trino
+This is done using a `juju action` and configuration values passed as parameters to this action. 
+
+There are 2 ways to pass the values via the Juju CLI: 
+- as a file
+- as key value pairs
+
+As a file: 
+Create a file such as `marketborg_ro.yaml` with the content: 
+```
+db-name: marketborg_ro
+db-type: postgresql
+db-conn-string: jdbc:type://host:port/database
+db-user: user
+db-pwd: password
+```
+Then run: 
+`juju run trino-k8s/0 add-database --params=marketborg_ro.yaml`
+
+As key value pairs: 
+`juju run trino-k8s/0 add-database db-name="marketborg_ro" db-type="postgresql" db-conn-string="jdbc:type://host:port/database" db-user="user" db-password="password"`
+
+Note: the structure of db-conn-string can change sigificantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
+
+The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
+
+### Removing a database from Trino
+This can either be done as a file or key value pairs as with adding a database. However, the parameters required are different. Here you must provide the db-name for identifying the database and then db-user and db-password for validation. 
+
+Note: the user and password must match those that the connection was established with. It is not enough for them to have permissions to the database. For this reason we recommend creating a distinct `trino` user for this connection.
+
+
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
 
