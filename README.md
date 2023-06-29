@@ -71,19 +71,19 @@ There are 2 ways to pass the values via the Juju CLI:
 - as key value pairs
 
 As a file: 
-Create a file such as `marketborg_ro.yaml` with the content: 
+Create a file such as `marketborg.yaml` with the content: 
 ```
-db-name: marketborg_ro
+db-name: marketborg
 db-type: postgresql
 db-conn-string: jdbc:type://host:port/database
 db-user: user
 db-pwd: password
 ```
 Then run: 
-`juju run trino-k8s/0 add-database --params=marketborg_ro.yaml`
+`juju run trino-k8s/0 add-database --params=marketborg.yaml`
 
 As key value pairs: 
-`juju run trino-k8s/0 add-database db-name="marketborg_ro" db-type="postgresql" db-conn-string="jdbc:type://host:port/database" db-user="user" db-password="password"`
+`juju run trino-k8s/0 add-database db-name="marketborg" db-type="postgresql" db-conn-string="jdbc:type://host:port/database" db-user="user" db-password="password"`
 
 Note: the structure of db-conn-string can change sigificantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
 
@@ -94,6 +94,12 @@ This can either be done as a file or key value pairs as with adding a database. 
 
 Note: the user and password must match those that the connection was established with. It is not enough for them to have permissions to the database. For this reason we recommend creating a distinct `trino` user for this connection.
 
+### Connecting database clusters
+In order to connect clustered database systems to Trino please connect the read-only and read-write endpoints with 2 separate `juju actions`. The read-only database should be appended with `_ro` to distinguish between the two. 
+```
+salesforce #read-write endpoint
+salesforce_ro #read-only endpoint
+```
 
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
