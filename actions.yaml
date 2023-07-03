@@ -9,25 +9,12 @@ add-database:
         The name of the database you are connecting to Trino
         If not provided this value is overridden by database name from jdbc
       type: string
-    db-type:
+    db-config:
       description: |
-        The type of database being connected to Trino.
-        Current accepted values are 'postgresql' and 'mysql'. 
-        Visit https://trino.io/docs/current/connector.html 
-        for connectors that could be supported (in future).
+        Database configuration values, differs by connector type. 
+        Visit https://trino.io/docs/current/connector.html for templates.
       type: string
-    db-conn-string:
-      description: |
-        The JDBC connection string for the database.
-        Of the following format jdbc:<db-type>://<host>:<port>/<database>
-      type: string
-    db-user:
-      description: The username for connection to the database.
-      type: string
-    db-pwd:
-      description: The password for connection to the database.
-      type: string
-  required: [db-name, db-type, db-conn-string, db-user, db-pwd]
+  required: [db-name, db-config]
   additionalProperties: false
 remove-database:
   description: Remove database from Trino. 

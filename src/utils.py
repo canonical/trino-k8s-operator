@@ -7,8 +7,11 @@
 import logging
 import secrets
 import string
-
+import os
+import json
+from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -36,3 +39,52 @@ def push(container: Container, content: str, path: str) -> None:
         path: the full path of the desired file
     """
     container.push(path, content, make_dirs=True)
+
+def render(template_name, context):
+    """Render the template with the given name using the given context dict.
+
+    Args:
+        template_name: File name to read the template from.
+        context: Dict used for rendering.
+
+    Returns:
+        A dict containing the rendered template.
+    """
+    charm_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir)
+    )
+    loader = FileSystemLoader(os.path.join(charm_dir, "templates"))
+    return (
+        Environment(loader=loader, autoescape=True)
+        .get_template(template_name)
+        .render(**context)
+    )
+
+
+def string_to_dict(string):
+    result = {}
+    lines = string.split('\n')
+    for line in lines:
+        if line:
+            key, value = line.split('=', 1)
+            result[key.strip()] = value.strip()
+    return result
+
+def read_json(file_name):
+    charm_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir)
+    )
+    loader = os.path.join(charm_dir, "resources", file_name)
+    with open(loader,'r') as file: 
+        json_content = file.read()
+    json_dict = json.loads(json_content)
+    return json_dict
+
+def check_required_params(params, dict, name):
+    for param in params:
+        if param not in dict:
+            raise ValueError(f"{name!r} requires {param!r} field")
+
+def validate_jdbc_pattern(conn_dict, conn_name):
+    if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_dict["connection-url"]):
+        raise ValueError(f"{conn_name!r} has an invalid jdbc format")

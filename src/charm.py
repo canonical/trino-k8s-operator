@@ -11,46 +11,24 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
-import os
-import re
 
-from jinja2 import Environment, FileSystemLoader
-from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
+from ops.charm import (CharmBase, ConfigChangedEvent,
                        PebbleReadyEvent)
 from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
 
-from literals import CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS
+from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
+from connectors import TrinoConnectors
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
+from utils import render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
-
-
-def render(template_name, context):
-    """Render the template with the given name using the given context dict.
-
-    Args:
-        template_name: File name to read the template from.
-        context: Dict used for rendering.
-
-    Returns:
-        A dict containing the rendered template.
-    """
-    charm_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), os.pardir)
-    )
-    loader = FileSystemLoader(os.path.join(charm_dir, "templates"))
-    return (
-        Environment(loader=loader, autoescape=True)
-        .get_template(template_name)
-        .render(**context)
-    )
 
 
 class TrinoK8SCharm(CharmBase):
@@ -71,13 +49,12 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
         self.tls = TrinoTLS(self)
+        self.connectors = TrinoConnectors
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.trino_pebble_ready, self._on_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.add_database_action, self._on_add_database)
-        self.framework.observe(self.on.remove_database_action, self._on_remove_database)
         self.framework.observe(self.on.restart_action, self._on_restart)
 
         # Handle Ingress
@@ -147,131 +124,6 @@ class TrinoK8SCharm(CharmBase):
             return False
 
         return True
-
-    def _validate_db_conn_params(
-        self, container, db_name, db_conn_string, db_type
-    ):
-        """Validate the db parameters are valid for connection.
-
-        Args:
-            container: Trino server container
-            db_name: Name of database to connect
-            db_conn_string: JDBC string of database
-            db_type: Type of database either postgresql or mysql
-
-        Raises:
-            ValueError: In case db-conn-string is invalid
-                        In case db-type does not match valid type
-                        In case db-name already exists
-        """
-        if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", db_conn_string):
-            raise ValueError(
-                f"connect-database: {db_conn_string!r} has an invalid format"
-            )
-
-        valid_db_types = ["mysql", "postgresql"]
-        if db_type not in valid_db_types:
-            raise ValueError(
-                f"connect-database: invalid database type {db_type!r}"
-            )
-
-        if container.exists(f"{CATALOG_PATH}/{db_name}.properties"):
-            raise ValueError(f"connect-database: {db_name!r} already exists!")
-
-    @log_event_handler(logger)
-    def _on_add_database(self, event: ActionEvent):
-        """Connect a new database, action handler.
-
-        Args:
-            event: The event triggered by the connect-database action
-        """
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        db_type = event.params["db-type"]
-        db_name = event.params["db-name"]
-        db_conn_string = event.params["db-conn-string"]
-
-        try:
-            self._validate_db_conn_params(
-                container, db_name, db_conn_string, db_type
-            )
-        except ValueError as err:
-            logger.exception(err)
-            event.fail(f"Failed to add {db_name}")
-            return
-
-        db_context = {
-            "DB_TYPE": db_type,
-            "DB_CONN_STRING": db_conn_string,
-            "DB_USER": event.params["db-user"],
-            "DB_PWD": event.params["db-pwd"],
-        }
-        self._push_file(
-            container,
-            db_context,
-            "db-conn.jinja",
-            f"{CATALOG_PATH}/{db_name}.properties",
-        )
-        self._restart_trino(container)
-        event.set_results({"result": "database successfully added"})
-
-    def _validate_db_remove_params(self, container, db_name, db_user, db_pwd):
-        """Validate the db parameters are valid for removal.
-
-        Args:
-            container: Trino server container
-            db_name: Name of database to connect
-            db_user: Database username
-            db_pwd: Database password
-
-        Raises:
-            ValueError: In case database does not exist
-                        In case credentials are not valid
-        """
-        path = f"{CATALOG_PATH}/{db_name}.properties"
-        if not container.exists(path):
-            raise ValueError(f"remove-database: {db_name!r} does not exist!")
-
-        db_config = container.pull(path).read()
-        conn_user = re.search(r"connection-user=(.*)", db_config).group(1)
-        conn_pwd = re.search(r"connection-password=(.*)", db_config).group(1)
-
-        if conn_user != db_user or conn_pwd != db_pwd:
-            raise ValueError(
-                f"remove-database: credentials do not match for {db_name!r}"
-            )
-
-    @log_event_handler(logger)
-    def _on_remove_database(self, event):
-        """Remove an existing database connection, action handler.
-
-        Args:
-            event: The event triggered by the remove-database action
-        """
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        db_name = event.params["db-name"]
-        db_user = event.params["db-user"]
-        db_pwd = event.params["db-pwd"]
-
-        try:
-            self._validate_db_remove_params(
-                container, db_name, db_user, db_pwd
-            )
-        except ValueError as err:
-            logger.exception(err)
-            event.fail(f"Failed to remove {db_name}")
-            return
-
-        container.remove_path(f"{CATALOG_PATH}/{db_name}.properties")
-        self._restart_trino(container)
-        event.set_results({"result": "database successfully removed"})
 
     @log_event_handler(logger)
     def _on_restart(self, event):
