@@ -4,6 +4,7 @@ from log import log_event_handler
 from literals import CATALOG_PATH
 from utils import string_to_dict, read_json, check_required_params, validate_jdbc_pattern
 import re
+from ops.framework import Object
 
 logger = logging.getLogger(__name__)
 
