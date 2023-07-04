@@ -12,20 +12,20 @@ https://discourse.charmhub.io/t/4208
 
 import logging
 
-from ops.charm import (CharmBase, ConfigChangedEvent,
+from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
                        PebbleReadyEvent)
 from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
 
-from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS
+from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
 from connectors import TrinoConnectors
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
-from utils import render
+from utils import render, read_json, string_to_dict, check_required_params, validate_jdbc_pattern
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(self.on.trino_pebble_ready, self._on_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
+        self.framework.observe(self.on.add_database_action, self._on_add_database)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -140,6 +141,57 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
+
+    @log_event_handler(logger)
+    def _on_add_database(self, event: ActionEvent):
+        """Connect a new database, action handler.
+
+        Args:
+            event: The event triggered by the connect-database action
+        """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+        
+        db_name = event.params["db-name"]
+        conn_string = event.params["db-config"]
+        conn_dict = string_to_dict(conn_string)
+        conn_name = conn_dict["connector.name"]
+
+        try:
+            self._validate_connection(event, conn_dict, conn_name)
+        except ValueError as err:
+            logger.exception(err)
+            event.fail(f"Failed to add {db_name}")
+            return
+        
+        config = ""
+        for key, value in conn_dict.items():
+            config += f"{key}={value}\n"
+        
+        path = f"{CATALOG_PATH}/{db_name}.properties"
+        container.push(path, config, make_dirs=True)
+
+        self._restart_trino(container)
+        event.set_results({"result": "database successfully added"})
+
+
+    def _validate_connection(self, event, conn_dict, conn_name):
+        """Validate values for connector configuration.
+        
+        Args:
+            db_config: connector configuration provided by user"""
+        required_fields = read_json("connector-required-fields.json")
+        params = required_fields.get(conn_name)
+        try:
+            check_required_params(params, conn_dict, conn_name)
+            if conn_name == "postgresql":
+                validate_jdbc_pattern(conn_dict, conn_name)
+        except ValueError as err:
+            logger.exception(err)
+            event.fail(f"Failed to add {conn_name}")
+            return
 
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):

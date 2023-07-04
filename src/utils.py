@@ -60,21 +60,19 @@ def render(template_name, context):
         .render(**context)
     )
 
-
 def string_to_dict(string):
-    result = {}
-    lines = string.split('\n')
-    for line in lines:
-        if line:
-            key, value = line.split('=', 1)
-            result[key.strip()] = value.strip()
-    return result
+    pairs = string.split()
+    dictionary = {}
+    for pair in pairs:
+        key, value = pair.split('=')
+        dictionary[key] = value
+    return dictionary
 
 def read_json(file_name):
     charm_dir = os.path.abspath(
         os.path.join(os.path.dirname(__file__), os.pardir)
     )
-    loader = os.path.join(charm_dir, "resources", file_name)
+    loader = os.path.join(charm_dir, "templates", file_name)
     with open(loader,'r') as file: 
         json_content = file.read()
     json_dict = json.loads(json_content)
@@ -88,3 +86,9 @@ def check_required_params(params, dict, name):
 def validate_jdbc_pattern(conn_dict, conn_name):
     if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_dict["connection-url"]):
         raise ValueError(f"{conn_name!r} has an invalid jdbc format")
+
+def format_properties_file(dictionary):
+    conn_config = ""
+    for key, value in dictionary.items():
+        output += f"{key}={value}\n"
+    return conn_config
