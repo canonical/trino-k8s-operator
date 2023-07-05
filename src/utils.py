@@ -68,20 +68,17 @@ def string_to_dict(string):
         dictionary[key] = value
     return dictionary
 
-def read_json(file_name):
-    charm_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), os.pardir)
-    )
-    loader = os.path.join(charm_dir, "templates", file_name)
-    with open(loader,'r') as file: 
-        json_content = file.read()
-    json_dict = json.loads(json_content)
-    return json_dict
+def validate_membership(connector_fields, conn_input, name):
+    required = connector_fields["required"]
+    optional = connector_fields["optional"]
 
-def check_required_params(params, dict, name):
-    for param in params:
-        if param not in dict:
-            raise ValueError(f"{name!r} requires {param!r} field")
+    for field in required:
+        if field not in conn_input:
+            raise ValueError(f"{name!r} {field!r} is required")
+
+    for field in conn_input:
+        if field not in required and field not in optional:
+            raise ValueError(f"{name!r} {field!r} is not allowed")
 
 def validate_jdbc_pattern(conn_dict, conn_name):
     if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_dict["connection-url"]):

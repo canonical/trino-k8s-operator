@@ -19,13 +19,12 @@ from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
 
-from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH
+from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH, CONNECTOR_FIELDS
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
-from connectors import TrinoConnectors
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
-from utils import render, read_json, string_to_dict, check_required_params, validate_jdbc_pattern
+from utils import render, string_to_dict, validate_membership, validate_jdbc_pattern
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -49,7 +48,6 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
         self.tls = TrinoTLS(self)
-        self.connectors = TrinoConnectors
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -149,6 +147,9 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered by the connect-database action
         """
+        if not self.unit.is_leader():
+            return
+
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()
@@ -156,42 +157,59 @@ class TrinoK8SCharm(CharmBase):
         
         db_name = event.params["db-name"]
         conn_string = event.params["db-config"]
-        conn_dict = string_to_dict(conn_string)
-        conn_name = conn_dict["connector.name"]
+        conn_input = string_to_dict(conn_string)
+
+        if container.exists(f"{CATALOG_PATH}/{db_name}.properties"):
+            event.fail(f"Failed to add {db_name}, database already exists")
+            return
 
         try:
-            self._validate_connection(event, conn_dict, conn_name)
+            conn_name = conn_input["connector.name"]
         except ValueError as err:
             logger.exception(err)
-            event.fail(f"Failed to add {db_name}")
+            event.fail(f"Failed to add {db_name}, invalid configuration")
+            return
+        
+        if not self._validate_connection(conn_input, conn_name):
+            event.fail(f"Failed to add {db_name}, invalid configuration")
             return
         
         config = ""
-        for key, value in conn_dict.items():
+        for key, value in conn_input.items():
             config += f"{key}={value}\n"
         
+
         path = f"{CATALOG_PATH}/{db_name}.properties"
         container.push(path, config, make_dirs=True)
-
+        self._add_connector_to_state(config, db_name)
+        logging.info(self._state.connectors)
         self._restart_trino(container)
         event.set_results({"result": "database successfully added"})
 
 
-    def _validate_connection(self, event, conn_dict, conn_name):
+    def _validate_connection(self, conn_input, conn_name):
         """Validate values for connector configuration.
         
         Args:
             db_config: connector configuration provided by user"""
-        required_fields = read_json("connector-required-fields.json")
-        params = required_fields.get(conn_name)
+        connector_fields = CONNECTOR_FIELDS.get(conn_name)
         try:
-            check_required_params(params, conn_dict, conn_name)
+            validate_membership(connector_fields, conn_input, conn_name)
             if conn_name == "postgresql":
-                validate_jdbc_pattern(conn_dict, conn_name)
+                validate_jdbc_pattern(conn_input, conn_name)
+            return True
         except ValueError as err:
             logger.exception(err)
-            event.fail(f"Failed to add {conn_name}")
-            return
+            return False
+    
+    def _add_connector_to_state(self, config, db_name):
+        if self._state.connectors:
+            connectors = self._state.connectors
+        else:
+            connectors = {}
+        db_name = f"{db_name}"
+        connectors[db_name] = config
+        self._state.connectors = connectors
 
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):
