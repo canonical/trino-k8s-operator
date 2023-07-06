@@ -61,6 +61,14 @@ def render(template_name, context):
     )
 
 def string_to_dict(string):
+    """Convert a string to a dictionary with = delimiter.
+    
+    Args:
+        string: The string to be converted
+    
+    Returns:
+        dictionary: The converted dictionary
+    """
     pairs = string.split()
     dictionary = {}
     for pair in pairs:
@@ -68,23 +76,50 @@ def string_to_dict(string):
         dictionary[key] = value
     return dictionary
 
-def validate_membership(connector_fields, conn_input, name):
+def validate_membership(connector_fields, conn_input):
+    """Validate if user input fields match those allowed by Trino.
+
+    Args:
+        connector_fields: Allowed and required Trino fields by connector
+        conn_input: User input connection fields
+    
+    Raises:
+        ValueError: In the case where a required field is missing
+        ValueError: In the case where a provided field is not accepted
+    """
     required = connector_fields["required"]
     optional = connector_fields["optional"]
 
     for field in required:
         if field not in conn_input:
-            raise ValueError(f"{name!r} {field!r} is required")
+            raise ValueError(f"{field!r} is required")
 
     for field in conn_input:
         if field not in required and field not in optional:
-            raise ValueError(f"{name!r} {field!r} is not allowed")
+            raise ValueError(f"{field!r} is not allowed")
 
-def validate_jdbc_pattern(conn_dict, conn_name):
-    if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_dict["connection-url"]):
+def validate_jdbc_pattern(conn_input, conn_name):
+    """Validate the format of postgresql jdbc string.
+    
+    Args:
+        conn_input: user input connector dictionary
+        conn_name: user input connector name
+    
+    Raises:
+        ValueError: In the case the jdbc string is invalid
+    """
+    if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_input["connection-url"]):
         raise ValueError(f"{conn_name!r} has an invalid jdbc format")
 
 def format_properties_file(dictionary):
+    """Convert string into format required by properties file.
+    
+    Args:
+        dictionary: Configuration dictionary to be converted
+        
+    Return:
+        conn_config: String of connector connfiguration    
+    """
     conn_config = ""
     for key, value in dictionary.items():
         output += f"{key}={value}\n"

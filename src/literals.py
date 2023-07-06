@@ -258,3 +258,5 @@ CONNECTOR_FIELDS = {
         "optional": []
     }
 }
+
+SYSTEM_CONNECTORS = ['jmx', 'memory', 'tpcds', 'tpch']

@@ -12,19 +12,19 @@ https://discourse.charmhub.io/t/4208
 
 import logging
 
-from ops.charm import (ActionEvent, CharmBase, ConfigChangedEvent,
+from ops.charm import (CharmBase, ConfigChangedEvent,
                        PebbleReadyEvent)
 from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
-
-from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH, CONNECTOR_FIELDS
+from connector import TrinoConnector
+from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH, SYSTEM_CONNECTORS
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
-from utils import render, string_to_dict, validate_membership, validate_jdbc_pattern
+from utils import render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -48,13 +48,14 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
         self.tls = TrinoTLS(self)
+        self.connector = TrinoConnector(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.trino_pebble_ready, self._on_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
-        self.framework.observe(self.on.add_database_action, self._on_add_database)
+        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -98,6 +99,73 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
 
+    @log_event_handler(logger)
+    def _on_peer_relation_changed(self, event):
+        """Handle changed peer relation.
+
+        Args:
+            event: The event triggered when the peer relation changed.
+        """
+        if not self.ready_to_start():
+            event.defer()
+            return
+
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
+        self.unit.status = WaitingStatus("updating peers")
+        container = self.unit.get_container(self.name)
+        current_connectors = self._get_current_connectors(container)
+        target_connectors = self._state.connectors or {}
+
+        if target_connectors == current_connectors:
+            return
+
+        self._handle_diff(current_connectors, target_connectors, container)
+
+    def _get_current_connectors(self, container):
+        """ Creates a dictinary of existing connector configurations.
+        
+        Args:
+            container: Trino container
+
+        Returns:
+            properties: A dictionary of existing connector configurations
+        """
+        properties = {}
+        out, err = container.exec(["ls", CATALOG_PATH]).wait_output()
+        files = out.strip().split('\n')
+        property_names = [file_name.split(".")[0] for file_name in files]
+
+        for property in property_names:
+            path = f"{CATALOG_PATH}/{property}.properties"
+            config = container.pull(path).read()
+            properties[property] = config
+        
+        return properties
+    
+    def _handle_diff(self, current, target, container):
+        """ Handles differences between state and unit connectors.
+
+        Args:
+            current: existing unit connectors
+            target: intended connectors from _state
+            container: Trino container
+        """
+        for key, config in target.items():
+            if key not in current:
+                path = f"{CATALOG_PATH}/{key}.properties"
+                container.push(path, config, make_dirs=True)
+    
+        for key in current.keys():
+            if key not in target.keys() and key not in SYSTEM_CONNECTORS:
+                path=f"{CATALOG_PATH}/{key}.properties"
+                container.remove_path(path)
+        
+        self._restart_trino(container)
+
     def _restart_trino(self, container):
         """Restart Trino.
 
@@ -139,77 +207,6 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
         event.set_results({"result": "trino successfully restarted"})
-
-    @log_event_handler(logger)
-    def _on_add_database(self, event: ActionEvent):
-        """Connect a new database, action handler.
-
-        Args:
-            event: The event triggered by the connect-database action
-        """
-        if not self.unit.is_leader():
-            return
-
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            event.defer()
-            return
-        
-        db_name = event.params["db-name"]
-        conn_string = event.params["db-config"]
-        conn_input = string_to_dict(conn_string)
-
-        if container.exists(f"{CATALOG_PATH}/{db_name}.properties"):
-            event.fail(f"Failed to add {db_name}, database already exists")
-            return
-
-        try:
-            conn_name = conn_input["connector.name"]
-        except ValueError as err:
-            logger.exception(err)
-            event.fail(f"Failed to add {db_name}, invalid configuration")
-            return
-        
-        if not self._validate_connection(conn_input, conn_name):
-            event.fail(f"Failed to add {db_name}, invalid configuration")
-            return
-        
-        config = ""
-        for key, value in conn_input.items():
-            config += f"{key}={value}\n"
-        
-
-        path = f"{CATALOG_PATH}/{db_name}.properties"
-        container.push(path, config, make_dirs=True)
-        self._add_connector_to_state(config, db_name)
-        logging.info(self._state.connectors)
-        self._restart_trino(container)
-        event.set_results({"result": "database successfully added"})
-
-
-    def _validate_connection(self, conn_input, conn_name):
-        """Validate values for connector configuration.
-        
-        Args:
-            db_config: connector configuration provided by user"""
-        connector_fields = CONNECTOR_FIELDS.get(conn_name)
-        try:
-            validate_membership(connector_fields, conn_input, conn_name)
-            if conn_name == "postgresql":
-                validate_jdbc_pattern(conn_input, conn_name)
-            return True
-        except ValueError as err:
-            logger.exception(err)
-            return False
-    
-    def _add_connector_to_state(self, config, db_name):
-        if self._state.connectors:
-            connectors = self._state.connectors
-        else:
-            connectors = {}
-        db_name = f"{db_name}"
-        connectors[db_name] = config
-        self._state.connectors = connectors
 
     @log_event_handler(logger)
     def _configure_ranger_plugin(self, container):

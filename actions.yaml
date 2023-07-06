@@ -1,33 +1,34 @@
 # Copyright 2023 Canonical Ltd
 # See LICENSE file for licensing details.
 
-add-database:
-  description: Connect database to Trino.
+add-connector:
+  description: Provide Trino access to connector.
   params:
-    db-name:
+    conn-name:
       description: |
-        The name of the database you are connecting to Trino
-        If not provided this value is overridden by database name from jdbc
+        The name of the connector you are connecting to Trino
+        If not provided this value is overridden by connector name from jconnc
       type: string
-    db-config:
+    conn-config:
       description: |
-        Database configuration values, differs by connector type. 
+        connector configuration values, differs by connector type. 
         Visit https://trino.io/docs/current/connector.html for templates.
       type: string
-  required: [db-name, db-config]
+  required: [conn-name, conn-config]
   additionalProperties: false
-remove-database:
-  description: Remove database from Trino. 
+remove-connector:
+  description: Remove Trino access from connector.
   params:
-    db-name:
-      description: The name of the database to be removed.
+    conn-name:
+      description: |
+        The name of the connector you are connecting to Trino
+        If not provided this value is overridden by connector name from jconnc
       type: string
-    db-user:
-      description: The username for connection to the database.
+    conn-config:
+      description: |
+        connector configuration values, differs by connector type. 
+        Visit https://trino.io/docs/current/connector.html for templates.
       type: string
-    db-pwd:
-      description: The password for connection to the database.
-      type: string
-  required: [db-name, db-user, db-pwd]
+  required: [conn-name, conn-config]
 restart:
     description: Restart the Trino server.
