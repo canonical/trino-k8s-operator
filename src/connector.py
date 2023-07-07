@@ -119,7 +119,6 @@ class TrinoConnector(Object):
 
         Args:
             event: The event triggered by the remove-connector action
-
         """
         if not self.charm.unit.is_leader():
             return

@@ -31,13 +31,6 @@ CONNECTOR_FIELDS = {
         ],
         "optional": [],
     },
-    # "atop": {
-    #     "required": [
-    #         "connector.name",
-    #         "atop.executable-path"
-    #     ],
-    #     "optional": [],
-    # },
     "bigquery": {
         "required": [
             "connector.name",
@@ -85,14 +78,6 @@ CONNECTOR_FIELDS = {
         ],
         "optional": [],
     },
-    # "gsheets": {
-    #     "required": [
-    #         "connector.name",
-    #         "gsheets.credentials-path",
-    #         "gsheets.metadata-sheet-id"
-    #     ],
-    #     "optional": [],
-    # },
     "hive": {
         "required": [
             "connector.name",
@@ -125,15 +110,6 @@ CONNECTOR_FIELDS = {
         ],
         "optional": [],
     },
-    # "kafka": {
-    #     "required": [
-    #         "connector.name",
-    #         "kafka.table-names",
-    #         "kafka.nodes",
-    #         "kafka.config.resource"
-    #     ],
-    #     "optional": [],
-    # },
     "kinesis": {
         "required": [
             "connector.name",
@@ -185,14 +161,6 @@ CONNECTOR_FIELDS = {
         ],
         "optional": []
     },
-    # "phoenix": {
-    #     "required": [
-    #         "connector.name",
-    #         "phoenix.connection-url",
-    #         "phoenix.config.resources"
-    #     ],
-    #     "optional": []
-    # },
     "pinot": {
         "required": [
             "connector.name",
@@ -218,18 +186,6 @@ CONNECTOR_FIELDS = {
             "dynamic-filtering.wait-timeout"
         ]
     },
-    # "prometheus": {
-    #     "required": [
-    #         "connector.name",
-    #         "prometheus.uri",
-    #         "prometheus.query.chunk.size.duration",
-    #         "prometheus.max.query.range.duration",
-    #         "prometheus.cache.ttl",
-    #         "prometheus.bearer.token.file",
-    #         "prometheus.read-timeout"
-    #     ],
-    #     "optional": []
-    # },
     "redis": {
         "required": [
             "connector.name",
