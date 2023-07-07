@@ -11,7 +11,7 @@ from ops.framework import Object
 
 from literals import CATALOG_PATH, CONNECTOR_FIELDS
 from log import log_event_handler
-from utils import string_to_dict, validate_membership, validate_jdbc_pattern
+from utils import string_to_dict, validate_jdbc_pattern, validate_membership
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,19 @@ class TrinoConnector(Object):
     """Handler for managing the client and unit TLS keys/certs."""
 
     def __init__(self, charm):
+        """Construct.
+
+        Args:
+            charm: Ignore.
+        """
         super().__init__(charm, "connector")
         self.charm = charm
-        self.framework.observe(self.charm.on.add_connector_action, self._on_add_connector)
-        self.framework.observe(self.charm.on.remove_connector_action, self._on_remove_connector)
+        self.framework.observe(
+            self.charm.on.add_connector_action, self._on_add_connector
+        )
+        self.framework.observe(
+            self.charm.on.remove_connector_action, self._on_remove_connector
+        )
 
     @log_event_handler(logger)
     def _on_add_connector(self, event: ActionEvent):
@@ -78,7 +87,7 @@ class TrinoConnector(Object):
             conn_type: The type of connector ie. postgresql
 
         Returns:
-            bool: True/False on successful validation  
+            bool: True/False on successful validation
         """
         connector_fields = CONNECTOR_FIELDS.get(conn_type)
         try:
@@ -91,8 +100,8 @@ class TrinoConnector(Object):
             return False
 
     def _add_connector_to_state(self, config, conn_name):
-        """Adds connector name and configuration to charm._state.
-        
+        """Add connector name and configuration to charm._state.
+
         Args:
             config: The configuration of the connector
             conn_name: The name of the connector
@@ -125,7 +134,9 @@ class TrinoConnector(Object):
 
         path = f"{CATALOG_PATH}/{conn_name}.properties"
         if not container.exists(path):
-            event.fail(f"Failed to remove {conn_name}, connector does not exist")
+            event.fail(
+                f"Failed to remove {conn_name}, connector does not exist"
+            )
             return
 
         existing_connectors = self.charm._state.connectors
@@ -135,7 +146,9 @@ class TrinoConnector(Object):
                 container.remove_path(path=path)
                 connectors_to_remove.append(key)
             else:
-                event.fail(f"Failed to remove {conn_name}, invalid configuration")
+                event.fail(
+                    f"Failed to remove {conn_name}, invalid configuration"
+                )
                 return
 
         for connector in connectors_to_remove:

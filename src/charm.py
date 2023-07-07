@@ -12,18 +12,18 @@ https://discourse.charmhub.io/t/4208
 
 import logging
 
-from ops.charm import (CharmBase, ConfigChangedEvent,
-                       PebbleReadyEvent)
+from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
+from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
 from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
                        WaitingStatus)
 
 from connector import TrinoConnector
-from literals import CONF_PATH, CONFIG_JINJA, CONFIG_PATH, LOG_PATH, LOG_JINJA, TRINO_PORTS, CATALOG_PATH, SYSTEM_CONNECTORS
+from literals import (CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH,
+                      LOG_JINJA, LOG_PATH, SYSTEM_CONNECTORS, TRINO_PORTS)
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
-from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from utils import render
 
 # Log messages can be retrieved using juju debug-log
@@ -52,10 +52,14 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(self.on.trino_pebble_ready, self._on_pebble_ready)
+        self.framework.observe(
+            self.on.trino_pebble_ready, self._on_pebble_ready
+        )
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
-        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
+        self.framework.observe(
+            self.on.peer_relation_changed, self._on_peer_relation_changed
+        )
 
         # Handle Ingress
         self._require_nginx_route()
@@ -104,7 +108,7 @@ class TrinoK8SCharm(CharmBase):
         """Handle changed peer relation.
 
         Args:
-            event: The event triggered when the peer relation changed.
+            event: The event triggered when the peer relation changed
         """
         if not self.ready_to_start():
             event.defer()
@@ -117,37 +121,47 @@ class TrinoK8SCharm(CharmBase):
 
         self.unit.status = WaitingStatus("updating peers")
         container = self.unit.get_container(self.name)
-        current_connectors = self._get_current_connectors(container)
-        target_connectors = self._state.connectors or {}
+        try:
+            current_connectors = self._get_current_connectors(container)
+        except RuntimeError as err:
+            self.unit.status = BlockedStatus(str(err))
+            return
 
+        target_connectors = self._state.connectors or {}
         if target_connectors == current_connectors:
             return
 
         self._handle_diff(current_connectors, target_connectors, container)
 
     def _get_current_connectors(self, container):
-        """ Creates a dictinary of existing connector configurations.
-        
+        """Create a dictionary of existing connector configurations.
+
         Args:
             container: Trino container
 
         Returns:
             properties: A dictionary of existing connector configurations
+
+        Raises:
+            RuntimeError: Failed to return propety files
         """
         properties = {}
         out, err = container.exec(["ls", CATALOG_PATH]).wait_output()
-        files = out.strip().split('\n')
+        if err:
+            raise RuntimeError(f"Could not return files: {err}")
+
+        files = out.strip().split("\n")
         property_names = [file_name.split(".")[0] for file_name in files]
 
-        for property in property_names:
-            path = f"{CATALOG_PATH}/{property}.properties"
+        for item in property_names:
+            path = f"{CATALOG_PATH}/{item}.properties"
             config = container.pull(path).read()
-            properties[property] = config
-        
+            properties[item] = config
+
         return properties
-    
+
     def _handle_diff(self, current, target, container):
-        """ Handles differences between state and unit connectors.
+        """Handle differences between state and unit connectors.
 
         Args:
             current: existing unit connectors
@@ -158,12 +172,12 @@ class TrinoK8SCharm(CharmBase):
             if key not in current:
                 path = f"{CATALOG_PATH}/{key}.properties"
                 container.push(path, config, make_dirs=True)
-    
+
         for key in current.keys():
             if key not in target.keys() and key not in SYSTEM_CONNECTORS:
-                path=f"{CATALOG_PATH}/{key}.properties"
+                path = f"{CATALOG_PATH}/{key}.properties"
                 container.remove_path(path)
-        
+
         self._restart_trino(container)
 
     def _restart_trino(self, container):
@@ -177,17 +191,19 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = ActiveStatus()
 
     def ready_to_start(self):
-        """Check if TLS is enabled and peer relations established
-        
+        """Check if TLS is enabled and peer relations established.
+
         Returns:
             True if TLS enabled and peer relation established, else False.
         """
         if not self._state.is_ready():
             self.unit.status = WaitingStatus("Waiting for peer relation.")
             return False
-        
+
         if not self._state.tls == "enabled":
-            self.unit.status = BlockedStatus("Needs a certificates relation for TLS")
+            self.unit.status = BlockedStatus(
+                "Needs a certificates relation for TLS"
+            )
             return False
 
         return True
@@ -217,25 +233,32 @@ class TrinoK8SCharm(CharmBase):
 
         Raises:
             RuntimeError: ranger-trino-plugin.tar.gz is not present
+
+        Returns:
+            command: The command to start the Trino application
         """
-        ranger_version = self.config['ranger-version']
+        ranger_version = self.config["ranger-version"]
         path = f"/root/ranger-{ranger_version}-trino-plugin.tar.gz"
         if not container.exists(path):
             raise RuntimeError(f"ranger-plugin: no {path!r}, check the image")
 
-        policy_context = {"POLICY_MGR_URL": self.config['policy-mgr-url']}
+        policy_context = {"POLICY_MGR_URL": self.config["policy-mgr-url"]}
         jinja_file = "plugin-install.jinja"
         trino_path = "/root/install.properties"
         self._push_file(container, policy_context, jinja_file, trino_path)
 
-        entrypoint_context = {"RANGER_VERSION": self.config['ranger-version']}
+        entrypoint_context = {"RANGER_VERSION": self.config["ranger-version"]}
         jinja_file = "trino-entrypoint.jinja"
         trino_path = "/trino-entrypoint.sh"
-        self._push_file(container, entrypoint_context, jinja_file, trino_path, 0o744)
+        self._push_file(
+            container, entrypoint_context, jinja_file, trino_path, 0o744
+        )
         command = "/trino-entrypoint.sh"
         return command
 
-    def _push_file(self, container, context, jinja_file, path, permission=0o644):
+    def _push_file(
+        self, container, context, jinja_file, path, permission=0o644
+    ):
         """Pushes files to application.
 
         Args:
@@ -244,15 +267,17 @@ class TrinoK8SCharm(CharmBase):
             jinja_file: The template file
             path: The path for file in the application
             permission: File permission (default 0o644)
-
-        Returns:
-            A dictionary of variables for jinja file
         """
         properties = render(jinja_file, context)
-        container.push(path, properties, make_dirs=True, permissions=permission)
+        container.push(
+            path, properties, make_dirs=True, permissions=permission
+        )
 
     def _validate_config_params(self, container):
         """Validate that configuration is valid.
+
+        Args:
+            container: Trino container
 
         Raises:
             ValueError: in case of invalid log configuration.
@@ -265,9 +290,9 @@ class TrinoK8SCharm(CharmBase):
         log_level = self.model.config["log-level"].lower()
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
-        
-        google_id = self.config.get('google-client-id')
-        google_secret = self.config.get('google-client-secret')
+
+        google_id = self.config.get("google-client-id")
+        google_secret = self.config.get("google-client-secret")
 
         if google_id is None:
             raise ValueError("Google ID not provided for Oauth")
@@ -279,26 +304,33 @@ class TrinoK8SCharm(CharmBase):
             raise RuntimeError(f"{path} does not exist, check TLS relation")
 
     def get_params(self):
-        """ Creates Jinja file specific dictionaries from relevant config values.
+        """Create Jinja file specific dictionaries from relevant config values.
 
         Returns:
             log_context: A dictionary of log options
             config_context: A dictionary of config file options
         """
         log_options = {"log-level": "LOG_LEVEL"}
-        log_context = {config_key: self.config[key] for key, config_key in log_options.items()}
+        log_context = {
+            config_key: self.config[key]
+            for key, config_key in log_options.items()
+        }
 
         config_options = {
             "google-client-id": "OAUTH_CLIENT_ID",
             "google-client-secret": "OAUTH_CLIENT_SECRET",
         }
-        config_context = {config_key: self.config[key] for key, config_key in config_options.items()}
-        config_context.update({
-            "KEYSTORE_PASS": self._state.keystore_password,
-            "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
-        })
+        config_context = {
+            config_key: self.config[key]
+            for key, config_key in config_options.items()
+        }
+        config_context.update(
+            {
+                "KEYSTORE_PASS": self._state.keystore_password,
+                "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+            }
+        )
         return log_context, config_context
-        
 
     def _update(self, event):
         """Update the Trino server configuration and replan its execution.
@@ -330,7 +362,7 @@ class TrinoK8SCharm(CharmBase):
         for params in [config_context, log_context]:
             env.update(params)
 
-        if self.config['ranger-acl-enabled']:
+        if self.config["ranger-acl-enabled"]:
             try:
                 command = self._configure_ranger_plugin(container)
             except RuntimeError as err:
