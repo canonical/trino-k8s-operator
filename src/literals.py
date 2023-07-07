@@ -29,24 +29,21 @@ CONNECTOR_FIELDS = {
             "accumlo.username",
             "accumlo.password"
         ],
-        "optional": [
-            "accumlo.zookeeper.metadata.root",
-            "accumulo.cardinality.cache.expire.duration"
-        ]
+        "optional": [],
     },
     "atop": {
         "required": [
             "connector.name",
             "atop.executable-path"
         ],
-        "optional": []
+        "optional": [],
     },
     "bigquery": {
         "required": [
             "connector.name",
             "bigquery.project-id"
         ],
-        "optional": []
+        "optional": [],
     },
     "cassandra": {
         "required": [
@@ -54,7 +51,7 @@ CONNECTOR_FIELDS = {
             "cassandra.contact-points",
             "cassandra.load-policy.dc-aware.local-dc"
         ],
-        "optional": []
+        "optional": [],
     },
     "clickhouse": {
         "required": [
@@ -63,21 +60,21 @@ CONNECTOR_FIELDS = {
             "connection-user",
             "connection-password"
         ],
-        "optional": []
+        "optional": [],
     },
     "delta_lake": {
         "required": [
             "connector.name",
             "hive.metastore.uri"
         ],
-        "optional": []
+        "optional": [],
     },
     "druid": {
         "required": [
             "connector.name",
             "connection-url"
         ],
-        "optional": []
+        "optional": [],
     },
     "elasticsearch": {
         "required": [
@@ -86,7 +83,7 @@ CONNECTOR_FIELDS = {
             "elasticsearch.port",
             "elasticsearch.default-schema-name"
         ],
-        "optional": []
+        "optional": [],
     },
     "gsheets": {
         "required": [
@@ -94,21 +91,21 @@ CONNECTOR_FIELDS = {
             "gsheets.credentials-path",
             "gsheets.metadata-sheet-id"
         ],
-        "optional": []
+        "optional": [],
     },
     "hive": {
         "required": [
             "connector.name",
             "hive.metastore.uri"
         ],
-        "optional": []
+        "optional": [],
     },
     "hudi": {
         "required": [
             "connector.name",
             "hive.metastore.uri"
         ],
-        "optional": []
+        "optional": [],
     },
     "ignite": {
         "required": [
@@ -117,7 +114,7 @@ CONNECTOR_FIELDS = {
             "connection-user",
             "connection-password"
         ],
-        "optional": []
+        "optional": [],
     },
     "jmx": {
         "required": [
@@ -126,7 +123,7 @@ CONNECTOR_FIELDS = {
             "jmx.dump-period",
             "jmx.max-entries"
         ],
-        "optional": []
+        "optional": [],
     },
     "kafka": {
         "required": [
@@ -135,7 +132,7 @@ CONNECTOR_FIELDS = {
             "kafka.nodes",
             "kafka.config.resource"
         ],
-        "optional": []
+        "optional": [],
     },
     "kinesis": {
         "required": [
@@ -143,7 +140,7 @@ CONNECTOR_FIELDS = {
             "kinesis.access-key",
             "kinesis.secret-key"
         ],
-        "optional": []
+        "optional": [],
     },
     "mariadb": {
         "required": [
@@ -152,14 +149,14 @@ CONNECTOR_FIELDS = {
             "connection-user",
             "connection-password"
         ],
-        "optional": []
+        "optional": [],
     },
     "mongodb": {
         "required": [
             "connector.name",
             "mongodb.connection-url"
         ],
-        "optional": []
+        "optional": [],
     },
     "mysql": {
         "required": [
@@ -168,7 +165,16 @@ CONNECTOR_FIELDS = {
             "connection-user",
             "connection-password"
         ],
-        "optional": []
+        "optional": [
+            "case-insensitive-name-matching",
+            "case-insensitive-name-matching.cache-ttl",
+            "metadata.cache-ttl",
+            "metadata.cache-missing",
+            "metadata.cache-maximum-size",
+            "write.batch-size",
+            "dynamic-filtering.enabled",
+            "dynamic-filtering.wait-timeout"
+        ],
     },
     "oracle": {
         "required": [
@@ -201,7 +207,16 @@ CONNECTOR_FIELDS = {
             "connection-user",
             "connection-password"
         ],
-        "optional": []
+        "optional": [
+            "case-insensitive-name-matching",
+            "case-insensitive-name-matching.cache-ttl",
+            "metadata.cache-ttl",
+            "metadata.cache-missing",
+            "metadata.cache-maximum-size",
+            "write.batch-size",
+            "dynamic-filtering.enabled",
+            "dynamic-filtering.wait-timeout"
+        ]
     },
     "prometheus": {
         "required": [
