@@ -93,13 +93,19 @@ def validate_membership(connector_fields, conn_input):
     required = connector_fields["required"]
     optional = connector_fields["optional"]
 
+    missing_fields = []
     for field in required:
         if field not in conn_input:
-            raise ValueError(f"{field!r} is required")
+            missing_fields.append(field)
+    if missing_fields:
+        raise ValueError(f"field(s) {missing_fields!r} are required")
 
+    illegal_fields = []
     for field in conn_input:
         if field not in required and field not in optional:
-            raise ValueError(f"{field!r} is not allowed")
+            illegal_fields.append(field)  
+    if illegal_fields:
+        raise ValueError(f"field(s) {illegal_fields!r} are not allowed")
 
 
 def validate_jdbc_pattern(conn_input, conn_name):
