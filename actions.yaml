@@ -11,7 +11,7 @@ add-connector:
       type: string
     conn-config:
       description: |
-        connector configuration values, differs by connector type. 
+        Connector configuration values, differs by connector type. 
         Visit https://trino.io/docs/current/connector.html for templates.
       type: string
   required: [conn-name, conn-config]
@@ -26,7 +26,7 @@ remove-connector:
       type: string
     conn-config:
       description: |
-        connector configuration values, differs by connector type. 
+        Connector configuration values, differs by connector type. 
         Visit https://trino.io/docs/current/connector.html for templates.
       type: string
   required: [conn-name, conn-config]
