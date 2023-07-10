@@ -139,19 +139,17 @@ class TrinoConnector(Object):
             return
 
         existing_connectors = self.charm._state.connectors
-        connectors_to_remove = []
+        connector_to_remove = None
         for key, value in existing_connectors.items():
             if key == conn_name and value == conn_string:
                 container.remove_path(path=path)
-                connectors_to_remove.append(key)
-            else:
-                event.fail(
-                    f"Failed to remove {conn_name}, invalid configuration"
-                )
-                return
+                connector_to_remove = key
 
-        for connector in connectors_to_remove:
-            del existing_connectors[connector]
+        if not connector_to_remove:
+            event.fail(f"Failed to remove {conn_name}, invalid configuration")
+            return
+
+        del existing_connectors[connector_to_remove]
 
         self.charm._restart_trino(container)
         self.charm._state.connectors = existing_connectors
