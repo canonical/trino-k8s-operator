@@ -74,13 +74,17 @@ class TrinoConnector(Object):
 
         path = f"{CATALOG_PATH}/{conn_name}.properties"
         container.push(path, config, make_dirs=True)
+        self._add_connector_to_state(conn_string, conn_name)
         self.charm._restart_trino(container)
 
-        self._add_connector_to_state(conn_string, conn_name)
         event.set_results({"result": "connector successfully added"})
 
     def _is_valid_connection(self, conn_input, conn_type):
         """Validate configuration for connector.
+        Additional validation required for the postgresql connector,
+        incorrect formatting of this connector will prevent the Trino
+        application from starting. This does not appear to be the case
+        for other connectors.
 
         Args:
             conn_input: The connector configuration provided by user
@@ -151,6 +155,6 @@ class TrinoConnector(Object):
 
         del existing_connectors[connector_to_remove]
 
-        self.charm._restart_trino(container)
         self.charm._state.connectors = existing_connectors
+        self.charm._restart_trino(container)
         event.set_results({"result": "connector successfully removed"})
