@@ -103,7 +103,7 @@ def validate_membership(connector_fields, conn_input):
     illegal_fields = []
     for field in conn_input:
         if field not in required and field not in optional:
-            illegal_fields.append(field)  
+            illegal_fields.append(field)
     if illegal_fields:
         raise ValueError(f"field(s) {illegal_fields!r} are not allowed")
 

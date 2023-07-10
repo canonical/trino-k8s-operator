@@ -16,9 +16,9 @@ LOG_PATH = "/etc/trino/log.properties"
 LOG_JINJA = "logging.jinja"
 
 TRINO_PORTS = {
-        "HTTPS": 8443,
-        "HTTP": 8080,
-        }
+    "HTTPS": 8443,
+    "HTTP": 8080,
+    }
 
 CONNECTOR_FIELDS = {
     "accumlo": {

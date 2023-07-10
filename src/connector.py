@@ -64,7 +64,7 @@ class TrinoConnector(Object):
             event.fail(f"Failed to add {conn_name}, invalid configuration")
             return
 
-        if not self._validate_connection(conn_input, conn_type):
+        if not self._is_valid_connection(conn_input, conn_type):
             event.fail(f"Failed to add {conn_name}, invalid configuration")
             return
 
@@ -79,7 +79,7 @@ class TrinoConnector(Object):
         self._add_connector_to_state(conn_string, conn_name)
         event.set_results({"result": "connector successfully added"})
 
-    def _validate_connection(self, conn_input, conn_type):
+    def _is_valid_connection(self, conn_input, conn_type):
         """Validate configuration for connector.
 
         Args:
