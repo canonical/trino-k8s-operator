@@ -63,6 +63,36 @@ Once deployed, the hostname will default to the name of the application (trino-k
 
 Note: for HTTPS on port 8443 (default) the Trino operator must have a certificates relation.
 
+### Connecting a database to Trino
+This is done using a `juju action` and configuration values passed as parameters to this action. 
+```
+# Add a database:
+juju run trino-k8s/0 add-connector conn-name=name conn-config="connector.name=postgresql
+connection-url=jdbc:postgresql://host:port/database
+connection-user=user
+connection-password=password"
+
+# Remove a database:
+juju run trino-k8s/0 remove-connector conn-name=name conn-config="connector.name=postgresql
+connection-url=jdbc:postgresql://host:port/database
+connection-user=user
+connection-password=password"
+
+```
+Note: the fields required can change sigificantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
+
+The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
+
+### Removing a database from Trino
+To remove a database you must provide the full configuration of that database. The user and password must match those that the connection was established with. It is not enough for them to have permissions to the database. For this reason we recommend creating a distinct `trino` user for this connection.
+
+### Connecting database clusters
+In order to connect clustered database systems to Trino please connect the read-only and read-write endpoints with 2 separate `juju actions`. The read-only database should be appended with `_ro` to distinguish between the two. 
+```
+salesforce #read-write endpoint
+salesforce_ro #read-only endpoint
+```
+
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
 

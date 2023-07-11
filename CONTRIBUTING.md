@@ -78,29 +78,29 @@ kubectl get pods -n trino-k8s
 # Enable DEBUG logging
 juju config trino-k8s log-level=debug
 
-#TODO: add details on configuring Oauth
-
 ```
 
 ## Trino actions
 ```
 # Add a database:
-juju run trino-k8s/0 connect-database \
-db-name=<your-db-name> \
-db-type=<your-db-type> \
-db-conn-string=<your-conn-string> \
-db-user=<your-user> \
-db-pwd=<your-db-password>
+juju run trino-k8s/0 add-connector conn-name=name conn-config="connector.name=postgresql
+connection-url=jdbc:postgresql://host:port/database
+connection-user=user
+connection-password=password"
+
 
 # Remove a database:
-juju run trino-k8s/0 remove-database \
-db-name=<your-db-name> \
-db-user=<your-user> \
-db-pwd=<your-db-password>
+juju run trino-k8s/0 remove-connector conn-name=name conn-config="connector.name=postgresql
+connection-url=jdbc:postgresql://host:port/database
+connection-user=user
+connection-password=password"
 
 # Restart Trino Server:
 juju run trino-k8s/0 restart
 ```
+
+Note: the example of actions above are for postgres connector, however any connector listed [here](https://trino.io/docs/current/connector.html) are permissible.
+
 ## Accessing Trino
 ```
 # Port forward (http)
