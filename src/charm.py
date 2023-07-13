@@ -346,7 +346,6 @@ class TrinoK8SCharm(CharmBase):
                 "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             }
         )
-        logging.info(config_context)
         return log_context, config_context
 
     def _update(self, event):
