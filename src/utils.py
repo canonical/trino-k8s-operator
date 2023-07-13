@@ -144,7 +144,8 @@ def bcrypt_pwd(password):
         password: plain text password
 
     Return:
-        bcrypt_password: encrypted password
+        mod_password: encrypted password
     """
-    bcrypt_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
-    return bcrypt_password
+    bcrypt_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+    mod_password = bcrypt_password.replace("$2b$","$2y$")
+    return mod_password
