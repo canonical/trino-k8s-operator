@@ -14,6 +14,12 @@ CONFIG_JINJA = "config.jinja"
 CONFIG_PATH = "/etc/trino/config.properties"
 LOG_PATH = "/etc/trino/log.properties"
 LOG_JINJA = "logging.jinja"
+PASSWORD_DB_PATH = "/etc/trino/password.db"
+AUTHENTICATOR_PATH = "/etc/trino/password-authenticator.properties"
+AUTHENTICATOR_PROPERTIES = """password-authenticator.name=file
+file.password-file=/etc/trino/password.db
+file.refresh-period=1m
+file.auth-token-cache.max-size=1000"""
 
 TRINO_PORTS = {
     "HTTPS": 8443,

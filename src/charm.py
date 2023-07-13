@@ -15,16 +15,31 @@ import logging
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
-from ops.model import (ActiveStatus, BlockedStatus, MaintenanceStatus,
-                       WaitingStatus)
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    MaintenanceStatus,
+    WaitingStatus,
+)
 
 from connector import TrinoConnector
-from literals import (CATALOG_PATH, CONF_PATH, CONFIG_JINJA, CONFIG_PATH,
-                      LOG_JINJA, LOG_PATH, SYSTEM_CONNECTORS, TRINO_PORTS)
+from literals import (
+    CATALOG_PATH,
+    CONF_PATH,
+    CONFIG_JINJA,
+    CONFIG_PATH,
+    LOG_JINJA,
+    LOG_PATH,
+    SYSTEM_CONNECTORS,
+    TRINO_PORTS,
+    PASSWORD_DB_PATH,
+    AUTHENTICATOR_PATH,
+    AUTHENTICATOR_PROPERTIES,
+)
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
-from utils import render
+from utils import render, push, bcrypt_pwd
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -273,6 +288,16 @@ class TrinoK8SCharm(CharmBase):
             path, properties, make_dirs=True, permissions=permission
         )
 
+    def _enable_password_auth(self, container):
+        """Creates necessary properties and db files for authentication
+
+        Args:
+            container: The application container
+        """
+        push(container, AUTHENTICATOR_PROPERTIES, AUTHENTICATOR_PATH)
+        password = bcrypt_pwd(self.config["trino-password"])
+        push(container, f"trino:{password}", PASSWORD_DB_PATH)
+
     def _validate_config_params(self, container):
         """Validate that configuration is valid.
 
@@ -281,8 +306,6 @@ class TrinoK8SCharm(CharmBase):
 
         Raises:
             ValueError: in case of invalid log configuration.
-            ValueError: in case of Google ID not provided
-            ValueError: in case of Google secret not provided
             RuntimeError: in case keystore does not exist
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
@@ -290,14 +313,6 @@ class TrinoK8SCharm(CharmBase):
         log_level = self.model.config["log-level"].lower()
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
-
-        google_id = self.config.get("google-client-id")
-        google_secret = self.config.get("google-client-secret")
-
-        if google_id is None:
-            raise ValueError("Google ID not provided for Oauth")
-        if google_secret is None:
-            raise ValueError("Google secret not provided for Oauth")
 
         path = f"{CONF_PATH}/keystore.p12"
         if not container.exists(path):
@@ -317,8 +332,7 @@ class TrinoK8SCharm(CharmBase):
         }
 
         config_options = {
-            "google-client-id": "OAUTH_CLIENT_ID",
-            "google-client-secret": "OAUTH_CLIENT_SECRET",
+            "trino-password": "DEFAULT_PASSWORD",
         }
         config_context = {
             config_key: self.config[key]
@@ -328,8 +342,11 @@ class TrinoK8SCharm(CharmBase):
             {
                 "KEYSTORE_PASS": self._state.keystore_password,
                 "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
+                "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
+                "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             }
         )
+        logging.info(config_context)
         return log_context, config_context
 
     def _update(self, event):
@@ -357,6 +374,7 @@ class TrinoK8SCharm(CharmBase):
         log_context, config_context = self.get_params()
         self._push_file(container, log_context, LOG_JINJA, LOG_PATH)
         self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
+        self._enable_password_auth(container)
 
         env = {}
         for params in [config_context, log_context]:
