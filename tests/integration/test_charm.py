@@ -2,19 +2,16 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Temporal charm integration tests."""
+"""Trino charm integration tests."""
 
 import logging
+
 import pytest
 import requests
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
-from helpers import (
-    APP_NAME,
-    get_unit_url,
-)
-import asyncio
+from helpers import (APP_NAME, CONN_NAME, get_catalogs, get_unit_url,
+                     run_connector_action)
 from pytest_operator.plugin import OpsTest
-from trino_client.show_catalogs import show_catalogs
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +19,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy")
 class TestDeployment:
-    """Integration tests for Temporal charm."""
+    """Integration tests for Trino charm."""
 
     async def test_trino_ui(self, ops_test: OpsTest):
         """Perform GET request on the Trino UI host."""
@@ -34,9 +31,16 @@ class TestDeployment:
 
     async def test_basic_client(self, ops_test: OpsTest):
         """Connects a client and executes a basic SQL query."""
-        status = await ops_test.model.get_status() # noqa: F821
-        address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"]["address"]
-        logger.info("executing query on app address: %s", address)
-        catalogs = await show_catalogs(address)
-        logging.info(catalogs)
+        catalogs = await get_catalogs(ops_test)
+        logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
+
+    async def test_add_connector_action(self, ops_test: OpsTest):
+        """Adds a PostgreSQL connector and confirms database added."""
+        catalogs = await run_connector_action(ops_test, "add-connector")
+        assert [CONN_NAME] in catalogs
+
+    async def test_remove_connector_action(self, ops_test: OpsTest):
+        """Removes an existing connector confirms database removed."""
+        catalogs = await run_connector_action(ops_test, "remove-connector")
+        assert [CONN_NAME] not in catalogs

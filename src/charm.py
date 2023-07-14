@@ -237,6 +237,8 @@ class TrinoK8SCharm(CharmBase):
 
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
+        self._enable_password_auth(container)
+
         event.set_results({"result": "trino successfully restarted"})
 
     @log_event_handler(logger)
@@ -289,7 +291,7 @@ class TrinoK8SCharm(CharmBase):
         )
 
     def _enable_password_auth(self, container):
-        """Creates necessary properties and db files for authentication
+        """Create necessary properties and db files for authentication.
 
         Args:
             container: The application container
