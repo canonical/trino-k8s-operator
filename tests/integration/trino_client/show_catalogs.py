@@ -4,10 +4,11 @@
 
 """Trino client activity."""
 
-from trino.dbapi import connect
 from trino.auth import BasicAuthentication
+from trino.dbapi import connect
 
-async def show_catalogs(host) -> str:
+
+async def show_catalogs(host, password) -> str:
     """Trino catalogs.
 
     Returns:
@@ -17,11 +18,11 @@ async def show_catalogs(host) -> str:
         host=host,
         port=8443,
         user="trino",
-        auth=BasicAuthentication("trino", "dummycreds123"),
+        auth=BasicAuthentication("trino", password),
         http_scheme="https",
         verify=False,
     )
     cur = conn.cursor()
-    cur.execute('SHOW CATALOGS')
+    cur.execute("SHOW CATALOGS")
     result = cur.fetchall()
     return result
