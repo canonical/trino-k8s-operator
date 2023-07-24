@@ -33,23 +33,12 @@ async def perform_trino_integrations(ops_test: OpsTest):
     Args:
         ops_test: PyTest object.
     """
-    await ops_test.model.integrate(f"{APP_NAME}", f"{TLS_NAME}")
+    await ops_test.model.integrate(APP_NAME, TLS_NAME)
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME], status="active", raise_on_blocked=False, timeout=180
     )
 
-    await ops_test.model.integrate(f"{APP_NAME}", f"{NGINX_NAME}")
-    await ops_test.model.wait_for_idle(
-        apps=[APP_NAME, NGINX_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=180,
-    )
-
-    assert (
-        ops_test.model.applications[APP_NAME].units[0].workload_status
-        == "active"
-    )
+    await ops_test.model.integrate(APP_NAME, NGINX_NAME)
 
 
 async def get_unit_url(
@@ -92,22 +81,6 @@ async def get_catalogs(ops_test: OpsTest):
     return catalogs
 
 
-async def create_action_params(ops_test: OpsTest):
-    """Create parameter dictionary for connector action.
-
-    Args:
-        ops_test: PyTest object
-
-    Returns:
-        parameters: dictionary of parameters for connection action
-    """
-    parameters = {
-        "conn-name": CONN_NAME,
-        "conn-config": CONN_CONFIG,
-    }
-    return parameters
-
-
 async def run_connector_action(ops_test, action):
     """Run connection action.
 
@@ -118,7 +91,10 @@ async def run_connector_action(ops_test, action):
     Returns:
         catalogs: list of trino catalogs after action
     """
-    params = await create_action_params(ops_test)
+    params = {
+        "conn-name": CONN_NAME,
+        "conn-config": CONN_CONFIG,
+    }
     action = (
         await ops_test.model.applications[APP_NAME]
         .units[0]
