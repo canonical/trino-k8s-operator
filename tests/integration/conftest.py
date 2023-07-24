@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
-    DUMMY_PWD,
+    PLACEHOLDER_PWD,
     METADATA,
     NGINX_NAME,
     TLS_NAME,
@@ -33,8 +33,8 @@ async def deploy(ops_test: OpsTest):
         "ca-common-name": "trino-k8s",
     }
 
-    # Dummy credentials for testing only
-    trino_config = {"trino-password": DUMMY_PWD}
+    # Placeholder credentials for testing only
+    trino_config = {"trino-password": PLACEHOLDER_PWD}
 
     # Deploy trino, tls and nginx charms
     await ops_test.model.deploy(
