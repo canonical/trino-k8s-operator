@@ -316,6 +316,10 @@ class TrinoK8SCharm(CharmBase):
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
 
+        trino_password = self.model.config["trino-password"]
+        if not trino_password.strip():
+            raise ValueError(f"conf: invalid password {trino_password!r}")
+
         path = f"{CONF_PATH}/keystore.p12"
         if not container.exists(path):
             raise RuntimeError(f"{path} does not exist, check TLS relation")
