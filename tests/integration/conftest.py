@@ -7,8 +7,14 @@ import logging
 
 import pytest
 import pytest_asyncio
-from helpers import (APP_NAME, DUMMY_PWD, METADATA, NGINX_NAME, TLS_NAME,
-                     perform_trino_integrations)
+from helpers import (
+    APP_NAME,
+    DUMMY_PWD,
+    METADATA,
+    NGINX_NAME,
+    TLS_NAME,
+    perform_trino_integrations,
+)
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
