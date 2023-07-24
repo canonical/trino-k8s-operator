@@ -63,16 +63,16 @@ def render(template_name, context):
     )
 
 
-def string_to_dict(string):
+def string_to_dict(string_value):
     """Convert a string to a dictionary with = delimiter.
 
     Args:
-        string: The string to be converted
+        string_value: The string to be converted
 
     Returns:
         dictionary: The converted dictionary
     """
-    pairs = string.split()
+    pairs = string_value.split()
     dictionary = {}
     for pair in pairs:
         key, value = pair.split("=")
