@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy", scope="module")
 async def deploy(ops_test: OpsTest):
-    """The app is up and running."""
+    """Deploy the app."""
     charm = await ops_test.build_charm(".")
     resources = {
         "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]

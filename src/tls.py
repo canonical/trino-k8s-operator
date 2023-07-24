@@ -6,7 +6,10 @@
 import logging
 
 from charms.tls_certificates_interface.v2.tls_certificates import (
-    TLSCertificatesRequiresV2, generate_csr, generate_private_key)
+    TLSCertificatesRequiresV2,
+    generate_csr,
+    generate_private_key,
+)
 from ops.framework import Object
 from ops.model import BlockedStatus, WaitingStatus
 
@@ -21,6 +24,11 @@ class TrinoTLS(Object):
     """Handler for managing the client and unit TLS keys/certs."""
 
     def __init__(self, charm):
+        """Construct.
+
+        Args:
+            charm: The charm to attach hooks to.
+        """
         super().__init__(charm, "tls")
         self.charm = charm
         self.cert_subject = "trino-k8s"

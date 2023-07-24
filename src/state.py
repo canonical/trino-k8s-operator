@@ -20,7 +20,8 @@ class State:
             app: workload application
             get_relation: get peer relation method
         """
-        # Use __dict__ to avoid calling __setattr__ and subsequent infinite recursion.
+        # Use __dict__ to avoid calling __setattr__
+        # and subsequent infinite recursion.
         self.__dict__["_app"] = app
         self.__dict__["_get_relation"] = get_relation
 
@@ -61,6 +62,7 @@ class State:
         """Report whether the relation is ready to be used.
 
         Returns:
-            A boolean representing whether the relation is ready to be used or not.
+            A boolean representing whether the relation
+            is ready to be used or not.
         """
         return bool(self._get_relation())
