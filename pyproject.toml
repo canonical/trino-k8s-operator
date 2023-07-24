@@ -7,6 +7,10 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 
+[tool.isort]
+profile = "black"
+line_length = 79
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 log_cli_level = "INFO"
