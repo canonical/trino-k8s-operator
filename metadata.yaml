@@ -1,3 +1,5 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
 # This file populates the Overview on Charmhub.
 # See https://juju.is/docs/sdk/metadata-reference for a checklist and guidance.
 
@@ -13,6 +15,9 @@ description: |
 
 maintainers:
   - Commercial Systems <jaas-crew@lists.canonical.com>
+source: https://github.com/canonical/trino-k8s-operator
+docs: https://github.com/canonical/trino-k8s-operator
+issues: https://github.com/canonical/trino-k8s-operator/issues
 
 containers:
   trino:
