@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import string
+import bcrypt
 
 from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
@@ -135,3 +136,16 @@ def format_properties_file(dictionary):
     for key, value in dictionary.items():
         conn_config += f"{key}={value}\n"
     return conn_config
+
+def bcrypt_pwd(password):
+    """Bycrypts password.
+
+    Args:
+        password: plain text password
+
+    Return:
+        mod_password: encrypted password
+    """
+    bcrypt_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+    mod_password = bcrypt_password.replace("$2b$","$2y$")
+    return mod_password
