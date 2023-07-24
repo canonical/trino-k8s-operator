@@ -24,7 +24,7 @@ file.auth-token-cache.max-size=1000"""
 TRINO_PORTS = {
     "HTTPS": 8443,
     "HTTP": 8080,
-    }
+}
 
 CONNECTOR_FIELDS = {
     "accumlo": {
@@ -33,22 +33,19 @@ CONNECTOR_FIELDS = {
             "accumlo.instance",
             "accumlo.zookeepers",
             "accumlo.username",
-            "accumlo.password"
+            "accumlo.password",
         ],
         "optional": [],
     },
     "bigquery": {
-        "required": [
-            "connector.name",
-            "bigquery.project-id"
-        ],
+        "required": ["connector.name", "bigquery.project-id"],
         "optional": [],
     },
     "cassandra": {
         "required": [
             "connector.name",
             "cassandra.contact-points",
-            "cassandra.load-policy.dc-aware.local-dc"
+            "cassandra.load-policy.dc-aware.local-dc",
         ],
         "optional": [],
     },
@@ -57,22 +54,16 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
         "optional": [],
     },
     "delta_lake": {
-        "required": [
-            "connector.name",
-            "hive.metastore.uri"
-        ],
+        "required": ["connector.name", "hive.metastore.uri"],
         "optional": [],
     },
     "druid": {
-        "required": [
-            "connector.name",
-            "connection-url"
-        ],
+        "required": ["connector.name", "connection-url"],
         "optional": [],
     },
     "elasticsearch": {
@@ -80,22 +71,16 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "elasticsearch.host",
             "elasticsearch.port",
-            "elasticsearch.default-schema-name"
+            "elasticsearch.default-schema-name",
         ],
         "optional": [],
     },
     "hive": {
-        "required": [
-            "connector.name",
-            "hive.metastore.uri"
-        ],
+        "required": ["connector.name", "hive.metastore.uri"],
         "optional": [],
     },
     "hudi": {
-        "required": [
-            "connector.name",
-            "hive.metastore.uri"
-        ],
+        "required": ["connector.name", "hive.metastore.uri"],
         "optional": [],
     },
     "ignite": {
@@ -103,7 +88,7 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
         "optional": [],
     },
@@ -112,7 +97,7 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "jmx.dump-tables",
             "jmx.dump-period",
-            "jmx.max-entries"
+            "jmx.max-entries",
         ],
         "optional": [],
     },
@@ -120,7 +105,7 @@ CONNECTOR_FIELDS = {
         "required": [
             "connector.name",
             "kinesis.access-key",
-            "kinesis.secret-key"
+            "kinesis.secret-key",
         ],
         "optional": [],
     },
@@ -129,15 +114,12 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
         "optional": [],
     },
     "mongodb": {
-        "required": [
-            "connector.name",
-            "mongodb.connection-url"
-        ],
+        "required": ["connector.name", "mongodb.connection-url"],
         "optional": [],
     },
     "mysql": {
@@ -145,7 +127,7 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
         "optional": [
             "case-insensitive-name-matching",
@@ -155,7 +137,7 @@ CONNECTOR_FIELDS = {
             "metadata.cache-maximum-size",
             "write.batch-size",
             "dynamic-filtering.enabled",
-            "dynamic-filtering.wait-timeout"
+            "dynamic-filtering.wait-timeout",
         ],
     },
     "oracle": {
@@ -163,23 +145,20 @@ CONNECTOR_FIELDS = {
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
-        "optional": []
+        "optional": [],
     },
     "pinot": {
-        "required": [
-            "connector.name",
-            "pinot.controller-urls"
-        ],
-        "optional": []
+        "required": ["connector.name", "pinot.controller-urls"],
+        "optional": [],
     },
     "postgresql": {
         "required": [
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
         "optional": [
             "case-insensitive-name-matching",
@@ -189,51 +168,44 @@ CONNECTOR_FIELDS = {
             "metadata.cache-maximum-size",
             "write.batch-size",
             "dynamic-filtering.enabled",
-            "dynamic-filtering.wait-timeout"
-        ]
+            "dynamic-filtering.wait-timeout",
+        ],
     },
     "redis": {
-        "required": [
-            "connector.name",
-            "redis.table-names",
-            "redis.nodes"
-        ],
-        "optional": []
+        "required": ["connector.name", "redis.table-names", "redis.nodes"],
+        "optional": [],
     },
     "redshift": {
         "required": [
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
-        "optional": []
+        "optional": [],
     },
     "singlestore": {
         "required": [
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
-        "optional": []
+        "optional": [],
     },
     "sqlserver": {
         "required": [
             "connector.name",
             "connection-url",
             "connection-user",
-            "connection-password"
+            "connection-password",
         ],
-        "optional": []
+        "optional": [],
     },
     "trino_thrift": {
-        "required": [
-            "connector.name",
-            "trino.thrift.client.addresses"
-        ],
-        "optional": []
-    }
+        "required": ["connector.name", "trino.thrift.client.addresses"],
+        "optional": [],
+    },
 }
 
-SYSTEM_CONNECTORS = ['jmx', 'memory', 'tpcds', 'tpch']
+SYSTEM_CONNECTORS = ["jmx", "memory", "tpcds", "tpch"]
