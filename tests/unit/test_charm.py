@@ -117,7 +117,7 @@ class TestCharm(TestCase):
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
         got_plan["services"]["trino"]["environment"][
             "KEYSTORE_PASS"
-        ] = "example-pass"
+        ] = "example-pass"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The service was started.
@@ -212,7 +212,7 @@ class TestCharm(TestCase):
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
         got_plan["services"]["trino"]["environment"][
             "KEYSTORE_PASS"
-        ] = "example-pass"
+        ] = "example-pass"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The ActiveStatus is set with no message.

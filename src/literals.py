@@ -14,7 +14,7 @@ CONFIG_JINJA = "config.jinja"
 CONFIG_PATH = "/etc/trino/config.properties"
 LOG_PATH = "/etc/trino/log.properties"
 LOG_JINJA = "logging.jinja"
-PASSWORD_DB_PATH = "/etc/trino/password.db"
+PASSWORD_DB_PATH = "/etc/trino/password.db"  # nosec
 AUTHENTICATOR_PATH = "/etc/trino/password-authenticator.properties"
 AUTHENTICATOR_PROPERTIES = """password-authenticator.name=file
 file.password-file=/etc/trino/password.db

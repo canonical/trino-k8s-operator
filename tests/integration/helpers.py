@@ -19,7 +19,7 @@ METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
 TLS_NAME = "tls-certificates-operator"
 NGINX_NAME = "nginx-ingress-integrator"
-PLACEHOLDER_PWD = "testpwd123"
+PLACEHOLDER_PWD = "testpwd123" # nosec
 CONN_CONFIG = """connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
 connection-user=trino
