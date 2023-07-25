@@ -9,9 +9,9 @@ import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
-    PLACEHOLDER_PWD,
     METADATA,
     NGINX_NAME,
+    PLACEHOLDER_PWD,
     TLS_NAME,
     perform_trino_integrations,
 )

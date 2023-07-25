@@ -12,9 +12,10 @@ import json
 import logging
 from unittest import TestCase, mock
 
-from charm import TrinoK8SCharm
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.testing import Harness
+
+from charm import TrinoK8SCharm
 from state import State
 
 SERVER_PORT = "8443"
@@ -39,7 +40,6 @@ class TestCharm(TestCase):
         self.harness.set_model_name("trino-model")
         self.harness.add_network("10.0.0.10", endpoint="peer")
         self.harness.begin()
-        logging.info("setup complete")
 
     def test_initial_plan(self):
         """The initial pebble plan is empty."""
@@ -130,8 +130,11 @@ class TestCharm(TestCase):
         self.assertEqual(harness.model.unit.status, ActiveStatus())
 
     def test_ingress(self):
-        """The charm relates correctly to the nginx ingress charm
-        and can be configured."""
+        """Test ingress relation.
+
+        The charm relates correctly to the nginx ingress charm
+        and can be configured.
+        """
         harness = self.harness
 
         simulate_lifecycle(harness)
