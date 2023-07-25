@@ -33,7 +33,7 @@ class TestDeployment:
         )
         logger.info("curling app address: %s", url)
 
-        response = requests.get(url, timeout=300, verify=False)
+        response = requests.get(url, timeout=300, verify=False)  # nosec
         assert response.status_code == 200
 
     async def test_basic_client(self, ops_test: OpsTest):

@@ -81,6 +81,7 @@ class TrinoConnector(Object):
 
     def _is_valid_connection(self, conn_input, conn_type):
         """Validate configuration for connector.
+
         Additional validation required for the postgresql connector,
         incorrect formatting of this connector will prevent the Trino
         application from starting. This does not appear to be the case

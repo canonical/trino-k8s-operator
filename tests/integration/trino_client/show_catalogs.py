@@ -11,6 +11,10 @@ from trino.dbapi import connect
 async def show_catalogs(host, password) -> str:
     """Trino catalogs.
 
+    Args:
+        host: trino server address.
+        password: default trino password.
+
     Returns:
         List of Trino catalogs.
     """

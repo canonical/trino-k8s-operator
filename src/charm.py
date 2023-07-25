@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2023 Canonical Ltd
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Charm the service.
@@ -24,29 +24,34 @@ from ops.model import (
 
 from connector import TrinoConnector
 from literals import (
+    AUTHENTICATOR_PATH,
+    AUTHENTICATOR_PROPERTIES,
     CATALOG_PATH,
     CONF_PATH,
     CONFIG_JINJA,
     CONFIG_PATH,
     LOG_JINJA,
     LOG_PATH,
+    PASSWORD_DB_PATH,
     SYSTEM_CONNECTORS,
     TRINO_PORTS,
-    PASSWORD_DB_PATH,
-    AUTHENTICATOR_PATH,
-    AUTHENTICATOR_PROPERTIES,
 )
 from log import log_event_handler
 from state import State
 from tls import TrinoTLS
-from utils import render, push, bcrypt_pwd
+from utils import bcrypt_pwd, push, render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
 
 
 class TrinoK8SCharm(CharmBase):
-    """Charm the service."""
+    """Charm the service.
+
+    Attrs:
+        _state: used to store data that is persisted across invocations.
+        external_hostname: DNS listing used for external connections.
+    """
 
     @property
     def external_hostname(self):
@@ -158,7 +163,7 @@ class TrinoK8SCharm(CharmBase):
             properties: A dictionary of existing connector configurations
 
         Raises:
-            RuntimeError: Failed to return propety files
+            RuntimeError: Failed to return property files
         """
         properties = {}
         out, err = container.exec(["ls", CATALOG_PATH]).wait_output()
