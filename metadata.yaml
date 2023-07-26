@@ -17,7 +17,7 @@ maintainers:
   - Commercial Systems <jaas-crew@lists.canonical.com>
 
 source: https://github.com/canonical/trino-k8s-operator
-docs: https://github.com/canonical/trino-k8s-operator
+docs: https://discourse.charmhub.io/t/trino-server-documentation-overview/11231
 issues: https://github.com/canonical/trino-k8s-operator/issues
 
 containers:
