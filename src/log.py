@@ -7,7 +7,7 @@ import functools
 
 
 def log_event_handler(logger):
-    """Log with the provided logger when a event handler method is executed.
+    """Log with the logger when a handler method is executed.
 
     Args:
         logger: logger used to log events.
@@ -36,11 +36,15 @@ def log_event_handler(logger):
             Returns:
                 Decorated method.
             """
-            logger.info(f"* running {self.__class__.__name__}.{method.__name__}")
+            logger.info(
+                f"* running {self.__class__.__name__}.{method.__name__}"
+            )
             try:
                 return method(self, event)
             finally:
-                logger.info(f"* completed {self.__class__.__name__}.{method.__name__}")
+                logger.info(
+                    f"* completed {self.__class__.__name__}.{method.__name__}"
+                )
 
         return decorated
 

@@ -19,7 +19,7 @@ METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
 TLS_NAME = "tls-certificates-operator"
 NGINX_NAME = "nginx-ingress-integrator"
-DUMMY_PWD = "dummypwd123"
+PLACEHOLDER_PWD = "testpwd123" # nosec
 CONN_CONFIG = """connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
 connection-user=trino
@@ -77,7 +77,7 @@ async def get_catalogs(ops_test: OpsTest):
         "address"
     ]
     logger.info("executing query on app address: %s", address)
-    catalogs = await show_catalogs(address, DUMMY_PWD)
+    catalogs = await show_catalogs(address, PLACEHOLDER_PWD)
     return catalogs
 
 

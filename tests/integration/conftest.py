@@ -9,9 +9,9 @@ import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
-    DUMMY_PWD,
     METADATA,
     NGINX_NAME,
+    PLACEHOLDER_PWD,
     TLS_NAME,
     perform_trino_integrations,
 )
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy", scope="module")
 async def deploy(ops_test: OpsTest):
-    """The app is up and running."""
+    """Deploy the app."""
     charm = await ops_test.build_charm(".")
     resources = {
         "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
@@ -33,8 +33,8 @@ async def deploy(ops_test: OpsTest):
         "ca-common-name": "trino-k8s",
     }
 
-    # Dummy credentials for testing only
-    trino_config = {"trino-password": DUMMY_PWD}
+    # Placeholder credentials for testing only
+    trino_config = {"trino-password": PLACEHOLDER_PWD}
 
     # Deploy trino, tls and nginx charms
     await ops_test.model.deploy(

@@ -9,8 +9,8 @@ import os
 import re
 import secrets
 import string
-import bcrypt
 
+import bcrypt
 from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
 
@@ -63,16 +63,16 @@ def render(template_name, context):
     )
 
 
-def string_to_dict(string):
+def string_to_dict(string_value):
     """Convert a string to a dictionary with = delimiter.
 
     Args:
-        string: The string to be converted
+        string_value: The string to be converted
 
     Returns:
         dictionary: The converted dictionary
     """
-    pairs = string.split()
+    pairs = string_value.split()
     dictionary = {}
     for pair in pairs:
         key, value = pair.split("=")
@@ -89,7 +89,7 @@ def validate_membership(connector_fields, conn_input):
 
     Raises:
         ValueError: In the case where a required field is missing
-        ValueError: In the case where a provided field is not accepted
+                    In the case where a provided field is not accepted
     """
     required = connector_fields["required"]
     optional = connector_fields["optional"]
@@ -137,6 +137,7 @@ def format_properties_file(dictionary):
         conn_config += f"{key}={value}\n"
     return conn_config
 
+
 def bcrypt_pwd(password):
     """Bycrypts password.
 
@@ -146,6 +147,8 @@ def bcrypt_pwd(password):
     Return:
         mod_password: encrypted password
     """
-    bcrypt_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
-    mod_password = bcrypt_password.replace("$2b$","$2y$")
+    bcrypt_password = bcrypt.hashpw(
+        password.encode("utf-8"), bcrypt.gensalt(rounds=10)
+    ).decode("utf-8")
+    mod_password = bcrypt_password.replace("$2b$", "$2y$")
     return mod_password
