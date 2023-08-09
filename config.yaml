@@ -26,7 +26,8 @@ options:
     type: string
   web-proxy:
     description: |
-      The address of the web proxy
+      The address of the web proxy. To be used in combination
+      with google-client-id and google-client-secret values.
     type: string 
   ranger-acl-enabled:
     description: |
