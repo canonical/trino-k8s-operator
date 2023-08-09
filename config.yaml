@@ -24,6 +24,10 @@ options:
     description: |
       Client password from Google Oauth setup
     type: string
+  web-proxy:
+    description: |
+      The address of the web proxy
+    type: string 
   ranger-acl-enabled:
     description: |
       Enabling/disabling Ranger plugin for Trino

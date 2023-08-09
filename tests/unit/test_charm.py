@@ -110,6 +110,7 @@ class TestCharm(TestCase):
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
+                        "WEB_PROXY": None,
                     },
                 }
             },
@@ -187,6 +188,7 @@ class TestCharm(TestCase):
             {
                 "google-client-id": "test-client-id",
                 "google-client-secret": "test-client-secret",
+                "web-proxy": "proxy:port"
             }
         )
 
@@ -205,6 +207,7 @@ class TestCharm(TestCase):
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
+                        "WEB_PROXY": "proxy:port",
                     },
                 }
             },
