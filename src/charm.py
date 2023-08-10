@@ -312,7 +312,9 @@ class TrinoK8SCharm(CharmBase):
             container: Trino container
 
         Raises:
-            ValueError: in case of invalid log configuration.
+            ValueError: in case of invalid log configuration
+                        in case of invalid trino-password
+                        in case of web-proxy as empty string
             RuntimeError: in case keystore does not exist
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
@@ -328,6 +330,10 @@ class TrinoK8SCharm(CharmBase):
         path = f"{CONF_PATH}/keystore.p12"
         if not container.exists(path):
             raise RuntimeError(f"{path} does not exist, check TLS relation")
+
+        web_proxy = self.config.get("web-proxy")
+        if web_proxy and not web_proxy.strip():
+            raise ValueError("Web-proxy value cannot be an empty string")
 
     def get_params(self):
         """Create Jinja file specific dictionaries from relevant config values.
@@ -355,6 +361,7 @@ class TrinoK8SCharm(CharmBase):
                 "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
                 "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
                 "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
+                "WEB_PROXY": self.config.get("web-proxy"),
             }
         )
         return log_context, config_context

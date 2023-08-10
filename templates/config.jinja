@@ -19,7 +19,9 @@ http-server.authentication.oauth2.principal-field=email
 http-server.authentication.oauth2.scopes=https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,openid
 http-server.authentication.oauth2.client-id={{ OAUTH_CLIENT_ID }}
 http-server.authentication.oauth2.client-secret={{ OAUTH_CLIENT_SECRET }}
-
+    {% if WEB_PROXY is not none %}
+oauth2-jwk.http-client.http-proxy={{ WEB_PROXY }}
+    {% endif %}
 {% else %}
 http-server.authentication.type=PASSWORD
 {% endif %}
