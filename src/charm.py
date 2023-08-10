@@ -312,7 +312,7 @@ class TrinoK8SCharm(CharmBase):
             container: Trino container
 
         Raises:
-            ValueError: in case of invalid log configuration.
+            ValueError: in case of invalid log configuration
                         in case of invalid trino-password
                         in case of web-proxy as empty string
             RuntimeError: in case keystore does not exist
@@ -332,7 +332,7 @@ class TrinoK8SCharm(CharmBase):
             raise RuntimeError(f"{path} does not exist, check TLS relation")
 
         web_proxy = self.config.get("web-proxy")
-        if web_proxy == "":
+        if web_proxy and not web_proxy.strip():
             raise ValueError("Web-proxy value cannot be an empty string")
 
     def get_params(self):
