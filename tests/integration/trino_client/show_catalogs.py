@@ -4,17 +4,14 @@
 
 """Trino client activity."""
 
-from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
 
-async def show_catalogs(host, password) -> str:
+async def show_catalogs(host) -> str:
     """Trino catalogs.
 
     Args:
         host: trino server address.
-        password: default trino password.
-
     Returns:
         List of Trino catalogs.
     """
@@ -22,7 +19,6 @@ async def show_catalogs(host, password) -> str:
         host=host,
         port=8080,
         user="trino",
-        auth=BasicAuthentication("trino", password),
         http_scheme="http",
         verify=False,
     )
