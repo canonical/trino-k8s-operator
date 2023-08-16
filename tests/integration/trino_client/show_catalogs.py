@@ -12,8 +12,9 @@ async def show_catalogs(host) -> str:
 
     Args:
         host: trino server address.
+
     Returns:
-        List of Trino catalogs.
+        result: list of Trino catalogs
     """
     conn = connect(
         host=host,
