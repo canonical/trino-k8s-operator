@@ -7,14 +7,7 @@ import logging
 
 import pytest
 import pytest_asyncio
-from helpers import (
-    APP_NAME,
-    METADATA,
-    NGINX_NAME,
-    PLACEHOLDER_PWD,
-    TLS_NAME,
-    perform_trino_integrations,
-)
+from helpers import APP_NAME, METADATA, NGINX_NAME, PLACEHOLDER_PWD
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
@@ -28,15 +21,11 @@ async def deploy(ops_test: OpsTest):
     resources = {
         "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
     }
-    tls_config = {
-        "generate-self-signed-certificates": "true",
-        "ca-common-name": "trino-k8s",
-    }
 
     # Placeholder credentials for testing only
     trino_config = {"trino-password": PLACEHOLDER_PWD}
 
-    # Deploy trino, tls and nginx charms
+    # Deploy trino and nginx charms
     await ops_test.model.deploy(
         charm,
         resources=resources,
@@ -44,26 +33,17 @@ async def deploy(ops_test: OpsTest):
         config=trino_config,
         num_units=1,
     )
-    await ops_test.model.deploy(
-        TLS_NAME, config=tls_config, channel="edge", trust=True
-    )
     await ops_test.model.deploy(NGINX_NAME, trust=True)
 
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
-            apps=[NGINX_NAME, TLS_NAME],
+            apps=[NGINX_NAME, APP_NAME],
             status="active",
             raise_on_blocked=False,
             timeout=600,
         )
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=600,
-        )
 
-        await perform_trino_integrations(ops_test)
+        await ops_test.model.integrate(APP_NAME, NGINX_NAME)
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],

@@ -112,25 +112,6 @@ kubectl port-forward pod/trino-k8s-0 8080:8080
 # View databases
 SHOW CATALOGS;
 ```
-## Enabling HTTPS
-```
-# deploy the TLS charm:
-juju deploy tls-certificates-operator --channel=edge
-
-# add necessary configurations for TLS:
-juju config tls-certificates-operator generate-self-signed-certificates="true" ca-common-name="trino-server"
-
-# provide google credentials (optional):
-juju config trino-k8s google-client-id=<id> google-client-secret=<secret>
-
-# relate with the Trino charm:
-juju relate tls-certificates-operator trino-k8s
-
-# check relation has been created and is active:
-juju status --relations
-```
-Note: currently only Google Oauth authentication and password authentication are supported.
-For information on how to set this up on Google see [here](https://developers.google.com/identity/protocols/oauth2).
 
 ## Cleanup
 ```

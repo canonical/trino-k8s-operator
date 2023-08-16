@@ -17,28 +17,13 @@ logger = logging.getLogger(__name__)
 CONN_NAME = "connection-test"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
-TLS_NAME = "tls-certificates-operator"
 NGINX_NAME = "nginx-ingress-integrator"
-PLACEHOLDER_PWD = "testpwd123" # nosec
+PLACEHOLDER_PWD = "testpwd123"  # nosec
 CONN_CONFIG = """connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
 connection-user=trino
 connection-password=trino
 """
-
-
-async def perform_trino_integrations(ops_test: OpsTest):
-    """Integrate Trino charm with TLS and Nginx charms.
-
-    Args:
-        ops_test: PyTest object.
-    """
-    await ops_test.model.integrate(APP_NAME, TLS_NAME)
-    await ops_test.model.wait_for_idle(
-        apps=[APP_NAME], status="active", raise_on_blocked=False, timeout=180
-    )
-
-    await ops_test.model.integrate(APP_NAME, NGINX_NAME)
 
 
 async def get_unit_url(

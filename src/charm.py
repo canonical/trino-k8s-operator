@@ -27,7 +27,6 @@ from literals import (
     AUTHENTICATOR_PATH,
     AUTHENTICATOR_PROPERTIES,
     CATALOG_PATH,
-    CONF_PATH,
     CONFIG_JINJA,
     CONFIG_PATH,
     LOG_JINJA,
@@ -38,7 +37,6 @@ from literals import (
 )
 from log import log_event_handler
 from state import State
-from tls import TrinoTLS
 from utils import bcrypt_pwd, push, render
 
 # Log messages can be retrieved using juju debug-log
@@ -67,7 +65,6 @@ class TrinoK8SCharm(CharmBase):
         super().__init__(*args)
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
-        self.tls = TrinoTLS(self)
         self.connector = TrinoConnector(self)
 
         # Handle basic charm lifecycle
@@ -90,9 +87,9 @@ class TrinoK8SCharm(CharmBase):
             charm=self,
             service_hostname=self.external_hostname,
             service_name=self.app.name,
-            service_port=TRINO_PORTS["HTTPS"],
+            service_port=TRINO_PORTS["HTTP"],
             tls_secret_name=self.config["tls-secret-name"],
-            backend_protocol="HTTPS",
+            backend_protocol="HTTP",
         )
 
     @log_event_handler(logger)
@@ -211,19 +208,13 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = ActiveStatus()
 
     def ready_to_start(self):
-        """Check if TLS is enabled and peer relations established.
+        """Check if peer relation established.
 
         Returns:
-            True if TLS enabled and peer relation established, else False.
+            True if peer relation established, else False.
         """
         if not self._state.is_ready():
             self.unit.status = WaitingStatus("Waiting for peer relation.")
-            return False
-
-        if not self._state.tls == "enabled":
-            self.unit.status = BlockedStatus(
-                "Needs a certificates relation for TLS"
-            )
             return False
 
         return True
@@ -315,7 +306,6 @@ class TrinoK8SCharm(CharmBase):
             ValueError: in case of invalid log configuration
                         in case of invalid trino-password
                         in case of web-proxy as empty string
-            RuntimeError: in case keystore does not exist
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
 
@@ -326,10 +316,6 @@ class TrinoK8SCharm(CharmBase):
         trino_password = self.model.config["trino-password"]
         if not trino_password.strip():
             raise ValueError(f"conf: invalid password {trino_password!r}")
-
-        path = f"{CONF_PATH}/keystore.p12"
-        if not container.exists(path):
-            raise RuntimeError(f"{path} does not exist, check TLS relation")
 
         web_proxy = self.config.get("web-proxy")
         if web_proxy and not web_proxy.strip():
@@ -357,8 +343,6 @@ class TrinoK8SCharm(CharmBase):
         }
         config_context.update(
             {
-                "KEYSTORE_PASS": self._state.keystore_password,
-                "KEYSTORE_PATH": f"{CONF_PATH}/keystore.p12",
                 "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
                 "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
                 "WEB_PROXY": self.config.get("web-proxy"),
