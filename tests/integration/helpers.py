@@ -26,7 +26,7 @@ connection-password=trino
 
 
 async def get_unit_url(
-    ops_test: OpsTest, application, unit, port, protocol="https"
+    ops_test: OpsTest, application, unit, port, protocol="http"
 ):
     """Return unit URL from the model.
 
@@ -35,7 +35,7 @@ async def get_unit_url(
         application: Name of the application.
         unit: Number of the unit.
         port: Port number of the URL.
-        protocol: Transfer protocol (default: https).
+        protocol: Transfer protocol (default: http).
 
     Returns:
         Unit URL of the form {protocol}://{address}:{port}
