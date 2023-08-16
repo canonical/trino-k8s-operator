@@ -29,7 +29,7 @@ class TestDeployment:
     async def test_trino_ui(self, ops_test: OpsTest):
         """Perform GET request on the Trino UI host."""
         url = await get_unit_url(
-            ops_test, application=APP_NAME, unit=0, port=8443
+            ops_test, application=APP_NAME, unit=0, port=8080
         )
         logger.info("curling app address: %s", url)
 

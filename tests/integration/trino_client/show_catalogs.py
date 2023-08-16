@@ -20,10 +20,10 @@ async def show_catalogs(host, password) -> str:
     """
     conn = connect(
         host=host,
-        port=8443,
+        port=8080,
         user="trino",
         auth=BasicAuthentication("trino", password),
-        http_scheme="https",
+        http_scheme="http",
         verify=False,
     )
     cur = conn.cursor()
