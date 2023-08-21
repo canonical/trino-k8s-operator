@@ -14,7 +14,7 @@ The Trino Charm is configured to secure communications with relation to a load b
 
 The load balancer or proxy server accepts TLS connections and forwards them to the Trino coordinator, which runs with default HTTP configuration on the default port, 8080. Client tools can access Trino with the URL exposed by the load balancer.
 
-![trino-communication](docs/resources/trino-tls.svg)
+![trino-communication](trino-tls.svg)
 
 ### Ingress
 The Trino operator exposes its ports using the Nginx Ingress Integrator operator. You must first make sure to have an Nginx Ingress Controller deployed. To enable TLS connections, you must have a TLS certificate stored as a k8s secret (default name is "trino-tls"). A self-signed certificate for development purposes can be created as follows:
