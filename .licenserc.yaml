@@ -33,4 +33,5 @@ header:
     - 'LICENSE'
     - 'trivy.yaml'
     - 'lib/**'
+    - 'trino-tls.svg'
   comment: on-failure

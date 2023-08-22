@@ -10,7 +10,7 @@
 
 import json
 import logging
-from unittest import TestCase, mock
+from unittest import TestCase
 
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.testing import Harness
@@ -18,7 +18,7 @@ from ops.testing import Harness
 from charm import TrinoK8SCharm
 from state import State
 
-SERVER_PORT = "8443"
+SERVER_PORT = "8080"
 logger = logging.getLogger(__name__)
 
 
@@ -65,35 +65,13 @@ class TestCharm(TestCase):
             WaitingStatus("Waiting for peer relation."),
         )
 
-    def test_blocked_by_tls(self):
-        """The charm is blocked without a certificates relation."""
-        harness = self.harness
-
-        # Simulate peer relation readiness.
-        self.harness.add_relation("peer", "trino")
-
-        # Simulate pebble readiness.
-        container = harness.model.unit.get_container("trino")
-        harness.charm.on.trino_pebble_ready.emit(container)
-
-        # No plans are set yet.
-        got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        self.assertEqual(got_plan, {})
-
-        # The BlockStatus is set with a message.
-        self.assertEqual(
-            harness.model.unit.status,
-            BlockedStatus("Needs a certificates relation for TLS"),
-        )
-
     def test_ready(self):
         """The pebble plan is correctly generated when the charm is ready."""
         harness = self.harness
         simulate_lifecycle(harness)
 
-        # Asserts status is active and tls is enabled
+        # Asserts status is active
         self.assertEqual(harness.model.unit.status, ActiveStatus())
-        assert harness.charm._state.tls == "enabled"
 
         # The plan is generated after pebble is ready.
         want_plan = {
@@ -105,8 +83,6 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
-                        "KEYSTORE_PASS": "example-pass",
-                        "KEYSTORE_PATH": "/etc/trino/conf/keystore.p12",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
@@ -116,9 +92,6 @@ class TestCharm(TestCase):
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "KEYSTORE_PASS"
-        ] = "example-pass"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The service was started.
@@ -152,7 +125,7 @@ class TestCharm(TestCase):
             "service-hostname": harness.charm.app.name,
             "service-name": harness.charm.app.name,
             "service-port": SERVER_PORT,
-            "backend-protocol": "HTTPS",
+            "backend-protocol": "HTTP",
             "tls-secret-name": "trino-tls",
         }
 
@@ -177,8 +150,7 @@ class TestCharm(TestCase):
             BlockedStatus("config: invalid log level 'all-logs'"),
         )
 
-    @mock.patch("charm.TrinoK8SCharm._validate_config_params")
-    def test_config_changed(self, _validate_config_params):
+    def test_config_changed(self):
         """The pebble plan changes according to config changes."""
         harness = self.harness
         simulate_lifecycle(harness)
@@ -188,7 +160,7 @@ class TestCharm(TestCase):
             {
                 "google-client-id": "test-client-id",
                 "google-client-secret": "test-client-secret",
-                "web-proxy": "proxy:port"
+                "web-proxy": "proxy:port",
             }
         )
 
@@ -202,8 +174,6 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
-                        "KEYSTORE_PASS": "example-pass",
-                        "KEYSTORE_PATH": "/etc/trino/conf/keystore.p12",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
@@ -213,17 +183,13 @@ class TestCharm(TestCase):
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "KEYSTORE_PASS"
-        ] = "example-pass"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The ActiveStatus is set with no message.
         self.assertEqual(harness.model.unit.status, ActiveStatus())
 
 
-@mock.patch("charm.TrinoK8SCharm._validate_config_params")
-def simulate_lifecycle(harness, _validate_config_params):
+def simulate_lifecycle(harness):
     """Simulate a healthy charm life-cycle.
 
     Args:
@@ -232,35 +198,9 @@ def simulate_lifecycle(harness, _validate_config_params):
     # Simulate peer relation readiness.
     harness.add_relation("peer", "trino")
 
-    # Simulate tls relation readiness.
-    rel_id = harness.add_relation("certificates", "tls-certificates-operator")
-    harness.add_relation_unit(rel_id, "tls-certificates-operator/0")
-
-    event = make_certificate_available_event()
-    harness.charm.tls._on_certificate_available(event)
-
     # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
-
-
-def make_certificate_available_event():
-    """Create and return a mock certificates available event.
-
-        The event is generated by the TLS relation
-        on request of certificates by the Trino Charm.
-
-    Returns:
-        Event dict.
-    """
-    return type(
-        "Event",
-        (),
-        {
-            "certificate": "server.crt",
-            "ca": "ca.pem",
-        },
-    )
 
 
 class TestState(TestCase):
