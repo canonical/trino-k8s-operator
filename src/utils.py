@@ -72,10 +72,10 @@ def string_to_dict(string_value):
     Returns:
         dictionary: The converted dictionary
     """
-    pairs = string_value.split()
+    pairs = string_value.splitlines()
     dictionary = {}
     for pair in pairs:
-        key, value = pair.split("=")
+        key, value = pair.split("=", maxsplit=1)
         dictionary[key] = value
     return dictionary
 
@@ -121,21 +121,6 @@ def validate_jdbc_pattern(conn_input, conn_name):
     """
     if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_input["connection-url"]):
         raise ValueError(f"{conn_name!r} has an invalid jdbc format")
-
-
-def format_properties_file(dictionary):
-    """Convert string into format required by properties file.
-
-    Args:
-        dictionary: Configuration dictionary to be converted
-
-    Return:
-        conn_config: String of connector connfiguration
-    """
-    conn_config = ""
-    for key, value in dictionary.items():
-        conn_config += f"{key}={value}\n"
-    return conn_config
 
 
 def bcrypt_pwd(password):
