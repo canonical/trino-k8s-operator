@@ -303,11 +303,8 @@ class TrinoK8SCharm(CharmBase):
             truststore_password = generate_password()
             self._state.truststore_password = truststore_password
 
-    def _validate_config_params(self, container):
+    def _validate_config_params(self):
         """Validate that configuration is valid.
-
-        Args:
-            container: Trino container
 
         Raises:
             ValueError: in case of invalid log configuration
@@ -361,7 +358,7 @@ class TrinoK8SCharm(CharmBase):
             return
 
         try:
-            self._validate_config_params(container)
+            self._validate_config_params()
         except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return

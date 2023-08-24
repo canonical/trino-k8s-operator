@@ -8,6 +8,7 @@ import logging
 
 from ops.charm import ActionEvent
 from ops.framework import Object
+from ops.pebble import ExecError
 
 from literals import CATALOG_PATH, CONF_PATH, CONNECTOR_FIELDS
 from log import log_event_handler
@@ -70,7 +71,13 @@ class TrinoConnector(Object):
             container.push(
                 f"{CONF_PATH}/{conn_name}.crt", conn_cert, make_dirs=True
             )
-            self._add_cert_to_truststore(container, conn_name)
+            try:
+                self._add_cert_to_truststore(container, conn_name)
+            except ExecError:
+                event.fail(
+                    f"Failed to add {conn_name}, certificate import error"
+                )
+                return
 
         path = f"{CATALOG_PATH}/{conn_name}.properties"
         container.push(path, conn_string, make_dirs=True)
@@ -84,6 +91,9 @@ class TrinoConnector(Object):
         Args:
             container: Trino container
             conn_name: certificate file name
+
+        Raises:
+            ExecError: In case of error during keytool certificate import
         """
         command = [
             "keytool",
@@ -99,7 +109,16 @@ class TrinoConnector(Object):
             self.charm._state.truststore_password,
             "-noprompt",
         ]
-        container.exec(command, working_dir=CONF_PATH).wait_output()
+        try:
+            container.exec(command, working_dir=CONF_PATH).wait_output()
+        except ExecError as e:
+            expected_error_string = f"alias <{conn_name}> already exists"
+            if expected_error_string in str(e.stdout):
+                logger.debug(expected_error_string)
+                return
+            logger.error(e.stdout)
+            raise
+
         container.remove_path(f"{CONF_PATH}/{conn_name}.crt")
 
     def _is_valid_connection(self, conn_input, conn_type):
@@ -147,6 +166,9 @@ class TrinoConnector(Object):
         Args:
             container: Trino container
             conn_name: certificate file name
+
+        Raises:
+            ExecError: in case of error during keytool certificate deletion
         """
         command = [
             "keytool",
@@ -160,7 +182,11 @@ class TrinoConnector(Object):
             self.charm._state.truststore_password,
             "-noprompt",
         ]
-        container.exec(command, working_dir=CONF_PATH).wait_output()
+        try:
+            container.exec(command, working_dir=CONF_PATH).wait_output()
+        except ExecError as e:
+            logger.error(e.stdout)
+            raise
 
     @log_event_handler(logger)
     def _on_remove_connector(self, event: ActionEvent):
@@ -185,6 +211,15 @@ class TrinoConnector(Object):
             )
             return
 
+        if conn_cert:
+            try:
+                self._delete_cert_from_truststore(container, conn_name)
+            except ExecError:
+                event.fail(
+                    f"Failed to remove {conn_name}, certificate deletion error"
+                )
+                return
+
         existing_connectors = self.charm._state.connectors
         connector_to_remove = None
         for key, value in existing_connectors.items():
@@ -197,8 +232,6 @@ class TrinoConnector(Object):
             return
 
         del existing_connectors[connector_to_remove]
-        if conn_cert:
-            self._delete_cert_from_truststore(container, conn_name)
 
         self.charm._state.connectors = existing_connectors
         self.charm._restart_trino(container)
