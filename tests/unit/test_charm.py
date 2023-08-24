@@ -24,6 +24,7 @@ connection-url=jdbc:postgresql://host.com:5432/database
 connection-user=testing
 connection-password=test
 """
+DB_PATH = "/etc/trino/catalog/example-db.properties"
 
 logger = logging.getLogger(__name__)
 
@@ -210,21 +211,17 @@ class TestCharm(TestCase):
         simulate_lifecycle(harness)
 
         # Simulate add-connector action.
-        event = make_action_event("example-db")
-        harness.charm.connector._add_connector(event)
+        event = MockEvent()
+        harness.charm.connector._on_add_connector(event)
 
         container = harness.model.unit.get_container("trino")
-        self.assertTrue(
-            container.exists("/etc/trino/catalog/example-db.properties")
-        )
+        self.assertTrue(container.exists(DB_PATH))
 
         # Simulate remove-connector action.
-        harness.charm.connector._remove_connector(event)
+        harness.charm.connector._on_remove_connector(event)
 
         container = harness.model.unit.get_container("trino")
-        self.assertFalse(
-            container.exists("/etc/trino/catalog/example-db.properties")
-        )
+        self.assertFalse(container.exists(DB_PATH))
 
 
 def simulate_lifecycle(harness):
@@ -241,26 +238,24 @@ def simulate_lifecycle(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
 
-def make_action_event(conn_name):
-    """Create and return a mock add connector event.
+class MockEvent:
+    """Mock event action class."""
 
-    Args:
-        conn_name: connection name
+    def __init__(self):
+        """Mock handle params."""
+        self.params = {
+            "conn-name": "example-db",
+            "conn-config": CONN_CONFIG,
+        }
+        self.result = {}
 
-    Returns:
-        Event dict.
-    """
-    return type(
-        "Event",
-        (),
-        {
-            "params": {
-                "conn-name": conn_name,
-                "conn-config": CONN_CONFIG,
-            },
-            "result": {},
-        },
-    )
+    def set_results(self, results):
+        """Mock set results of action.
+
+        Args:
+            results: result of action
+        """
+        self.result = results
 
 
 class TestState(TestCase):

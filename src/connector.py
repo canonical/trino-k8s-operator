@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class TrinoConnector(Object):
-    """Handler for managing the client and unit TLS keys/certs."""
+    """Handler for managing the client and unit connectors and TLS certs."""
 
     def __init__(self, charm):
         """Construct.
@@ -41,18 +41,6 @@ class TrinoConnector(Object):
         Args:
             event: The event triggered by the add-connector action
         """
-        self._add_connector(event)
-        event.set_results({"result": "connector successfully added"})
-
-    def _add_connector(self, event):
-        """Add a new properties file and relevant certificates.
-
-        Args:
-            event: The event triggered by the add-connector action
-        """
-        if not self.charm.unit.is_leader():
-            return
-
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             event.defer()
@@ -79,20 +67,16 @@ class TrinoConnector(Object):
             return
 
         if conn_cert:
-            try:
-                container.push(
-                    f"{CONF_PATH}/{conn_name}.crt", conn_cert, make_dirs=True
-                )
-                self._add_cert_to_truststore(container, conn_name)
-            except RuntimeError as err:
-                logger.exception(err)
-                event.fail(f"Failed to add {conn_name} certificate")
-                return
+            container.push(
+                f"{CONF_PATH}/{conn_name}.crt", conn_cert, make_dirs=True
+            )
+            self._add_cert_to_truststore(container, conn_name)
 
         path = f"{CATALOG_PATH}/{conn_name}.properties"
         container.push(path, conn_string, make_dirs=True)
         self._add_connector_to_state(conn_string, conn_name)
         self.charm._restart_trino(container)
+        event.set_results({"result": "connector successfully added"})
 
     def _add_cert_to_truststore(self, container, conn_name):
         """Add CA to JKS truststore.
@@ -100,9 +84,6 @@ class TrinoConnector(Object):
         Args:
             container: Trino container
             conn_name: certificate file name
-
-        Raises:
-            RuntimeError: could not add certificate to truststore
         """
         command = [
             "keytool",
@@ -118,9 +99,7 @@ class TrinoConnector(Object):
             self.charm._state.truststore_password,
             "-noprompt",
         ]
-        _, err = container.exec(command, working_dir=CONF_PATH).wait_output()
-        if err:
-            raise RuntimeError(f"Could not update truststore: {err}")
+        container.exec(command, working_dir=CONF_PATH).wait_output()
         container.remove_path(f"{CONF_PATH}/{conn_name}.crt")
 
     def _is_valid_connection(self, conn_input, conn_type):
@@ -168,9 +147,6 @@ class TrinoConnector(Object):
         Args:
             container: Trino container
             conn_name: certificate file name
-
-        Raises:
-            RuntimeError: could not remove certificate from truststore
         """
         command = [
             "keytool",
@@ -184,9 +160,7 @@ class TrinoConnector(Object):
             self.charm._state.truststore_password,
             "-noprompt",
         ]
-        _, err = container.exec(command, working_dir=CONF_PATH).wait_output()
-        if err:
-            raise RuntimeError(f"Could not update truststore: {err}")
+        container.exec(command, working_dir=CONF_PATH).wait_output()
 
     @log_event_handler(logger)
     def _on_remove_connector(self, event: ActionEvent):
@@ -195,18 +169,6 @@ class TrinoConnector(Object):
         Args:
             event: The event triggered by the remove-connector action
         """
-        self._remove_connector(event)
-        event.set_results({"result": "connector successfully removed"})
-
-    def _remove_connector(self, event):
-        """Remove a specified properties file and relevant certificates.
-
-        Args:
-            event: The event triggered by the add-connector action
-        """
-        if not self.charm.unit.is_leader():
-            return
-
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             event.defer()
@@ -236,11 +198,8 @@ class TrinoConnector(Object):
 
         del existing_connectors[connector_to_remove]
         if conn_cert:
-            try:
-                self._delete_cert_from_truststore(conn_name)
-            except RuntimeError as err:
-                logger.exception(err)
-                event.fail(f"Failed to remove {conn_name} certificate")
+            self._delete_cert_from_truststore(container, conn_name)
 
         self.charm._state.connectors = existing_connectors
         self.charm._restart_trino(container)
+        event.set_results({"result": "connector successfully removed"})
