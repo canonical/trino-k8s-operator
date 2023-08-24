@@ -83,17 +83,10 @@ juju config trino-k8s log-level=debug
 ## Trino actions
 ```
 # Add a database:
-juju run trino-k8s/0 add-connector conn-name=name conn-config="connector.name=postgresql
-connection-url=jdbc:postgresql://host:port/database
-connection-user=user
-connection-password=password"
-
+juju run trino-k8s/0 add-connector --params connector.yaml
 
 # Remove a database:
-juju run trino-k8s/0 remove-connector conn-name=name conn-config="connector.name=postgresql
-connection-url=jdbc:postgresql://host:port/database
-connection-user=user
-connection-password=password"
+juju run trino-k8s/0 remove-connector --params connector.yaml
 
 # Restart Trino Server:
 juju run trino-k8s/0 restart
