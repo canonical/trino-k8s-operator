@@ -67,8 +67,11 @@ juju debug-log
 # Pack the charm:
 charmcraft pack
 
-# Deploy the charm:
+# Deploy the coordinator:
 juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/trino:418
+
+# Deploy the worker:
+juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/trino:418 --config charm-function=worker trino-k8s-worker
 
 # Check deployment was successful:
 kubectl get pods -n trino-k8s

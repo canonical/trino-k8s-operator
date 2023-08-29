@@ -10,7 +10,6 @@ develop a new k8s charm using the Operator Framework:
 https://discourse.charmhub.io/t/4208
 """
 
-import functools
 import logging
 
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
@@ -306,7 +305,8 @@ class TrinoK8SCharm(CharmBase):
 
     def _open_service_port(self):
         """Open port 8080 for trino worker."""
-        self.model.unit.open_port(port=8080, protocol="tcp")
+        if self.config["charm-function"] == "coordinator":
+            self.model.unit.open_port(port=8080, protocol="tcp")
 
     def _validate_config_params(self):
         """Validate that configuration is valid.
