@@ -60,3 +60,8 @@ options:
         Password to be used for default trino user created on startup.
     default: ubuntu123
     type: string
+  charm-function:
+    description: |
+      One of coordinator or worker, to determine function of the application
+    default: coordinator
+    type: string
