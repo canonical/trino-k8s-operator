@@ -1,14 +1,16 @@
 {% if CHARM_FUNCTION == "coordinator" %}
 coordinator=true
+discovery.uri=http://trino-k8s:8080
 node-scheduler.include-coordinator=false
 {% elif CHARM_FUNCTION == "worker" %}
 coordinator=false
+discovery.uri=http://trino-k8s:8080
 {% elif CHARM_FUNCTION == "all" %}
 coordinator=true
 node-scheduler.include-coordinator=true
+discovery.uri=http://localhost:8080
 {% endif %}
 
-discovery.uri=http://trino-k8s:8080
 http-server.http.port=8080
 node.internal-address-source=FQDN
 internal-communication.shared-secret={{ INT_COMMS_SECRET | default("changeme")}}
