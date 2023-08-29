@@ -76,6 +76,9 @@ juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/
 # Check deployment was successful:
 kubectl get pods -n trino-k8s
 ```
+
+Note: due to the requirements of the `discovery_uri`, when using a separate coordinator and worker, the trino coordinator deployment must be named `trino-k8s` and cannot use any other alias.
+
 ## Trino configuration
 ```
 # Enable DEBUG logging

@@ -96,6 +96,7 @@ class TestCharm(TestCase):
                         "WEB_PROXY": None,
                         "SSL_PATH": "/etc/trino/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
+                        "CHARM_FUNCTION": "coordinator",
                     },
                 }
             },
@@ -173,6 +174,7 @@ class TestCharm(TestCase):
                 "google-client-id": "test-client-id",
                 "google-client-secret": "test-client-secret",
                 "web-proxy": "proxy:port",
+                "charm-function": "worker",
             }
         )
 
@@ -192,6 +194,7 @@ class TestCharm(TestCase):
                         "WEB_PROXY": "proxy:port",
                         "SSL_PATH": "/etc/trino/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
+                        "CHARM_FUNCTION": "worker",
                     },
                 }
             },
