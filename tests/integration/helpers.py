@@ -65,27 +65,24 @@ async def get_catalogs(ops_test: OpsTest):
     return catalogs
 
 
-async def run_connector_action(ops_test, action):
+async def run_connector_action(ops_test, action, params):
     """Run connection action.
 
     Args:
         ops_test: PyTest
         action: either add-connection or remove-connection action
+        params: action parameters
 
     Returns:
         catalogs: list of trino catalogs after action
     """
-    params = {
-        "conn-name": CONN_NAME,
-        "conn-config": CONN_CONFIG,
-    }
     action = (
         await ops_test.model.applications[APP_NAME]
         .units[0]
         .run_action(action, **params)
     )
     await action.wait()
-    time.sleep(30)
+    time.sleep(40)
     catalogs = await get_catalogs(ops_test)
     logging.info(f"action {action} run, catalogs: {catalogs}")
     return catalogs

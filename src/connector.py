@@ -185,6 +185,10 @@ class TrinoConnector(Object):
         try:
             container.exec(command, working_dir=CONF_PATH).wait_output()
         except ExecError as e:
+            expected_error_string = f"Alias <{conn_name}> does not exist"
+            if expected_error_string in str(e.stdout):
+                logger.debug(expected_error_string)
+                return
             logger.error(e.stdout)
             raise
 
@@ -201,8 +205,6 @@ class TrinoConnector(Object):
             return
 
         conn_name = event.params["conn-name"]
-        conn_string = event.params["conn-config"]
-        conn_cert = event.params.get("conn-cert")
 
         path = f"{CATALOG_PATH}/{conn_name}.properties"
         if not container.exists(path):
@@ -211,7 +213,13 @@ class TrinoConnector(Object):
             )
             return
 
-        if conn_cert:
+        if not self.charm._state.connectors[conn_name]:
+            event.fail(
+                f"Failed to remove {conn_name}, connector does not exist"
+            )
+            return
+
+        if container.exists(f"{CONF_PATH}.truststore.jks"):
             try:
                 self._delete_cert_from_truststore(container, conn_name)
             except ExecError:
@@ -220,19 +228,11 @@ class TrinoConnector(Object):
                 )
                 return
 
+        container.remove_path(path=path)
+
         existing_connectors = self.charm._state.connectors
-        connector_to_remove = None
-        for key, value in existing_connectors.items():
-            if key == conn_name and value == conn_string:
-                container.remove_path(path=path)
-                connector_to_remove = key
-
-        if not connector_to_remove:
-            event.fail(f"Failed to remove {conn_name}, invalid configuration")
-            return
-
-        del existing_connectors[connector_to_remove]
-
+        del existing_connectors[conn_name]
         self.charm._state.connectors = existing_connectors
+
         self.charm._restart_trino(container)
         event.set_results({"result": "connector successfully removed"})
