@@ -67,12 +67,18 @@ juju debug-log
 # Pack the charm:
 charmcraft pack
 
-# Deploy the charm:
+# Deploy the coordinator:
 juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/trino:418
+
+# Deploy the worker:
+juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/trino:418 --config charm-function=worker trino-k8s-worker
 
 # Check deployment was successful:
 kubectl get pods -n trino-k8s
 ```
+
+Note: due to the requirements of the `discovery_uri`, when using a separate coordinator and worker, the default `discovery_uri` value of `http://trino-k8s:8080` will only work if the trino coordinator deployment is named `trino-k8s`. If using another alias please update the worker and coordinator charm configurations accordingly.
+
 ## Trino configuration
 ```
 # Enable DEBUG logging

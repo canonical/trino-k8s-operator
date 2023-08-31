@@ -303,6 +303,13 @@ class TrinoK8SCharm(CharmBase):
             truststore_password = generate_password()
             self._state.truststore_password = truststore_password
 
+    def _open_service_port(self):
+        """Open port 8080 on Trino coordinator."""
+        if self.config["charm-function"] == "coordinator":
+            self.model.unit.open_port(port=8080, protocol="tcp")
+        else:
+            self.model.unit.close_port(port=8080, protocol="tcp")
+
     def _validate_config_params(self):
         """Validate that configuration is valid.
 
@@ -339,6 +346,8 @@ class TrinoK8SCharm(CharmBase):
             "WEB_PROXY": self.config.get("web-proxy"),
             "SSL_PWD": self._state.truststore_password,
             "SSL_PATH": f"{CONF_PATH}/truststore.jks",
+            "CHARM_FUNCTION": self.config["charm-function"],
+            "DISCOVERY_URI": self.config["discovery-uri"],
         }
         return env
 
@@ -366,6 +375,7 @@ class TrinoK8SCharm(CharmBase):
         logger.info("configuring trino")
         self._create_truststore_password()
         self._enable_password_auth(container)
+        self._open_service_port()
 
         env = self._create_environment()
         self._push_file(container, env, LOG_JINJA, LOG_PATH)

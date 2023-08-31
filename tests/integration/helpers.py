@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 CONN_NAME = "connection-test"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
+WORKER_NAME = f"{APP_NAME}-worker"
 NGINX_NAME = "nginx-ingress-integrator"
 CONN_CONFIG = """connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
