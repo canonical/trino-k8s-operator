@@ -97,6 +97,7 @@ class TestCharm(TestCase):
                         "SSL_PATH": "/etc/trino/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
+                        "DISCOVERY_URI": "http://trino-k8s:8080",
                     },
                 }
             },
@@ -195,6 +196,7 @@ class TestCharm(TestCase):
                         "SSL_PATH": "/etc/trino/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
+                        "DISCOVERY_URI": "http://trino-k8s:8080",
                     },
                 }
             },

@@ -66,3 +66,9 @@ options:
       `all` will result in a single node deployment, not recommended for production.
     default: coordinator
     type: string
+  discovery-uri:
+    description: |
+        When using a coordinator and worker this is the host and port of the 
+        coordinator service that the workers announce themselves to.
+    type: string
+    default: http://trino-k8s:8080

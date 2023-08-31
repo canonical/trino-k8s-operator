@@ -77,7 +77,7 @@ juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=trinodb/
 kubectl get pods -n trino-k8s
 ```
 
-Note: due to the requirements of the `discovery_uri`, when using a separate coordinator and worker, the trino coordinator deployment must be named `trino-k8s` and cannot use any other alias.
+Note: due to the requirements of the `discovery_uri`, when using a separate coordinator and worker, the default `discovery_uri` value of `http://trino-k8s:8080` will only work if the trino coordinator deployment is named `trino-k8s`. If using another alias please update the worker and coordinator charm configurations accordingly.
 
 ## Trino configuration
 ```

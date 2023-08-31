@@ -1,10 +1,10 @@
 {% if CHARM_FUNCTION == "coordinator" %}
 coordinator=true
-discovery.uri=http://trino-k8s:8080
+discovery.uri={{ DISCOVERY_URI }}
 node-scheduler.include-coordinator=false
 {% elif CHARM_FUNCTION == "worker" %}
 coordinator=false
-discovery.uri=http://trino-k8s:8080
+discovery.uri={{ DISCOVERY_URI }}
 {% elif CHARM_FUNCTION == "all" %}
 coordinator=true
 node-scheduler.include-coordinator=true

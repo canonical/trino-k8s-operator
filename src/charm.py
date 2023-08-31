@@ -347,6 +347,7 @@ class TrinoK8SCharm(CharmBase):
             "SSL_PWD": self._state.truststore_password,
             "SSL_PATH": f"{CONF_PATH}/truststore.jks",
             "CHARM_FUNCTION": self.config["charm-function"],
+            "DISCOVERY_URI": self.config["discovery-uri"],
         }
         return env
 
