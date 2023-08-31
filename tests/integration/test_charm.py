@@ -11,6 +11,7 @@ import requests
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
+    CONN_CONFIG,
     CONN_NAME,
     get_catalogs,
     get_unit_url,
@@ -44,10 +45,21 @@ class TestDeployment:
 
     async def test_add_connector_action(self, ops_test: OpsTest):
         """Adds a PostgreSQL connector and confirms database added."""
-        catalogs = await run_connector_action(ops_test, "add-connector")
+        params = {
+            "conn-name": CONN_NAME,
+            "conn-config": CONN_CONFIG,
+        }
+        catalogs = await run_connector_action(
+            ops_test, "add-connector", params
+        )
         assert [CONN_NAME] in catalogs
 
     async def test_remove_connector_action(self, ops_test: OpsTest):
         """Removes an existing connector confirms database removed."""
-        catalogs = await run_connector_action(ops_test, "remove-connector")
+        params = {
+            "conn-name": CONN_NAME,
+        }
+        catalogs = await run_connector_action(
+            ops_test, "remove-connector", params
+        )
         assert [CONN_NAME] not in catalogs

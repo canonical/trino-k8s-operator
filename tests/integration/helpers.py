@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 CONN_NAME = "connection-test"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
+WORKER_NAME = f"{APP_NAME}-worker"
 NGINX_NAME = "nginx-ingress-integrator"
 CONN_CONFIG = """connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
@@ -65,20 +66,17 @@ async def get_catalogs(ops_test: OpsTest):
     return catalogs
 
 
-async def run_connector_action(ops_test, action):
+async def run_connector_action(ops_test, action, params):
     """Run connection action.
 
     Args:
         ops_test: PyTest
         action: either add-connection or remove-connection action
+        params: action parameters
 
     Returns:
         catalogs: list of trino catalogs after action
     """
-    params = {
-        "conn-name": CONN_NAME,
-        "conn-config": CONN_CONFIG,
-    }
     action = (
         await ops_test.model.applications[APP_NAME]
         .units[0]

@@ -60,3 +60,15 @@ options:
         Password to be used for default trino user created on startup.
     default: ubuntu123
     type: string
+  charm-function:
+    description: |
+      One of `coordinator`, `worker` or `all` to determine the function of the application.
+      `all` will result in a single node deployment, not recommended for production.
+    default: coordinator
+    type: string
+  discovery-uri:
+    description: |
+        When using a coordinator and worker this is the host and port of the 
+        coordinator service that the workers announce themselves to.
+    type: string
+    default: http://trino-k8s:8080

@@ -27,6 +27,7 @@ from literals import (
     AUTHENTICATOR_PATH,
     AUTHENTICATOR_PROPERTIES,
     CATALOG_PATH,
+    CONF_PATH,
     CONFIG_JINJA,
     CONFIG_PATH,
     LOG_JINJA,
@@ -37,7 +38,7 @@ from literals import (
 )
 from log import log_event_handler
 from state import State
-from utils import bcrypt_pwd, push, render
+from utils import bcrypt_pwd, generate_password, push, render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -296,11 +297,21 @@ class TrinoK8SCharm(CharmBase):
         password = bcrypt_pwd(self.config["trino-password"])
         push(container, f"trino:{password}", PASSWORD_DB_PATH)
 
-    def _validate_config_params(self, container):
-        """Validate that configuration is valid.
+    def _create_truststore_password(self):
+        """Create truststore password if it does not exist."""
+        if not self._state.truststore_password:
+            truststore_password = generate_password()
+            self._state.truststore_password = truststore_password
 
-        Args:
-            container: Trino container
+    def _open_service_port(self):
+        """Open port 8080 on Trino coordinator."""
+        if self.config["charm-function"] == "coordinator":
+            self.model.unit.open_port(port=8080, protocol="tcp")
+        else:
+            self.model.unit.close_port(port=8080, protocol="tcp")
+
+    def _validate_config_params(self):
+        """Validate that configuration is valid.
 
         Raises:
             ValueError: in case of invalid log configuration
@@ -321,34 +332,24 @@ class TrinoK8SCharm(CharmBase):
         if web_proxy and not web_proxy.strip():
             raise ValueError("Web-proxy value cannot be an empty string")
 
-    def get_params(self):
-        """Create Jinja file specific dictionaries from relevant config values.
+    def _create_environment(self):
+        """Create application environment.
 
         Returns:
-            log_context: A dictionary of log options
-            config_context: A dictionary of config file options
+            env: a dictionary of trino environment variables
         """
-        log_options = {"log-level": "LOG_LEVEL"}
-        log_context = {
-            config_key: self.config[key]
-            for key, config_key in log_options.items()
+        env = {
+            "LOG_LEVEL": self.config["log-level"],
+            "DEFAULT_PASSWORD": self.config["trino-password"],
+            "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
+            "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
+            "WEB_PROXY": self.config.get("web-proxy"),
+            "SSL_PWD": self._state.truststore_password,
+            "SSL_PATH": f"{CONF_PATH}/truststore.jks",
+            "CHARM_FUNCTION": self.config["charm-function"],
+            "DISCOVERY_URI": self.config["discovery-uri"],
         }
-
-        config_options = {
-            "trino-password": "DEFAULT_PASSWORD",
-        }
-        config_context = {
-            config_key: self.config[key]
-            for key, config_key in config_options.items()
-        }
-        config_context.update(
-            {
-                "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
-                "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
-                "WEB_PROXY": self.config.get("web-proxy"),
-            }
-        )
-        return log_context, config_context
+        return env
 
     def _update(self, event):
         """Update the Trino server configuration and replan its execution.
@@ -366,20 +367,19 @@ class TrinoK8SCharm(CharmBase):
             return
 
         try:
-            self._validate_config_params(container)
+            self._validate_config_params()
         except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return
 
         logger.info("configuring trino")
-        log_context, config_context = self.get_params()
-        self._push_file(container, log_context, LOG_JINJA, LOG_PATH)
-        self._push_file(container, config_context, CONFIG_JINJA, CONFIG_PATH)
+        self._create_truststore_password()
         self._enable_password_auth(container)
+        self._open_service_port()
 
-        env = {}
-        for params in [config_context, log_context]:
-            env.update(params)
+        env = self._create_environment()
+        self._push_file(container, env, LOG_JINJA, LOG_PATH)
+        self._push_file(container, env, CONFIG_JINJA, CONFIG_PATH)
 
         if self.config["ranger-acl-enabled"]:
             try:

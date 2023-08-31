@@ -1,8 +1,18 @@
+{% if CHARM_FUNCTION == "coordinator" %}
 coordinator=true
+discovery.uri={{ DISCOVERY_URI }}
+node-scheduler.include-coordinator=false
+{% elif CHARM_FUNCTION == "worker" %}
+coordinator=false
+discovery.uri={{ DISCOVERY_URI }}
+{% elif CHARM_FUNCTION == "all" %}
+coordinator=true
+node-scheduler.include-coordinator=true
 discovery.uri=http://localhost:8080
+{% endif %}
+
 http-server.http.port=8080
 node.internal-address-source=FQDN
-node-scheduler.include-coordinator=true
 internal-communication.shared-secret={{ INT_COMMS_SECRET | default("changeme")}}
 
 http-server.process-forwarded=true
