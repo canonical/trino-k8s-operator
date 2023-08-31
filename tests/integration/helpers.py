@@ -82,7 +82,7 @@ async def run_connector_action(ops_test, action, params):
         .run_action(action, **params)
     )
     await action.wait()
-    time.sleep(40)
+    time.sleep(30)
     catalogs = await get_catalogs(ops_test)
     logging.info(f"action {action} run, catalogs: {catalogs}")
     return catalogs
