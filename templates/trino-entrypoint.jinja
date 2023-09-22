@@ -1,8 +1,8 @@
 #!/bin/bash
 
 cd /root && \
-tar xf ranger-{{ RANGER_VERSION }}-trino-plugin.tar.gz && \
-cp -rf /root/install.properties /root/ranger-{{ RANGER_VERSION }}-trino-plugin/ && \
-chown root:root -R /root/ranger-{{ RANGER_VERSION }}-trino-plugin/* && \
-/root/ranger-{{ RANGER_VERSION }}-trino-plugin/enable-trino-plugin.sh && \
+tar xf ranger-2.4.0-trino-plugin.tar.gz && \
+cp -rf /root/install.properties /root/ranger-2.4.0-trino-plugin/ && \
+chown root:root -R /root/ranger-2.4.0-trino-plugin/* && \
+/root/ranger-2.4.0-trino-plugin/enable-trino-plugin.sh && \
 /usr/lib/trino/bin/run-trino

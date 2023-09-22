@@ -137,3 +137,36 @@ def bcrypt_pwd(password):
     ).decode("utf-8")
     mod_password = bcrypt_password.replace("$2b$", "$2y$")
     return mod_password
+
+
+def charm_path(file_path):
+    """Get path for Charm.
+
+    Args:
+        file_path: charm file_path
+
+    Returns:
+        path: full charm path
+    """
+    charm_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir)
+    )
+    path = os.path.join(charm_dir, file_path)
+    return path
+
+
+def push_files(container, file_path, destination, permissions):
+    """Push files to container destination path.
+
+    Args:
+        container: the application container
+        file_path: the path of the file
+        destination: the destination path in the application
+        permissions: the permissions of the file
+    """
+    abs_path = charm_path(file_path)
+    with open(abs_path, "r") as file:
+        file_content = file.read()
+    container.push(
+        destination, file_content, make_dirs=True, permissions=permissions
+    )

@@ -33,6 +33,9 @@ resources:
 requires:
   nginx-route:
     interface: nginx-route
+  policy:
+    interface: ranger_client
+    limit: 1
 
 peers:
   peer:

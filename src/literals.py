@@ -4,7 +4,6 @@
 
 """Literals used by the Trino K8s charm."""
 
-RANGER_PLUGIN_PATH = "/root/ranger-2.3.0-trino-plugin.tar.gz"
 INSTALL_PROPERTIES_PATH = "/root/install.properties"
 CONF_PATH = "/etc/trino/conf"
 CATALOG_PATH = "/etc/trino/catalog"
@@ -18,7 +17,11 @@ AUTHENTICATOR_PROPERTIES = """password-authenticator.name=file
 file.password-file=/etc/trino/password.db
 file.refresh-period=1m
 file.auth-token-cache.max-size=1000"""
-
+RANGER_PLUGIN_FILE = "plugin-install.jinja"
+RANGER_PROPERTIES_PATH = "/root/install.properties"
+RANGER_PLUGIN_ENTRYPOINT = "templates/trino-entrypoint.jinja"
+RANGER_PLUGIN_ENTRYPOINT_PATH = "/trino-entrypoint.sh"
+RUN_TRINO_COMMAND = "/usr/lib/trino/bin/run-trino"
 TRINO_PORTS = {
     "HTTPS": 8443,
     "HTTP": 8080,
