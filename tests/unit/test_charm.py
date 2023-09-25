@@ -19,6 +19,13 @@ from charm import TrinoK8SCharm
 from state import State
 
 SERVER_PORT = "8080"
+CONN_CONFIG = """connector.name=postgresql
+connection-url=jdbc:postgresql://host.com:5432/database
+connection-user=testing
+connection-password=test
+"""
+DB_PATH = "/etc/trino/catalog/example-db.properties"
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,11 +94,18 @@ class TestCharm(TestCase):
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
                         "WEB_PROXY": None,
+                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PWD": "truststore123",
+                        "CHARM_FUNCTION": "coordinator",
+                        "DISCOVERY_URI": "http://trino-k8s:8080",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        got_plan["services"]["trino"]["environment"][
+            "SSL_PWD"
+        ] = "truststore123"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The service was started.
@@ -161,6 +175,7 @@ class TestCharm(TestCase):
                 "google-client-id": "test-client-id",
                 "google-client-secret": "test-client-secret",
                 "web-proxy": "proxy:port",
+                "charm-function": "worker",
             }
         )
 
@@ -178,15 +193,40 @@ class TestCharm(TestCase):
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
+                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PWD": "truststore123",
+                        "CHARM_FUNCTION": "worker",
+                        "DISCOVERY_URI": "http://trino-k8s:8080",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        got_plan["services"]["trino"]["environment"][
+            "SSL_PWD"
+        ] = "truststore123"  # nosec
         self.assertEqual(got_plan, want_plan)
 
         # The ActiveStatus is set with no message.
         self.assertEqual(harness.model.unit.status, ActiveStatus())
+
+    def test_connector_action(self):
+        """Add and remove connector actions applied to properties file."""
+        harness = self.harness
+        simulate_lifecycle(harness)
+
+        # Simulate add-connector action.
+        event = MockEvent()
+        harness.charm.connector._on_add_connector(event)
+
+        container = harness.model.unit.get_container("trino")
+        self.assertTrue(container.exists(DB_PATH))
+
+        # Simulate remove-connector action.
+        harness.charm.connector._on_remove_connector(event)
+
+        container = harness.model.unit.get_container("trino")
+        self.assertFalse(container.exists(DB_PATH))
 
 
 def simulate_lifecycle(harness):
@@ -201,6 +241,26 @@ def simulate_lifecycle(harness):
     # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
+
+
+class MockEvent:
+    """Mock event action class."""
+
+    def __init__(self):
+        """Mock handle params."""
+        self.params = {
+            "conn-name": "example-db",
+            "conn-config": CONN_CONFIG,
+        }
+        self.result = {}
+
+    def set_results(self, results):
+        """Mock set results of action.
+
+        Args:
+            results: result of action
+        """
+        self.result = results
 
 
 class TestState(TestCase):

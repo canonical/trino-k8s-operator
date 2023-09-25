@@ -7,12 +7,16 @@ add-connector:
     conn-name:
       description: |
         The name of the connector you are connecting to Trino
-        If not provided this value is overridden by connector name from jconnc
       type: string
     conn-config:
       description: |
         Connector configuration values, differs by connector type. 
         Visit https://trino.io/docs/current/connector.html for templates.
+      type: string
+    conn-cert:
+      description: |
+        Optional database certificate for TLS. 
+        Available only for PostgreSQL database connections.
       type: string
   required: [conn-name, conn-config]
   additionalProperties: false
@@ -24,11 +28,6 @@ remove-connector:
         The name of the connector you are connecting to Trino
         If not provided this value is overridden by connector name from jconnc
       type: string
-    conn-config:
-      description: |
-        Connector configuration values, differs by connector type. 
-        Visit https://trino.io/docs/current/connector.html for templates.
-      type: string
-  required: [conn-name, conn-config]
+  required: [conn-name]
 restart:
     description: Restart the Trino server.

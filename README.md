@@ -44,25 +44,48 @@ juju relate trino-k8s nginx-ingress-integrator
 
 Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
 
-### Connecting a database to Trino
-This is done using a `juju action` and configuration values passed as parameters to this action. 
-```
-# Add a database:
-juju run trino-k8s/0 add-connector conn-name=name conn-config="connector.name=postgresql
-connection-url=jdbc:postgresql://host:port/database
-connection-user=user
-connection-password=password"
-
-# Remove a database:
-juju run trino-k8s/0 remove-connector conn-name=name conn-config="connector.name=postgresql
-connection-url=jdbc:postgresql://host:port/database
-connection-user=user
-connection-password=password"
+## Trino connectors
+Adding or removing a connector from Trino is done using a `juju action` and configuration values passed as parameters to this action. This is best done with a `yaml` file.
 
 ```
-Note: the fields required can change sigificantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
+# adding a connector
+juju run trino-k8s/0 add-connector --params database.yaml
+
+# removing a connector
+juju run trino-k8s/0 remove-connector --params database.yaml
+```
+Details on the `database.yaml` file below.
+
+### Without TLS
+Connecting Trino to a database without TLS, requires a `<database>.yaml` structured as below (this example is for a PostgreSQL connector):
+```
+conn-name: example
+conn-config: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host.com:5432/database
+  connection-user=example-user
+  connection-password=example-password
+```
+Note: the fields required for `conn-config` can change significantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
 
 The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
+
+### With TLS
+Connecting Trino to a database with TLS, requires a `<database>.yaml` structured as below (this example is for a PostgreSQL connector):
+```
+conn-name: example
+conn-config: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={{ SSL_PATH }}&sslrootcertpassword={{ SSL_PWD }}
+  connection-user=example-user
+  connection-password=example-password
+conn-cert:
+  -----BEGIN CERTIFICATE-----
+  YOUR CERTIFICATE CONTENT
+  -----END CERTIFICATE-----
+```
+Note: the `connection-url` parameters for TLS are specific to the connector.
+`{{ SSL_PATH }}` and `{{ SSL PWD }}` variables should be used in place of the truststore path and password. These are environmental variables of the Trino application.
 
 ### Removing a database from Trino
 To remove a database you must provide the full configuration of that database. The user and password must match those that the connection was established with. It is not enough for them to have permissions to the database. For this reason we recommend creating a distinct `trino` user for this connection.
