@@ -1,7 +1,6 @@
+#!/bin/bash
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
-
-#!/bin/bash
 
 cd /root && \
 tar xf ranger-2.4.0-trino-plugin.tar.gz && \
