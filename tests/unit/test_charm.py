@@ -25,7 +25,7 @@ connection-user=testing
 connection-password=test
 """
 DB_PATH = "/etc/trino/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = "/root/install.properties"
+RANGER_PROPERTIES_PATH = "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +269,7 @@ class TestCharm(TestCase):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
         simulate_lifecycle(harness)
+        container = harness.model.unit.get_container("trino")
 
         rel_id = harness.add_relation("policy", "trino-k8s")
         harness.add_relation_unit(rel_id, "trino-k8s/0")
@@ -276,6 +277,7 @@ class TestCharm(TestCase):
         data = {"ranger-k8s": {}}
         event = make_policy_relation_event(rel_id, data)
         harness.charm.policy._on_relation_broken(event)
+        self.assertFalse(container.exists(RANGER_PROPERTIES_PATH))
 
 
 def simulate_lifecycle(harness):

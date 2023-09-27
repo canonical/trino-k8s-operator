@@ -12,8 +12,6 @@ from ops.pebble import ExecError
 from literals import (
     APP_NAME,
     JAVA_ENV,
-    RANGER_PLUGIN_ENTRYPOINT,
-    RANGER_PLUGIN_ENTRYPOINT_PATH,
     RANGER_PLUGIN_FILE,
     RANGER_PLUGIN_PATH,
     RANGER_POLICY_PATH,
@@ -115,17 +113,15 @@ class PolicyRelationHandler(framework.Object):
         policy_relation = f"relation_{event.relation.id}"
 
         try:
-            self._configure_ranger_plugin(
-                container, policy_manager_url, policy_relation
-            )
             self._unpack_plugin(container)
+            self._configure_plugin_properties(container, policy_manager_url, policy_relation)
             self._enable_plugin(container)
-        except ExecError:
+        except ExecError as err:
+            logger.error(err)
             self.charm.unit.status = BlockedStatus(
                 "Failed to enable Ranger plugin."
             )
             return
-
         self.charm._restart_trino(container)
 
     def _enable_plugin(self, container):
@@ -158,32 +154,28 @@ class PolicyRelationHandler(framework.Object):
         Raises:
             ExecError: in case unable to enable trino plugin
         """
-        if container.exists(f"{RANGER_PLUGIN_PATH}/enable-trino-plugin.sh"):
+        if container.exists(RANGER_PLUGIN_PATH):
             return
 
         command = [
-            "bash",
-            "/trino-entrypoint.sh",
+            "tar",
+            "xf",
+            "ranger-2.4.0-trino-plugin.tar.gz",
         ]
         try:
-            container.exec(command).wait_output()
+            container.exec(command, working_dir="/root").wait_output()
         except ExecError as err:
             logger.error(err.stdout)
             raise
 
-    def _configure_ranger_plugin(
-        self, container, policy_manager_url, policy_relation
-    ):
-        """Prepare Ranger plugin.
+    def _configure_plugin_properties(self, container, policy_manager_url, policy_relation):
+        """Configure the Ranger plugin install.properties file.
 
         Args:
             container: The application container
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
         """
-        if container.exists("/trino-entrypoint.sh"):
-            return
-
         policy_context = {
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
@@ -195,12 +187,6 @@ class PolicyRelationHandler(framework.Object):
             properties,
             make_dirs=True,
             permissions=0o744,
-        )
-        push_files(
-            container,
-            RANGER_PLUGIN_ENTRYPOINT,
-            RANGER_PLUGIN_ENTRYPOINT_PATH,
-            0o744,
         )
 
     def _disable_ranger_plugin(self, container):
@@ -235,14 +221,15 @@ class PolicyRelationHandler(framework.Object):
         if not container.can_connect():
             return
 
-        if not container.exists(
-            f"{RANGER_PLUGIN_PATH}/disable-trino-plugin.sh"
-        ):
+        if not container.exists(RANGER_PLUGIN_PATH):
             return
 
         self._disable_ranger_plugin(container)
 
         if container.exists(RANGER_POLICY_PATH):
             container.remove_path(RANGER_POLICY_PATH, recursive=True)
+
+        if container.exists(RANGER_PLUGIN_PATH):
+            container.remove_path(RANGER_PLUGIN_PATH, recursive=True)
 
         self.charm._restart_trino(container)

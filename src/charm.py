@@ -276,7 +276,7 @@ class TrinoK8SCharm(CharmBase):
 
     def _open_service_port(self):
         """Open port 8080 on Trino coordinator."""
-        if self.config["charm-function"] == "coordinator":
+        if self.config["charm-function"] in ["coordinator", "all"]:
             self.model.unit.open_port(port=8080, protocol="tcp")
         else:
             self.model.unit.close_port(port=8080, protocol="tcp")
