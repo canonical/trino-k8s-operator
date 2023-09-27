@@ -28,11 +28,14 @@ resources:
   trino-image:
     type: oci-image
     description: OCI image for trino
-    upstream-source: trinodb/trino:418
+    upstream-source: ghcr.io/canonical/trino:418
 
 requires:
   nginx-route:
     interface: nginx-route
+  policy:
+    interface: ranger_client
+    limit: 1
 
 peers:
   peer:

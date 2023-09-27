@@ -29,20 +29,9 @@ options:
       The address of the web proxy. To be used in combination
       with google-client-id and google-client-secret values.
     type: string 
-  ranger-acl-enabled:
+  ranger-service-name:
     description: |
-      Enabling/disabling Ranger plugin for Trino
-    default: False
-    type: boolean
-  policy-mgr-url:
-    description: |
-      Ranger URL for policy management
-    default: "http:ranger-admin:6080"
-    type: string
-  ranger-version:
-    description: |
-      Version of Ranger for Trino plugin
-    default: "2.3.0"
+      The service name for Trino in Apache Ranger when related. Defaults to relation id.
     type: string
   external-hostname:
     description: |
