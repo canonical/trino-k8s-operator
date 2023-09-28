@@ -18,7 +18,7 @@ from literals import (
     RANGER_PROPERTIES_PATH,
 )
 from log import log_event_handler
-from utils import push_files, render
+from utils import render
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,9 @@ class PolicyRelationHandler(framework.Object):
 
         try:
             self._unpack_plugin(container)
-            self._configure_plugin_properties(container, policy_manager_url, policy_relation)
+            self._configure_plugin_properties(
+                container, policy_manager_url, policy_relation
+            )
             self._enable_plugin(container)
         except ExecError as err:
             logger.error(err)
@@ -168,7 +170,9 @@ class PolicyRelationHandler(framework.Object):
             logger.error(err.stdout)
             raise
 
-    def _configure_plugin_properties(self, container, policy_manager_url, policy_relation):
+    def _configure_plugin_properties(
+        self, container, policy_manager_url, policy_relation
+    ):
         """Configure the Ranger plugin install.properties file.
 
         Args:

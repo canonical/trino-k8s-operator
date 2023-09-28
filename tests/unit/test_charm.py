@@ -25,7 +25,9 @@ connection-user=testing
 connection-password=test
 """
 DB_PATH = "/etc/trino/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
+RANGER_PROPERTIES_PATH = (
+    "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
+)
 
 logger = logging.getLogger(__name__)
 
