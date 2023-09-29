@@ -29,10 +29,11 @@ file.auth-token-cache.max-size=1000"""
 
 # Ranger plugin literals
 RANGER_PLUGIN_FILE = "plugin-install.jinja"
-RANGER_PROPERTIES_PATH = (
-    "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
-)
-RANGER_PLUGIN_PATH = "/root/ranger-3.0.0-SNAPSHOT-trino-plugin"
+RANGER_PLUGIN_VERSION = {
+    "tar": "2.4.0",
+    "path": "3.0.0-SNAPSHOT",
+}
+
 JAVA_ENV = {"JAVA_HOME": "/opt/java/openjdk"}
 RANGER_POLICY_PATH = "/etc/ranger"
 

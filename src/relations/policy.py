@@ -10,12 +10,11 @@ from ops.model import BlockedStatus
 from ops.pebble import ExecError
 
 from literals import (
-    APP_NAME,
     JAVA_ENV,
     RANGER_PLUGIN_FILE,
-    RANGER_PLUGIN_PATH,
+    RANGER_PLUGIN_VERSION,
     RANGER_POLICY_PATH,
-    RANGER_PROPERTIES_PATH,
+    TRINO_PORTS,
 )
 from log import log_event_handler
 from utils import render
@@ -24,7 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyRelationHandler(framework.Object):
-    """Client for trino policy relations."""
+    """Client for trino policy relations.
+
+    Attributes:
+        plugin_version: the version of the Ranger plugin
+        ranger_plugin_path: the path of the unpacked ranger plugin
+    """
+
+    plugin_version = RANGER_PLUGIN_VERSION["path"]
+    ranger_plugin_path = f"/root/ranger-{plugin_version}-trino-plugin"
 
     def __init__(self, charm, relation_name="policy"):
         """Construct.
@@ -50,33 +57,6 @@ class PolicyRelationHandler(framework.Object):
             charm.on[self.relation_name].relation_broken,
             self._on_relation_broken,
         )
-
-    def _prepare_service(self, event):
-        """Prepare service to be created in Ranger.
-
-        Args:
-            event: relation created event
-
-        Returns:
-            service: service values to be set in relation databag
-        """
-        host = self.charm.config["external-hostname"]
-        if host == APP_NAME:
-            uri = f"{host}:8080"
-        else:
-            uri = host
-
-        service_name = (
-            self.charm.config.get("ranger-service-name")
-            or f"relation_{event.relation.id}"
-        )
-        service = {
-            "name": service_name,
-            "type": "trino",
-            "jdbc.driverClassName": "io.trino.jdbc.TrinoDriver",
-            "jdbc.url": f"jdbc:trino://{uri}",
-        }
-        return service
 
     @log_event_handler(logger)
     def _on_relation_created(self, event):
@@ -126,6 +106,55 @@ class PolicyRelationHandler(framework.Object):
             return
         self.charm._restart_trino(container)
 
+    def _prepare_service(self, event):
+        """Prepare service to be created in Ranger.
+
+        Args:
+            event: relation created event
+
+        Returns:
+            service: service values to be set in relation databag
+        """
+        host = self.charm.config["external-hostname"]
+        port = TRINO_PORTS["HTTP"]
+        uri = f"{host}:{port}"
+
+        service_name = (
+            self.charm.config.get("ranger-service-name")
+            or f"relation_{event.relation.id}"
+        )
+        service = {
+            "name": service_name,
+            "type": "trino",
+            "jdbc.driverClassName": "io.trino.jdbc.TrinoDriver",
+            "jdbc.url": f"jdbc:trino://{uri}",
+        }
+        return service
+
+    @log_event_handler(logger)
+    def _on_relation_broken(self, event):
+        """Handle policy relation broken.
+
+        Args:
+            event: relation broken event.
+        """
+        container = self.charm.model.unit.get_container(self.charm.name)
+        if not container.can_connect():
+            return
+
+        if not container.exists(self.ranger_plugin_path):
+            return
+
+        self._disable_ranger_plugin(container)
+
+        if container.exists(RANGER_POLICY_PATH):
+            container.remove_path(RANGER_POLICY_PATH, recursive=True)
+
+        if container.exists(self.ranger_plugin_path):
+            container.remove_path(self.ranger_plugin_path, recursive=True)
+
+        self.charm._restart_trino(container)
+
     def _enable_plugin(self, container):
         """Enable ranger plugin.
 
@@ -141,7 +170,9 @@ class PolicyRelationHandler(framework.Object):
         ]
         try:
             container.exec(
-                command, working_dir=RANGER_PLUGIN_PATH, environment=JAVA_ENV
+                command,
+                working_dir=self.ranger_plugin_path,
+                environment=JAVA_ENV,
             ).wait_output()
         except ExecError as err:
             logger.error(err.stdout)
@@ -156,13 +187,15 @@ class PolicyRelationHandler(framework.Object):
         Raises:
             ExecError: in case unable to enable trino plugin
         """
-        if container.exists(RANGER_PLUGIN_PATH):
+        if container.exists(self.ranger_plugin_path):
             return
+
+        tar_version = RANGER_PLUGIN_VERSION["tar"]
 
         command = [
             "tar",
             "xf",
-            "ranger-2.4.0-trino-plugin.tar.gz",
+            f"ranger-{tar_version}-trino-plugin.tar.gz",
         ]
         try:
             container.exec(command, working_dir="/root").wait_output()
@@ -180,6 +213,7 @@ class PolicyRelationHandler(framework.Object):
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
         """
+        ranger_properties_path = f"/root/ranger-{self.plugin_version}-trino-plugin/install.properties"
         policy_context = {
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
@@ -187,7 +221,7 @@ class PolicyRelationHandler(framework.Object):
         }
         properties = render(RANGER_PLUGIN_FILE, policy_context)
         container.push(
-            RANGER_PROPERTIES_PATH,
+            ranger_properties_path,
             properties,
             make_dirs=True,
             permissions=0o744,
@@ -208,32 +242,10 @@ class PolicyRelationHandler(framework.Object):
         ]
         try:
             container.exec(
-                command, working_dir=RANGER_PLUGIN_PATH, environment=JAVA_ENV
+                command,
+                working_dir=self.ranger_plugin_path,
+                environment=JAVA_ENV,
             ).wait_output()
         except ExecError as err:
             logger.error(err.stdout)
             raise
-
-    @log_event_handler(logger)
-    def _on_relation_broken(self, event):
-        """Handle policy relation broken.
-
-        Args:
-            event: relation broken event.
-        """
-        container = self.charm.model.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            return
-
-        if not container.exists(RANGER_PLUGIN_PATH):
-            return
-
-        self._disable_ranger_plugin(container)
-
-        if container.exists(RANGER_POLICY_PATH):
-            container.remove_path(RANGER_POLICY_PATH, recursive=True)
-
-        if container.exists(RANGER_PLUGIN_PATH):
-            container.remove_path(RANGER_PLUGIN_PATH, recursive=True)
-
-        self.charm._restart_trino(container)
