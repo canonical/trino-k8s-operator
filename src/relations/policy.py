@@ -80,6 +80,9 @@ class PolicyRelationHandler(framework.Object):
         Args:
             event: relation changed event.
         """
+        if not self.charm.unit.is_leader():
+            return
+
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             return
@@ -138,6 +141,9 @@ class PolicyRelationHandler(framework.Object):
         Args:
             event: relation broken event.
         """
+        if not self.charm.unit.is_leader():
+            return
+
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             return
@@ -174,6 +180,7 @@ class PolicyRelationHandler(framework.Object):
                 working_dir=self.ranger_plugin_path,
                 environment=JAVA_ENV,
             ).wait_output()
+            logger.info("Ranger plugin enabled successfully")
         except ExecError as err:
             logger.error(err.stdout)
             raise
@@ -199,6 +206,7 @@ class PolicyRelationHandler(framework.Object):
         ]
         try:
             container.exec(command, working_dir="/root").wait_output()
+            logger.info("Ranger plugin unpacked successfully")
         except ExecError as err:
             logger.error(err.stdout)
             raise
@@ -246,6 +254,7 @@ class PolicyRelationHandler(framework.Object):
                 working_dir=self.ranger_plugin_path,
                 environment=JAVA_ENV,
             ).wait_output()
+            logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
             logger.error(err.stdout)
             raise
