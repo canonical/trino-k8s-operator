@@ -12,6 +12,12 @@ options:
       Valid values: info, debug, warn, error.
     default: info
     type: string
+  application-name:
+    description: |
+      The name of the application service to be used as internal host
+      when providing a jdbc string to Ranger for the policy relation.
+    default: trino-k8s
+    type: string
   int-comms-secret:
     description: |
       The secret Trino uses to communicate between nodes.

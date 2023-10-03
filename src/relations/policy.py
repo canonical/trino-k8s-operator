@@ -118,7 +118,7 @@ class PolicyRelationHandler(framework.Object):
         Returns:
             service: service values to be set in relation databag
         """
-        host = self.charm.config["external-hostname"]
+        host = self.charm.config["application-name"]
         port = TRINO_PORTS["HTTP"]
         uri = f"{host}:{port}"
 

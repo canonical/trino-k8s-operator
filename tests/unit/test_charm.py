@@ -101,6 +101,7 @@ class TestCharm(TestCase):
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
+                        "APPLICATION_NAME": "trino-k8s",
                     },
                 }
             },
@@ -200,6 +201,7 @@ class TestCharm(TestCase):
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
+                        "APPLICATION_NAME": "trino-k8s",
                     },
                 }
             },

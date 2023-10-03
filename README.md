@@ -102,10 +102,10 @@ Ranger acts as a fine-grained authorization manager for the Trino charm. It is a
 
 ```
 # deploy ranger-k8s charm
-juju deploy ranger-k8s --beta
+juju deploy ranger-k8s --channel beta
 
 # deploy ranger charm metadata database
-juju deploy ranger-k8s postgresql-k8s
+juju deploy postgresql-k8s
 
 # relate ranger charm and postgresql charm
 juju relate ranger-k8s postgresql-k8s
