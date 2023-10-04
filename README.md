@@ -96,6 +96,23 @@ In order to connect clustered database systems to Trino please connect the read-
 salesforce #read-write endpoint
 salesforce_ro #read-only endpoint
 ```
+## Relations
+### Ranger
+Ranger acts as a fine-grained authorization manager for the Trino charm. It is an optional relation in order to provide access control on the data connected to Trino.
+
+```
+# deploy ranger-k8s charm
+juju deploy ranger-k8s --channel beta
+
+# deploy ranger charm metadata database
+juju deploy postgresql-k8s
+
+# relate ranger charm and postgresql charm
+juju relate ranger-k8s postgresql-k8s
+
+# relate trino-k8s ranger-k8s
+juju relate trino-k8s ranger-k8s
+```
 
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.

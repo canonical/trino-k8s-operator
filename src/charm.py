@@ -33,10 +33,12 @@ from literals import (
     LOG_JINJA,
     LOG_PATH,
     PASSWORD_DB_PATH,
+    RUN_TRINO_COMMAND,
     SYSTEM_CONNECTORS,
     TRINO_PORTS,
 )
 from log import log_event_handler
+from relations.policy import PolicyRelationHandler
 from state import State
 from utils import bcrypt_pwd, generate_password, push, render
 
@@ -67,6 +69,7 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self._state = State(self.app, lambda: self.model.get_relation("peer"))
         self.connector = TrinoConnector(self)
+        self.policy = PolicyRelationHandler(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -238,38 +241,6 @@ class TrinoK8SCharm(CharmBase):
 
         event.set_results({"result": "trino successfully restarted"})
 
-    @log_event_handler(logger)
-    def _configure_ranger_plugin(self, container):
-        """Prepare Ranger plugin.
-
-        Args:
-            container: The application container
-
-        Raises:
-            RuntimeError: ranger-trino-plugin.tar.gz is not present
-
-        Returns:
-            command: The command to start the Trino application
-        """
-        ranger_version = self.config["ranger-version"]
-        path = f"/root/ranger-{ranger_version}-trino-plugin.tar.gz"
-        if not container.exists(path):
-            raise RuntimeError(f"ranger-plugin: no {path!r}, check the image")
-
-        policy_context = {"POLICY_MGR_URL": self.config["policy-mgr-url"]}
-        jinja_file = "plugin-install.jinja"
-        trino_path = "/root/install.properties"
-        self._push_file(container, policy_context, jinja_file, trino_path)
-
-        entrypoint_context = {"RANGER_VERSION": self.config["ranger-version"]}
-        jinja_file = "trino-entrypoint.jinja"
-        trino_path = "/trino-entrypoint.sh"
-        self._push_file(
-            container, entrypoint_context, jinja_file, trino_path, 0o744
-        )
-        command = "/trino-entrypoint.sh"
-        return command
-
     def _push_file(
         self, container, context, jinja_file, path, permission=0o644
     ):
@@ -305,7 +276,7 @@ class TrinoK8SCharm(CharmBase):
 
     def _open_service_port(self):
         """Open port 8080 on Trino coordinator."""
-        if self.config["charm-function"] == "coordinator":
+        if self.config["charm-function"] in ["coordinator", "all"]:
             self.model.unit.open_port(port=8080, protocol="tcp")
         else:
             self.model.unit.close_port(port=8080, protocol="tcp")
@@ -348,6 +319,7 @@ class TrinoK8SCharm(CharmBase):
             "SSL_PATH": f"{CONF_PATH}/truststore.jks",
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
+            "APPLICATION_NAME": self.config["application-name"],
         }
         return env
 
@@ -381,15 +353,6 @@ class TrinoK8SCharm(CharmBase):
         self._push_file(container, env, LOG_JINJA, LOG_PATH)
         self._push_file(container, env, CONFIG_JINJA, CONFIG_PATH)
 
-        if self.config["ranger-acl-enabled"]:
-            try:
-                command = self._configure_ranger_plugin(container)
-            except RuntimeError as err:
-                self.unit.status = BlockedStatus(str(err))
-                return
-        else:
-            command = "/usr/lib/trino/bin/run-trino"
-
         logger.info("planning trino execution")
         pebble_layer = {
             "summary": "trino layer",
@@ -398,7 +361,7 @@ class TrinoK8SCharm(CharmBase):
                 self.name: {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": command,
+                    "command": RUN_TRINO_COMMAND,
                     "startup": "enabled",
                     "environment": env,
                 }

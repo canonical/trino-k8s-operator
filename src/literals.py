@@ -4,14 +4,22 @@
 
 """Literals used by the Trino K8s charm."""
 
-RANGER_PLUGIN_PATH = "/root/ranger-2.3.0-trino-plugin.tar.gz"
-INSTALL_PROPERTIES_PATH = "/root/install.properties"
+APP_NAME = "trino-k8s"
+TRINO_PORTS = {
+    "HTTPS": 8443,
+    "HTTP": 8080,
+}
+
+# Configuration literals
 CONF_PATH = "/etc/trino/conf"
 CATALOG_PATH = "/etc/trino/catalog"
 CONFIG_JINJA = "config.jinja"
 CONFIG_PATH = "/etc/trino/config.properties"
 LOG_PATH = "/etc/trino/log.properties"
 LOG_JINJA = "logging.jinja"
+RUN_TRINO_COMMAND = "/usr/lib/trino/bin/run-trino"
+
+# Authentication literals
 PASSWORD_DB_PATH = "/etc/trino/password.db"  # nosec
 AUTHENTICATOR_PATH = "/etc/trino/password-authenticator.properties"
 AUTHENTICATOR_PROPERTIES = """password-authenticator.name=file
@@ -19,11 +27,17 @@ file.password-file=/etc/trino/password.db
 file.refresh-period=1m
 file.auth-token-cache.max-size=1000"""
 
-TRINO_PORTS = {
-    "HTTPS": 8443,
-    "HTTP": 8080,
+# Ranger plugin literals
+RANGER_PLUGIN_FILE = "plugin-install.jinja"
+RANGER_PLUGIN_VERSION = {
+    "tar": "2.4.0",
+    "path": "3.0.0-SNAPSHOT",
 }
 
+JAVA_ENV = {"JAVA_HOME": "/opt/java/openjdk"}
+RANGER_POLICY_PATH = "/etc/ranger"
+
+# Connector literal
 CONNECTOR_FIELDS = {
     "accumlo": {
         "required": [

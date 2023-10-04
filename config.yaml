@@ -12,6 +12,12 @@ options:
       Valid values: info, debug, warn, error.
     default: info
     type: string
+  application-name:
+    description: |
+      The name of the application service to be used as internal host
+      when providing a jdbc string to Ranger for the policy relation.
+    default: trino-k8s
+    type: string
   int-comms-secret:
     description: |
       The secret Trino uses to communicate between nodes.
@@ -29,20 +35,9 @@ options:
       The address of the web proxy. To be used in combination
       with google-client-id and google-client-secret values.
     type: string 
-  ranger-acl-enabled:
+  ranger-service-name:
     description: |
-      Enabling/disabling Ranger plugin for Trino
-    default: False
-    type: boolean
-  policy-mgr-url:
-    description: |
-      Ranger URL for policy management
-    default: "http:ranger-admin:6080"
-    type: string
-  ranger-version:
-    description: |
-      Version of Ranger for Trino plugin
-    default: "2.3.0"
+      The service name for Trino in Apache Ranger when related. Defaults to relation id.
     type: string
   external-hostname:
     description: |

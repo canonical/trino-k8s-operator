@@ -3,7 +3,7 @@
 # Example:
 # POLICY_MGR_URL=http://policymanager.xasecure.net:6080
 #
-POLICY_MGR_URL={{ POLICY_MGR_URL | default("http://ranger-admin:6080") }}
+POLICY_MGR_URL={{ POLICY_MGR_URL | default("") }}
 
 #
 # This is the repository name created within policy manager
@@ -11,7 +11,7 @@ POLICY_MGR_URL={{ POLICY_MGR_URL | default("http://ranger-admin:6080") }}
 # Example:
 # REPOSITORY_NAME=trinodev
 #
-REPOSITORY_NAME=trino
+REPOSITORY_NAME={{ REPOSITORY_NAME | default("trino")}}
 
 # Configure INSTALL_ENV=docker if running trino in docker environment
 INSTALL_ENV=docker
