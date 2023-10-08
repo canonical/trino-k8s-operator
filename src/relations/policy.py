@@ -15,9 +15,12 @@ from literals import (
     RANGER_PLUGIN_VERSION,
     RANGER_POLICY_PATH,
     TRINO_PORTS,
+    SYSTEM_GROUPS,
+    SYSTEM_USERS,
 )
 from log import log_event_handler
 from utils import render
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,12 @@ class PolicyRelationHandler(framework.Object):
                 "Failed to enable Ranger plugin."
             )
             return
+
+        users_and_groups = event.relation.data[event.app].get(
+            "user-group-configuration", None
+        )
+        if users_and_groups:
+            self._synchronize(users_and_groups, container)
         self.charm._restart_trino(container)
 
     def _prepare_service(self, event):
@@ -234,6 +243,99 @@ class PolicyRelationHandler(framework.Object):
             make_dirs=True,
             permissions=0o744,
         )
+
+    def _synchronize(self, config, container):
+        data = yaml.safe_load(config)
+        self._sync(container, data["users"], "user")
+        self._sync(container, data["groups"], "group")
+        self._sync_memberships(container, data["memberships"])
+        
+
+    def _get_unix(self, container, object_type):
+        if object_type == "user":
+            object_type = "passwd"
+
+        command = ["getent", object_type]
+        out = container.exec(command).wait_output()
+        values = []
+        rows = out[0].strip().split("\n")
+        for row in rows:
+            field = row.split(":")[0]
+            values.append(field)
+        logger.info(values)
+        return values
+
+
+    def _create_unix(self, container, object_type, name):
+        value = f"{object_type}add"
+        command = [value, name]
+        out = container.exec(command).wait_output()
+        return out
+
+    def _sync(self, container, apply_objects, type):
+        existing_objects = self._get_unix(container, type)
+        for object in apply_objects:
+            apply_name = object.get("name")
+            matching = next(
+                (
+                    existing_object
+                    for existing_object in existing_objects
+                    if existing_object == apply_name
+                ),
+                None,
+            )
+            if not matching:
+                self._create_unix(container, type, apply_name)
+
+    def _get_unix_members(self, container, object_type):
+        command = ["getent", object_type]
+        out = container.exec(command).wait_output()
+        values = {}
+        rows = out[0].strip().split("\n")
+        for row in rows:
+            group = row.split(":")[0]
+            users = row.split(":")[3]
+            values[group] = users
+        return values
+
+    def _create_group_membership(self, container, groupname, user_name):
+        logger.info("create group membership")
+        command = ["usermod", "-aG", groupname, user_name]
+        logger.info(command)
+        out = container.exec(command).wait_output()
+        logger.info(out)
+
+    def _delete_group_membership(self, container, groupname, user_name):
+        command = ["deluser", user_name, groupname]
+        out = container.exec(command).wait_output()
+        logger.info(out)
+
+    def _sync_memberships(self, container, apply_memberships):
+        existing_memberships = self._get_unix_members(container, "group")
+
+        existing_combinations = set()
+        for key, value in existing_memberships.items():
+            users = [user.strip() for user in value.split(",")]
+            for user in users:
+                existing_combinations.add((key, user))
+
+        logger.info(apply_memberships)
+        for apply_membership in apply_memberships:
+            groupname = apply_membership["groupname"]
+            users_str = apply_membership["users"]
+            users_list = [user.strip() for user in users_str.split(',')]
+            apply_membership["users"] = users_list
+            for user_name in apply_membership["users"]:
+                if (groupname, user_name) in existing_combinations:
+                    existing_combinations.remove((groupname, user_name))
+                else:
+                    self._create_group_membership(container, groupname, user_name)
+
+        for combination in existing_combinations:
+            group = combination[0]
+            logger.info(f"group{group}")
+            if combination[1]:
+                self._delete_group_membership(container, combination[0], combination[1])
 
     def _disable_ranger_plugin(self, container):
         """Disable ranger plugin.
