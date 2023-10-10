@@ -433,7 +433,7 @@ class PolicyRelationHandler(framework.Object):
                     command=["deluser", combination[1], combination[0]],
                 )
                 logger.info(
-                            f"Removed group membership {combination[1]}: {combination[0]}"
+                            f"Removed group membership {combination[1]}:{combination[0]}"
                         )
             except ExecError:
                 logger.exception(
