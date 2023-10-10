@@ -314,7 +314,7 @@ class PolicyRelationHandler(framework.Object):
                     _ = execute_command(
                         container, [f"{member_type}add", apply_name]
                     )
-                    logger.info(f"created {member_type}: {apply_name}")
+                    logger.info(f"Created {member_type}: {apply_name}")
                 except ExecError:
                     logger.exception(
                         f"An error occurred while creating {member_type}: {apply_name}:"
