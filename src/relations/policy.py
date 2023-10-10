@@ -5,6 +5,7 @@
 
 import logging
 
+import yaml
 from ops import framework
 from ops.model import BlockedStatus
 from ops.pebble import ExecError
@@ -15,12 +16,10 @@ from literals import (
     RANGER_PLUGIN_VERSION,
     RANGER_POLICY_PATH,
     TRINO_PORTS,
-    SYSTEM_GROUPS,
-    SYSTEM_USERS,
+    UNIX_TYPE_MAPPING,
 )
 from log import log_event_handler
-from utils import render
-import yaml
+from utils import execute_command, render
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +103,8 @@ class PolicyRelationHandler(framework.Object):
                 container, policy_manager_url, policy_relation
             )
             self._enable_plugin(container)
-        except ExecError as err:
-            logger.error(err)
+        except ExecError:
+            logger.exception("Failed to enable Ranger plugin:")
             self.charm.unit.status = BlockedStatus(
                 "Failed to enable Ranger plugin."
             )
@@ -115,7 +114,16 @@ class PolicyRelationHandler(framework.Object):
             "user-group-configuration", None
         )
         if users_and_groups:
-            self._synchronize(users_and_groups, container)
+            try:
+                self._synchronize(users_and_groups, container)
+            except ExecError:
+                logger.exception("Failed to synchronize groups:")
+                event.defer()
+            except Exception:
+                logger.exception("An exception occurred while sychronizing Ranger groups:")
+                self.charm.unit.status = BlockedStatus(
+                "Failed synchronize Ranger groups."
+            )
         self.charm._restart_trino(container)
 
     def _prepare_service(self, event):
@@ -245,37 +253,54 @@ class PolicyRelationHandler(framework.Object):
         )
 
     def _synchronize(self, config, container):
+        """Handle synchronization of Ranger users, groups and group membership.
+
+        Args:
+            config: string of user and group configuration from Ranger relation.
+            container: Trino application container.
+
+        Raises:
+            ExecError: in case of error while sychnronizing group membership.
+        """
         data = yaml.safe_load(config)
-        self._sync(container, data["users"], "user")
-        self._sync(container, data["groups"], "group")
-        self._sync_memberships(container, data["memberships"])
-        
+        try:
+            self._sync(container, data["users"], "user")
+            self._sync(container, data["groups"], "group")
+            existing_combinations = self._get_existing_memberships(
+                container, "membership"
+            )
+            removable_combinations = self._create_memberships(
+                container, data["memberships"], existing_combinations
+            )
+            self._delete_memberships(container, removable_combinations)
+        except ExecError:
+            logger.exception(
+                "An error occurred while syncing users and group memberships:"
+            )
+            raise
 
-    def _get_unix(self, container, object_type):
-        if object_type == "user":
-            object_type = "passwd"
+    def _sync(self, container, apply_objects, member_type):
+        """Synchronize Unix users and groups.
 
-        command = ["getent", object_type]
-        out = container.exec(command).wait_output()
-        values = []
-        rows = out[0].strip().split("\n")
-        for row in rows:
-            field = row.split(":")[0]
-            values.append(field)
-        logger.info(values)
-        return values
+        Args:
+            container: The container to run the command in.
+            apply_objects: The users and group mappings to be applied to Trino.
+            member_type: The type of Unix object to create, either "user" or "group".
 
+        Raises:
+            ExecError: in case where existing Unix users or groups fails.
+                       in case where creating a Unix user or group fails.
+        """
+        try:
+            existing_objects = self._get_unix(container, member_type)
+        except ExecError:
+            logger.exception(
+                f"An error occurred while retrieving unix {member_type}:"
+            )
+            raise
 
-    def _create_unix(self, container, object_type, name):
-        value = f"{object_type}add"
-        command = [value, name]
-        out = container.exec(command).wait_output()
-        return out
-
-    def _sync(self, container, apply_objects, type):
-        existing_objects = self._get_unix(container, type)
-        for object in apply_objects:
-            apply_name = object.get("name")
+        for apply_object in apply_objects:
+            apply_name = apply_object.get("name")
             matching = next(
                 (
                     existing_object
@@ -285,57 +310,136 @@ class PolicyRelationHandler(framework.Object):
                 None,
             )
             if not matching:
-                self._create_unix(container, type, apply_name)
+                try:
+                    _ = execute_command(
+                        container, [f"{member_type}add", apply_name]
+                    )
+                    logger.info(f"created {member_type}: {apply_name}")
+                except ExecError:
+                    logger.exception(
+                        f"An error occurred while creating {member_type}: {apply_name}:"
+                    )
+                    raise
 
-    def _get_unix_members(self, container, object_type):
-        command = ["getent", object_type]
-        out = container.exec(command).wait_output()
-        values = {}
-        rows = out[0].strip().split("\n")
-        for row in rows:
-            group = row.split(":")[0]
-            users = row.split(":")[3]
-            values[group] = users
+    def _get_unix(self, container, member_type):
+        """Get a list of Unix users or groups from the specified container.
+
+        Args:
+            container: The container to run the command in.
+            member_type: The type of Unix object to retrieve, either "user" or "group".
+
+        Raises:
+            ExecError: in case the command cannot be executed.
+
+        Returns:
+            values: A list of usernames or group names.
+        """
+        member_type_mapping = UNIX_TYPE_MAPPING
+        command = ["getent", member_type_mapping[member_type]]
+
+        try:
+            out = container.exec(command).wait_output()
+        except ExecError:
+            logger.exception(f"Failed to execute command {command}:")
+            raise
+
+        if member_type == "membership":
+            rows = out[0].strip().split("\n")
+            values = {row.split(":")[0]: row.split(":")[3] for row in rows}
+        else:
+            values = [row.split(":")[0] for row in out[0].strip().split("\n")]
         return values
 
-    def _create_group_membership(self, container, groupname, user_name):
-        logger.info("create group membership")
-        command = ["usermod", "-aG", groupname, user_name]
-        logger.info(command)
-        out = container.exec(command).wait_output()
-        logger.info(out)
+    def _get_existing_memberships(self, container, member_type):
+        """Get existing Unix group memberships.
 
-    def _delete_group_membership(self, container, groupname, user_name):
-        command = ["deluser", user_name, groupname]
-        out = container.exec(command).wait_output()
-        logger.info(out)
+        Args:
+            container: The container to run the command in.
+            member_type: The "membership" object type.
 
-    def _sync_memberships(self, container, apply_memberships):
-        existing_memberships = self._get_unix_members(container, "group")
+        Raises:
+            ExecError: in case where removing a user to a group fails.
+
+        Returns:
+            existing_combinations: existing group memberships
+        """
+        try:
+            existing_memberships = self._get_unix(container, member_type)
+        except ExecError:
+            logger.exception("Failed to get unix group memberships:")
+            raise
 
         existing_combinations = set()
-        for key, value in existing_memberships.items():
+        for group, value in existing_memberships.items():
             users = [user.strip() for user in value.split(",")]
             for user in users:
-                existing_combinations.add((key, user))
+                if user:
+                    existing_combinations.add((group, user))
 
-        logger.info(apply_memberships)
+        return existing_combinations
+
+    def _create_memberships(
+        self, container, apply_memberships, existing_combinations
+    ):
+        """Add Unix users to groups.
+
+        Args:
+            container: The container to run the command in.
+            apply_memberships: The membership combinations to apply.
+            existing_combinations: Dictionary of existing Unix group membership.
+
+        Raises:
+            ExecError: in case where add a user to a group fails.
+
+        Returns:
+            existing_combinations: dictionary of memberships not defined by Ranger.
+        """
         for apply_membership in apply_memberships:
-            groupname = apply_membership["groupname"]
-            users_str = apply_membership["users"]
-            users_list = [user.strip() for user in users_str.split(',')]
-            apply_membership["users"] = users_list
-            for user_name in apply_membership["users"]:
-                if (groupname, user_name) in existing_combinations:
-                    existing_combinations.remove((groupname, user_name))
+            group_name = apply_membership["groupname"]
+            users = apply_membership["users"]
+            for user_name in users:
+                if (group_name, user_name) in existing_combinations:
+                    existing_combinations.remove((group_name, user_name))
                 else:
-                    self._create_group_membership(container, groupname, user_name)
+                    try:
+                        _ = execute_command(
+                            container,
+                            ["usermod", "-aG", group_name, user_name],
+                        )
+                        logger.info(
+                            f"Created group membership {group_name}:{user_name}"
+                        )
+                    except ExecError:
+                        logger.exception(
+                            f"Failed to add user {user_name} to {group_name}:"
+                        )
+                        raise
+        return existing_combinations
 
-        for combination in existing_combinations:
-            group = combination[0]
-            logger.info(f"group{group}")
-            if combination[1]:
-                self._delete_group_membership(container, combination[0], combination[1])
+    def _delete_memberships(self, container, removable_combinations):
+        """Delete unix group memberships.
+
+        Args:
+            container: The container to run the command in.
+            removable_combinations: User/group membership to remove.
+
+        Raises:
+            ExecError: in case where removing a user from a group fails.
+        """
+        for combination in removable_combinations:
+            try:
+                _ = execute_command(
+                    container,
+                    command=["deluser", combination[1], combination[0]],
+                )
+                logger.info(
+                            f"Removed group membership {combination[1]}: {combination[0]}"
+                        )
+            except ExecError:
+                logger.exception(
+                    f"Failed to delete user {combination[1]} from {combination[0]}:"
+                )
+                raise
 
     def _disable_ranger_plugin(self, container):
         """Disable ranger plugin.

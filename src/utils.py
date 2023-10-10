@@ -13,6 +13,7 @@ import string
 import bcrypt
 from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
+from ops.pebble import ExecError
 
 logger = logging.getLogger(__name__)
 
@@ -168,3 +169,24 @@ def push_files(container, file_path, destination, permissions):
     container.push(
         destination, file_content, make_dirs=True, permissions=permissions
     )
+
+
+def execute_command(container, command):
+    """Execute command on the container application.
+
+    Args:
+        container: the application container
+        command: command to be executed
+
+    Raises:
+        ExecError: in case of failure to execute
+
+    Returns:
+        out: output of the command
+    """
+    try:
+        out = container.exec(command).wait_output()
+        return out
+    except ExecError:
+        logger.exception(f"Failed to execute command {command}:")
+        raise
