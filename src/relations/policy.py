@@ -120,10 +120,12 @@ class PolicyRelationHandler(framework.Object):
                 logger.exception("Failed to synchronize groups:")
                 event.defer()
             except Exception:
-                logger.exception("An exception occurred while sychronizing Ranger groups:")
+                logger.exception(
+                    "An exception occurred while sychronizing Ranger groups:"
+                )
                 self.charm.unit.status = BlockedStatus(
-                "Failed synchronize Ranger groups."
-            )
+                    "Failed synchronize Ranger groups."
+                )
         self.charm._restart_trino(container)
 
     def _prepare_service(self, event):
@@ -433,8 +435,8 @@ class PolicyRelationHandler(framework.Object):
                     command=["deluser", combination[1], combination[0]],
                 )
                 logger.info(
-                            f"Removed group membership {combination[1]}:{combination[0]}"
-                        )
+                    f"Removed group membership {combination[1]}:{combination[0]}"
+                )
             except ExecError:
                 logger.exception(
                     f"Failed to delete user {combination[1]} from {combination[0]}:"
