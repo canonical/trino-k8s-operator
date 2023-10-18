@@ -19,7 +19,7 @@ from literals import (
     UNIX_TYPE_MAPPING,
 )
 from log import log_event_handler
-from utils import execute_command, render
+from utils import render
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ class PolicyRelationHandler(framework.Object):
                     "An exception occurred while sychronizing Ranger groups:"
                 )
                 self.charm.unit.status = BlockedStatus(
-                    "Failed synchronize Ranger groups."
+                    "Failed to synchronize Ranger groups."
                 )
         self.charm._restart_trino(container)
 
@@ -290,14 +290,14 @@ class PolicyRelationHandler(framework.Object):
             member_type: The type of Unix object to create, either "user" or "group".
 
         Raises:
-            ExecError: in case where existing Unix users or groups fails.
-                       in case where creating a Unix user or group fails.
+            ExecError: in case getting existing Unix users fails.
+                       in case creating a Unix user or group fails.
         """
         try:
             existing_objects = self._get_unix(container, member_type)
         except ExecError:
             logger.exception(
-                f"An error occurred while retrieving unix {member_type}:"
+                f"An error occurred while retrieving Unix {member_type}:"
             )
             raise
 
@@ -313,9 +313,7 @@ class PolicyRelationHandler(framework.Object):
             )
             if not matching:
                 try:
-                    _ = execute_command(
-                        container, [f"{member_type}add", apply_name]
-                    )
+                    _ = container.exec([f"{member_type}add", apply_name]).wait_output()
                     logger.info(f"Created {member_type}: {apply_name}")
                 except ExecError:
                     logger.exception(
@@ -328,13 +326,13 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             container: The container to run the command in.
-            member_type: The type of Unix object to retrieve, either "user" or "group".
+            member_type: The type of Unix object to retrieve, either "user", "group" or "membership".
 
         Raises:
             ExecError: in case the command cannot be executed.
 
         Returns:
-            values: A list of usernames or group names.
+            values: Either a list of usernames/groups or a dictionary of groups mapped to users.
         """
         member_type_mapping = UNIX_TYPE_MAPPING
         command = ["getent", member_type_mapping[member_type]]
@@ -346,29 +344,32 @@ class PolicyRelationHandler(framework.Object):
             raise
 
         if member_type == "membership":
+            # Split the output to rows.
             rows = out[0].strip().split("\n")
+            # Create a dictionary of field 0 (group) and field 3 (username(s)).
             values = {row.split(":")[0]: row.split(":")[3] for row in rows}
         else:
+            # Split the output to rows and create a list of user/group values.
             values = [row.split(":")[0] for row in out[0].strip().split("\n")]
         return values
 
     def _get_existing_memberships(self, container, member_type):
-        """Get existing Unix group memberships.
+        """Get a list of Unix users or groups from the specified container.
 
         Args:
             container: The container to run the command in.
-            member_type: The "membership" object type.
+            member_type: The type of Unix object to retrieve: "membership".
 
         Raises:
-            ExecError: in case where removing a user to a group fails.
+            ExecError: in case the command cannot be executed.
 
         Returns:
-            existing_combinations: existing group memberships
+            existing_combination: existing Unix memberships.
         """
         try:
             existing_memberships = self._get_unix(container, member_type)
         except ExecError:
-            logger.exception("Failed to get unix group memberships:")
+            logger.exception("Failed to get Unix group memberships:")
             raise
 
         existing_combinations = set()
@@ -391,7 +392,7 @@ class PolicyRelationHandler(framework.Object):
             existing_combinations: Dictionary of existing Unix group membership.
 
         Raises:
-            ExecError: in case where add a user to a group fails.
+            ExecError: in case where adding a user to a group fails.
 
         Returns:
             existing_combinations: dictionary of memberships not defined by Ranger.
@@ -404,10 +405,7 @@ class PolicyRelationHandler(framework.Object):
                     existing_combinations.remove((group_name, user_name))
                 else:
                     try:
-                        _ = execute_command(
-                            container,
-                            ["usermod", "-aG", group_name, user_name],
-                        )
+                        container.exec(["usermod", "-aG", group_name, user_name]).wait_output()
                         logger.info(
                             f"Created group membership {group_name}:{user_name}"
                         )
@@ -419,21 +417,18 @@ class PolicyRelationHandler(framework.Object):
         return existing_combinations
 
     def _delete_memberships(self, container, removable_combinations):
-        """Delete unix group memberships.
+        """Delete Unix group memberships.
 
         Args:
             container: The container to run the command in.
-            removable_combinations: User/group membership to remove.
+            removable_combinations: The membership to remove.
 
         Raises:
-            ExecError: in case where removing a user from a group fails.
+            ExecError: in case removing a user from a group fails.
         """
         for combination in removable_combinations:
             try:
-                _ = execute_command(
-                    container,
-                    command=["deluser", combination[1], combination[0]],
-                )
+                container.exec(["deluser", combination[1], combination[0]]).wait_output()
                 logger.info(
                     f"Removed group membership {combination[1]}:{combination[0]}"
                 )
