@@ -30,7 +30,7 @@ RANGER_PROPERTIES_PATH = (
     "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
 )
 POLICY_MGR_URL = "http://ranger-k8s:6080"
-GROUP_MANAGEMENT = """
+GROUP_MANAGEMENT = """\
         users:
           - name: user1
             firstname: One

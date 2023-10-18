@@ -311,9 +311,9 @@ class PolicyRelationHandler(framework.Object):
                 ),
                 None,
             )
-            if not matching:
+            if matching is not None:
                 try:
-                    _ = container.exec(
+                    container.exec(
                         [f"{member_type}add", apply_name]
                     ).wait_output()
                     logger.info(f"Created {member_type}: {apply_name}")
