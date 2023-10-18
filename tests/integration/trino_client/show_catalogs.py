@@ -7,7 +7,7 @@
 from trino.dbapi import connect
 
 
-async def show_catalogs(host) -> str:
+async def show_catalogs(host, user) -> str:
     """Trino catalogs.
 
     Args:
@@ -19,7 +19,7 @@ async def show_catalogs(host) -> str:
     conn = connect(
         host=host,
         port=8080,
-        user="trino",
+        user=user,
         http_scheme="http",
         verify=False,
     )
