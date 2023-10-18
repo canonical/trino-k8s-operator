@@ -313,7 +313,9 @@ class PolicyRelationHandler(framework.Object):
             )
             if not matching:
                 try:
-                    _ = container.exec([f"{member_type}add", apply_name]).wait_output()
+                    _ = container.exec(
+                        [f"{member_type}add", apply_name]
+                    ).wait_output()
                     logger.info(f"Created {member_type}: {apply_name}")
                 except ExecError:
                     logger.exception(
@@ -326,7 +328,7 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             container: The container to run the command in.
-            member_type: The type of Unix object to retrieve, either "user", "group" or "membership".
+            member_type: The Unix object to retrieve, either "user", "group" or "membership".
 
         Raises:
             ExecError: in case the command cannot be executed.
@@ -405,7 +407,9 @@ class PolicyRelationHandler(framework.Object):
                     existing_combinations.remove((group_name, user_name))
                 else:
                     try:
-                        container.exec(["usermod", "-aG", group_name, user_name]).wait_output()
+                        container.exec(
+                            ["usermod", "-aG", group_name, user_name]
+                        ).wait_output()
                         logger.info(
                             f"Created group membership {group_name}:{user_name}"
                         )
@@ -428,7 +432,9 @@ class PolicyRelationHandler(framework.Object):
         """
         for combination in removable_combinations:
             try:
-                container.exec(["deluser", combination[1], combination[0]]).wait_output()
+                container.exec(
+                    ["deluser", combination[1], combination[0]]
+                ).wait_output()
                 logger.info(
                     f"Removed group membership {combination[1]}:{combination[0]}"
                 )

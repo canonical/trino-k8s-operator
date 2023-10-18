@@ -13,7 +13,6 @@ import string
 import bcrypt
 from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
-from ops.pebble import ExecError
 
 logger = logging.getLogger(__name__)
 
