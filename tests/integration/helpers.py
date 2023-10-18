@@ -35,7 +35,7 @@ connection-password=trino
 """
 RANGER_NAME = "ranger-k8s"
 GROUP_MANAGEMENT = """
-    relation_1:
+    relation_6:
         users:
           - name: user1
             firstname: One

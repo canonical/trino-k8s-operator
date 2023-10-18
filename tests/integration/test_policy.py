@@ -21,6 +21,7 @@ from helpers import (
     POSTGRES_NAME,
     GROUP_MANAGEMENT,
     create_group_policy,
+    get_unit_url,
 )
 from pytest_operator.plugin import OpsTest
 
@@ -76,7 +77,7 @@ async def deploy(ops_test: OpsTest):
     time.sleep(10)
     app = ops_test.model.applications.get("ranger-k8s")
     logging.info("configuring ranger values")
-    await app.set_config({"user-group-configuration": GROUP_MANAGEMENT})
+    await app.set_config({"user-group-configuration": f"{GROUP_MANAGEMENT}"})
     time.sleep(10)
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, RANGER_NAME],
