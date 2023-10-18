@@ -21,7 +21,6 @@ from apache_ranger.model.ranger_policy import (
 
 logger = logging.getLogger(__name__)
 
-RANGER_URL = "http://ranger-k8s:6080"
 RANGER_AUTH = ("admin", "rangerR0cks!")
 CONN_NAME = "connection-test"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
@@ -114,8 +113,8 @@ async def run_connector_action(ops_test, action, params, user):
     return catalogs
 
 
-async def create_group_policy(ops_test):
-    ranger = RangerClient(RANGER_URL, RANGER_AUTH)
+async def create_group_policy(ops_test, ranger_url):
+    ranger = RangerClient(ranger_url, RANGER_AUTH)
     policy = RangerPolicy()
     policy.service = "relation_2"
     policy.name = "tpch - catalog, schema, table, column"

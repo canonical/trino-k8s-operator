@@ -45,7 +45,7 @@ async def deploy(ops_test: OpsTest):
     )
 
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
-    await ops_test.model.deploy(RANGER_NAME, channel="beta")
+    await ops_test.model.deploy(RANGER_NAME, channel="edge")
     await ops_test.model.wait_for_idle(
         apps=[POSTGRES_NAME, APP_NAME],
         status="active",
@@ -84,7 +84,6 @@ async def deploy(ops_test: OpsTest):
         raise_on_blocked=False,
         timeout=1200,
     )
-    await create_group_policy(ops_test)
 
 
 @pytest.mark.abort_on_fail
@@ -94,6 +93,13 @@ class TestPolicy:
 
     async def test_group_policy(self, ops_test: OpsTest):
         """Connects a client and executes a basic SQL query."""
+        url = await get_unit_url(
+            ops_test, application=RANGER_NAME, unit=0, port=6080
+        )
+        logging.info(f"creating test policies for {url}")
+        await create_group_policy(ops_test, url)
+
+        time.sleep(10)
         catalogs = await get_catalogs(ops_test, "user1")
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
