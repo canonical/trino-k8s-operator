@@ -50,7 +50,7 @@ class TestDeployment:
             "conn-config": CONN_CONFIG,
         }
         catalogs = await run_connector_action(
-            ops_test, "add-connector", params
+            ops_test, "add-connector", params, "trino"
         )
         assert [CONN_NAME] in catalogs
 
@@ -60,6 +60,6 @@ class TestDeployment:
             "conn-name": CONN_NAME,
         }
         catalogs = await run_connector_action(
-            ops_test, "remove-connector", params
+            ops_test, "remove-connector", params, "trino"
         )
         assert [CONN_NAME] not in catalogs
