@@ -279,7 +279,7 @@ class PolicyRelationHandler(framework.Object):
         # get values to apply
         apply = self._transfornm_apply_values(apply_objects, member_type)
 
-        # create memnbers
+        # create members
         to_create = [item for item in apply if item not in existing]
         self._create_members(container, member_type, to_create)
 
