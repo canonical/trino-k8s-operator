@@ -377,9 +377,9 @@ def group_handler(args):
         The execution result.
     """
     if args.command == ["getent", "passwd"]:
-        out = "trino:x:0:0:trino:/trino:/bin/bash"
+        out = "user2:x:1002:1002:ranger:/home/user2:/bin/sh"
     elif args.command == ["getent", "group"]:
-        out = "trino:x:0:"
+        out = "marketing:x:1004:user2"
     return testing.ExecResult(stdout=out)
 
 

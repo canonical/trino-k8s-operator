@@ -28,8 +28,8 @@ class PolicyRelationHandler(framework.Object):
     """Client for trino policy relations.
 
     Attributes:
-        plugin_version: the version of the Ranger plugin
-        ranger_plugin_path: the path of the unpacked ranger plugin
+        plugin_version: The version of the Ranger plugin
+        ranger_plugin_path: The path of the unpacked ranger plugin
     """
 
     plugin_version = RANGER_PLUGIN_VERSION["path"]
@@ -40,7 +40,7 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             charm: The charm to attach the hooks to.
-            relation_name: the name of the relation defaults to policy.
+            relation_name: The name of the relation defaults to policy.
         """
         super().__init__(charm, "policy")
         self.charm = charm
@@ -65,7 +65,7 @@ class PolicyRelationHandler(framework.Object):
         """Handle policy relation created.
 
         Args:
-            event: relation created event.
+            event: The relation created event.
         """
         if not self.charm.unit.is_leader():
             return
@@ -80,7 +80,10 @@ class PolicyRelationHandler(framework.Object):
         """Handle policy relation changed.
 
         Args:
-            event: relation changed event.
+            event: Relation changed event.
+
+        Raises:
+            ExecError: When failure to enable Ranger plugin.
         """
         if not self.charm.unit.is_leader():
             return
@@ -103,12 +106,12 @@ class PolicyRelationHandler(framework.Object):
                 container, policy_manager_url, policy_relation
             )
             self._enable_plugin(container)
-        except ExecError:
-            logger.exception("Failed to enable Ranger plugin:")
+            logger.info("Ranger plugin is enabled.")
+        except ExecError as err:
             self.charm.unit.status = BlockedStatus(
                 "Failed to enable Ranger plugin."
             )
-            return
+            raise ExecError(f"Unable to enable Ranger plugin: {err}") from err
 
         users_and_groups = event.relation.data[event.app].get(
             "user-group-configuration", None
@@ -132,10 +135,10 @@ class PolicyRelationHandler(framework.Object):
         """Prepare service to be created in Ranger.
 
         Args:
-            event: relation created event
+            event: Relation created event
 
         Returns:
-            service: service values to be set in relation databag
+            service: Service values to be set in relation databag
         """
         host = self.charm.config["application-name"]
         port = TRINO_PORTS["HTTP"]
@@ -158,7 +161,10 @@ class PolicyRelationHandler(framework.Object):
         """Handle policy relation broken.
 
         Args:
-            event: relation broken event.
+            event: Relation broken event.
+
+        Raises:
+            ExecError: When failure to disable Ranger plugin.
         """
         if not self.charm.unit.is_leader():
             return
@@ -170,7 +176,11 @@ class PolicyRelationHandler(framework.Object):
         if not container.exists(self.ranger_plugin_path):
             return
 
-        self._disable_ranger_plugin(container)
+        try:
+            self._disable_ranger_plugin(container)
+            logger.info("Ranger plugin disabled successfully")
+        except ExecError as err:
+            raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
 
         if container.exists(RANGER_POLICY_PATH):
             container.remove_path(RANGER_POLICY_PATH, recursive=True)
@@ -180,38 +190,29 @@ class PolicyRelationHandler(framework.Object):
 
         self.charm._restart_trino(container)
 
+    @handle_exec_error
     def _enable_plugin(self, container):
         """Enable ranger plugin.
 
         Args:
-            container: application container
-
-        Raises:
-            ExecError: in case unable to enable trino plugin
+            container: The application container
         """
         command = [
             "bash",
             "enable-trino-plugin.sh",
         ]
-        try:
-            container.exec(
-                command,
-                working_dir=self.ranger_plugin_path,
-                environment=JAVA_ENV,
-            ).wait_output()
-            logger.info("Ranger plugin enabled successfully")
-        except ExecError as err:
-            logger.error(err.stdout)
-            raise
+        container.exec(
+            command,
+            working_dir=self.ranger_plugin_path,
+            environment=JAVA_ENV,
+        ).wait_output()
 
+    @handle_exec_error
     def _unpack_plugin(self, container):
         """Unpack ranger plugin tar.
 
         Args:
             container: application container
-
-        Raises:
-            ExecError: in case unable to enable trino plugin
         """
         if container.exists(self.ranger_plugin_path):
             return
@@ -223,12 +224,7 @@ class PolicyRelationHandler(framework.Object):
             "xf",
             f"ranger-{tar_version}-trino-plugin.tar.gz",
         ]
-        try:
-            container.exec(command, working_dir="/root").wait_output()
-            logger.info("Ranger plugin unpacked successfully")
-        except ExecError as err:
-            logger.error(err.stdout)
-            raise
+        container.exec(command, working_dir="/root").wait_output()
 
     def _configure_plugin_properties(
         self, container, policy_manager_url, policy_relation
@@ -259,7 +255,7 @@ class PolicyRelationHandler(framework.Object):
         """Handle synchronization of Ranger users, groups and group membership.
 
         Args:
-            config: string of user and group configuration from Ranger relation.
+            config: String of user and group configuration from Ranger relation.
             container: Trino application container.
         """
         data = yaml.safe_load(config)
@@ -278,25 +274,19 @@ class PolicyRelationHandler(framework.Object):
             member_type: The type of Unix object to create, either "user" or "group".
         """
         # get existing values
-        existing_values = self._get_unix(container, member_type)
+        existing = self._get_unix(container, member_type)
 
         # get values to apply
-        apply_values = self._transfornm_apply_values(
-            apply_objects, member_type
-        )
+        apply = self._transfornm_apply_values(apply_objects, member_type)
 
         # create memnbers
-        to_create = [
-            item for item in apply_values if item not in existing_values
-        ]
+        to_create = [item for item in apply if item not in existing]
         self._create_members(container, member_type, to_create)
 
         # delete memberships
-        if member_type == "memberships":
-            to_delete = [
-                item for item in existing_values if item not in apply_values
-            ]
-            self._delete_membership(container, to_delete)
+        if member_type == "membership":
+            to_delete = [item for item in existing if item not in apply]
+            self._delete_memberships(container, to_delete)
 
     @handle_exec_error
     def _get_unix(self, container, member_type):
@@ -317,19 +307,17 @@ class PolicyRelationHandler(framework.Object):
         # Split the output to rows.
         rows = out[0].strip().split("\n")
         if member_type == "membership":
-            # Create a dictionary of field 0 (group) and field 3 (username(s)).
-            group_users = [
-                (row.split(":")[0], row.split(":")[3]) for row in rows
-            ]
+            # Create a list of (group, user) tuples.
+            members = [(row.split(":")[0], row.split(":")[3]) for row in rows]
             values = []
-            for group, users in group_users:
+            for group, users in members:
                 values += [
                     (group, user.strip())
                     for user in users.split(",")
                     if user.strip()
                 ]
         else:
-            # Split the output to rows and create a list of user/group values.
+            # Split the output to rows and create a list of user or group values.
             values = [row.split(":")[0] for row in rows]
         return values
 
@@ -337,7 +325,7 @@ class PolicyRelationHandler(framework.Object):
         """Get list of users, groups or memberships to apply from configuration file.
 
         Args:
-            data: user group or membership data.
+            data: User, group or membership data.
             member_type: One of "user", "group" or "membership".
 
         Returns:
@@ -363,6 +351,8 @@ class PolicyRelationHandler(framework.Object):
             to_create: List of users, groups or memberships to create.
         """
         for member in to_create:
+            logger.debug(f"Attempting to create {member_type}: {member}")
+
             if member_type == "group":
                 command = [f"{member_type}add", member]
             if member_type == "user":
@@ -383,6 +373,7 @@ class PolicyRelationHandler(framework.Object):
         for membership in to_delete:
             user_info = self._get_user_gecos(container, membership[1])
             if "ranger" in user_info:
+                logger.debug(f"Attempting to delete membership {membership}")
                 container.exec(
                     ["deluser", membership[1], membership[0]]
                 ).wait_output()
@@ -402,26 +393,19 @@ class PolicyRelationHandler(framework.Object):
         user_info = out[0].strip().split(":")[4]
         return user_info
 
+    @handle_exec_error
     def _disable_ranger_plugin(self, container):
         """Disable ranger plugin.
 
         Args:
             container: application container
-
-        Raises:
-            ExecError: in case unable to enable trino plugin
         """
         command = [
             "bash",
             "disable-trino-plugin.sh",
         ]
-        try:
-            container.exec(
-                command,
-                working_dir=self.ranger_plugin_path,
-                environment=JAVA_ENV,
-            ).wait_output()
-            logger.info("Ranger plugin disabled successfully")
-        except ExecError as err:
-            logger.error(err.stdout)
-            raise
+        container.exec(
+            command,
+            working_dir=self.ranger_plugin_path,
+            environment=JAVA_ENV,
+        ).wait_output()
