@@ -277,7 +277,7 @@ class PolicyRelationHandler(framework.Object):
         existing = self._get_unix(container, member_type)
 
         # get values to apply
-        apply = self._transfornm_apply_values(apply_objects, member_type)
+        apply = self._transform_apply_values(apply_objects, member_type)
 
         # create members
         to_create = [item for item in apply if item not in existing]
@@ -321,7 +321,7 @@ class PolicyRelationHandler(framework.Object):
             values = [row.split(":")[0] for row in rows]
         return values
 
-    def _transfornm_apply_values(self, data, member_type):
+    def _transform_apply_values(self, data, member_type):
         """Get list of users, groups or memberships to apply from configuration file.
 
         Args:
