@@ -36,7 +36,8 @@ async def deploy(ops_test: OpsTest):
     resources = {
         "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
     }
-    trino_config = {"charm-function": "all"}
+    trino_config = {"charm-function": "all",
+    "ranger-service-name": "trino-service"}
     await ops_test.model.deploy(
         charm,
         resources=resources,
@@ -46,13 +47,16 @@ async def deploy(ops_test: OpsTest):
     )
 
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
-    await ops_test.model.deploy(RANGER_NAME, channel="edge")
     await ops_test.model.wait_for_idle(
         apps=[POSTGRES_NAME, APP_NAME],
         status="active",
         raise_on_blocked=False,
         timeout=1200,
     )
+
+    ranger_config = {"user-group-configuration": GROUP_MANAGEMENT}
+    await ops_test.model.deploy(RANGER_NAME, channel="beta", config=ranger_config)
+
     await ops_test.model.wait_for_idle(
         apps=[RANGER_NAME],
         status="blocked",
@@ -60,6 +64,7 @@ async def deploy(ops_test: OpsTest):
         timeout=1200,
     )
     await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+
     await ops_test.model.set_config({"update-status-hook-interval": "1m"})
     await ops_test.model.wait_for_idle(
         apps=[POSTGRES_NAME, RANGER_NAME],
@@ -69,16 +74,6 @@ async def deploy(ops_test: OpsTest):
     )
     logging.info("integrating trino and ranger")
     await ops_test.model.integrate(RANGER_NAME, APP_NAME)
-    await ops_test.model.wait_for_idle(
-        apps=[APP_NAME, RANGER_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=1200,
-    )
-
-    logging.info("updating config")
-    app: Application = ops_test.model.applications.get("ranger-k8s")
-    app.set_config({"user-group-configuration": GROUP_MANAGEMENT})
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, RANGER_NAME],
         status="active",
@@ -100,7 +95,6 @@ class TestPolicy:
         logging.info(f"creating test policies for {url}")
         await create_group_policy(ops_test, url)
 
-        time.sleep(10)
         catalogs = await get_catalogs(ops_test, "user1")
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
