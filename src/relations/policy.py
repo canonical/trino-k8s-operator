@@ -271,7 +271,7 @@ class PolicyRelationHandler(framework.Object):
         Args:
             container: The container to run the command in.
             apply_objects: The users and group mappings to be applied to Trino.
-            member_type: The type of Unix object to create, either "user" or "group".
+            member_type: The type of Unix member, "user", "group" or "membership".
         """
         # get existing values
         existing = self._get_unix(container, member_type)
@@ -294,7 +294,7 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             container: The container to run the command in.
-            member_type: The Unix object to retrieve, either "user", "group" or "membership".
+            member_type: The type of Unix member, "user", "group" or "membership".
 
         Returns:
             values: Either a list of usernames/groups or a list of (group, user) tuples.
@@ -326,7 +326,7 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             data: User, group or membership data.
-            member_type: One of "user", "group" or "membership".
+            member_type: The type of Unix member, "user", "group" or "membership".
 
         Returns:
             List of users, groups or memberships to apply.
@@ -347,7 +347,7 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             container: The container to run the command in.
-            member_type: The Unix object to retrieve, either "user", "group" or "membership".
+            member_type: The type of Unix member, "user", "group" or "membership".
             to_create: List of users, groups or memberships to create.
         """
         for member in to_create:
@@ -355,7 +355,7 @@ class PolicyRelationHandler(framework.Object):
 
             if member_type == "group":
                 command = [f"{member_type}add", member]
-            if member_type == "user":
+            elif member_type == "user":
                 command = [f"{member_type}add", "-c", "ranger", member]
             elif member_type == "membership":
                 command = ["usermod", "-aG", member[0], member[1]]
@@ -370,28 +370,34 @@ class PolicyRelationHandler(framework.Object):
             container: The container to run the command in.
             to_delete: List of memberships to delete.
         """
+        ranger_users = self._get_user_gecos(container)
         for membership in to_delete:
-            user_info = self._get_user_gecos(container, membership[1])
-            if "ranger" in user_info:
+            if membership[1] in ranger_users:
                 logger.debug(f"Attempting to delete membership {membership}")
                 container.exec(
                     ["deluser", membership[1], membership[0]]
                 ).wait_output()
 
     @handle_exec_error
-    def _get_user_gecos(self, container, username):
+    def _get_user_gecos(self, container):
         """Get the Gecos information for a specific user.
 
         Args:
             container: The container to run the command in.
-            username: The username for which to retrieve the Gecos information.
 
         Returns:
-            user_info: The Gecos information for the user.
+            ranger_users: The users created by the Ranger relation.
         """
-        out = container.exec(["getent", "passwd", username]).wait_output()
-        user_info = out[0].strip().split(":")[4]
-        return user_info
+        out = container.exec(["getent", "passwd"]).wait_output()
+        rows = out[0].strip().split("\n")
+        ranger_users = []
+
+        for row in rows:
+            user = row.strip().split(":")
+            if "ranger" in user[4]:
+                ranger_users.append(user[0])
+
+        return ranger_users
 
     @handle_exec_error
     def _disable_ranger_plugin(self, container):
