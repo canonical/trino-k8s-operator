@@ -60,6 +60,7 @@ async def deploy(ops_test: OpsTest):
         timeout=1200,
     )
     await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+    await ops_test.model.set_config({"update-status-hook-interval": "1m"})
     await ops_test.model.wait_for_idle(
         apps=[POSTGRES_NAME, RANGER_NAME],
         status="active",
@@ -74,11 +75,10 @@ async def deploy(ops_test: OpsTest):
         raise_on_blocked=False,
         timeout=1200,
     )
-    time.sleep(10)
-    app = ops_test.model.applications.get("ranger-k8s")
-    logging.info("configuring ranger values")
-    await app.set_config({"user-group-configuration": f"{GROUP_MANAGEMENT}"})
-    time.sleep(10)
+
+    logging.info("updating config")
+    app: Application = ops_test.model.applications.get("ranger-k8s")
+    app.set_config({"user-group-configuration": GROUP_MANAGEMENT})
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, RANGER_NAME],
         status="active",

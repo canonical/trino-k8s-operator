@@ -34,7 +34,7 @@ connection-user=trino
 connection-password=trino
 """
 RANGER_NAME = "ranger-k8s"
-GROUP_MANAGEMENT = """
+GROUP_MANAGEMENT = """\
     relation_6:
         users:
           - name: user1
@@ -116,7 +116,7 @@ async def run_connector_action(ops_test, action, params, user):
 async def create_group_policy(ops_test, ranger_url):
     ranger = RangerClient(ranger_url, RANGER_AUTH)
     policy = RangerPolicy()
-    policy.service = "relation_2"
+    policy.service = "relation_6"
     policy.name = "tpch - catalog, schema, table, column"
     policy.resources = {
         "schema": RangerPolicyResource({"values": ["*"]}),
