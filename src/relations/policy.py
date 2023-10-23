@@ -12,6 +12,8 @@ from ops.pebble import ExecError
 
 from literals import (
     JAVA_ENV,
+    RANGER_ACCESS_CONTROL,
+    RANGER_ACCESS_CONTROL_PATH,
     RANGER_PLUGIN_FILE,
     RANGER_PLUGIN_VERSION,
     RANGER_POLICY_PATH,
@@ -249,6 +251,11 @@ class PolicyRelationHandler(framework.Object):
             make_dirs=True,
             permissions=0o744,
         )
+        container.push(
+            RANGER_ACCESS_CONTROL_PATH,
+            RANGER_ACCESS_CONTROL,
+            make_dirs=True,
+        )
 
     @handle_exec_error
     def _synchronize(self, config, container):
@@ -415,3 +422,6 @@ class PolicyRelationHandler(framework.Object):
             working_dir=self.ranger_plugin_path,
             environment=JAVA_ENV,
         ).wait_output()
+
+        if container.exists(RANGER_ACCESS_CONTROL_PATH):
+            container.remove_path(RANGER_ACCESS_CONTROL_PATH)

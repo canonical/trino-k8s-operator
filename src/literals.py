@@ -36,6 +36,11 @@ RANGER_PLUGIN_VERSION = {
 
 JAVA_ENV = {"JAVA_HOME": "/opt/java/openjdk"}
 RANGER_POLICY_PATH = "/etc/ranger"
+RANGER_ACCESS_CONTROL = """\
+access-control.name=ranger
+ranger.use_ugi=true
+"""
+RANGER_ACCESS_CONTROL_PATH = "/etc/trino/access-control.properties"
 
 # UNIX literals
 UNIX_TYPE_MAPPING = {
