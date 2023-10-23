@@ -370,7 +370,7 @@ class PolicyRelationHandler(framework.Object):
             container: The container to run the command in.
             to_delete: List of memberships to delete.
         """
-        ranger_users = self._get_user_gecos(container)
+        ranger_users = self._get_ranger_users(container)
         for membership in to_delete:
             if membership[1] in ranger_users:
                 logger.debug(f"Attempting to delete membership {membership}")
@@ -379,8 +379,8 @@ class PolicyRelationHandler(framework.Object):
                 ).wait_output()
 
     @handle_exec_error
-    def _get_user_gecos(self, container):
-        """Get the Gecos information for a specific user.
+    def _get_ranger_users(self, container):
+        """Get users for which the Gecos information contains `ranger`.
 
         Args:
             container: The container to run the command in.
