@@ -13,6 +13,7 @@ from helpers import (
     APP_NAME,
     CONN_CONFIG,
     CONN_NAME,
+    TRINO_USER,
     get_catalogs,
     get_unit_url,
     run_connector_action,
@@ -39,7 +40,7 @@ class TestDeployment:
 
     async def test_basic_client(self, ops_test: OpsTest):
         """Connects a client and executes a basic SQL query."""
-        catalogs = await get_catalogs(ops_test)
+        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
 
@@ -50,7 +51,10 @@ class TestDeployment:
             "conn-config": CONN_CONFIG,
         }
         catalogs = await run_connector_action(
-            ops_test, "add-connector", params
+            ops_test,
+            "add-connector",
+            params,
+            TRINO_USER,
         )
         assert [CONN_NAME] in catalogs
 
@@ -60,6 +64,9 @@ class TestDeployment:
             "conn-name": CONN_NAME,
         }
         catalogs = await run_connector_action(
-            ops_test, "remove-connector", params
+            ops_test,
+            "remove-connector",
+            params,
+            TRINO_USER,
         )
         assert [CONN_NAME] not in catalogs
