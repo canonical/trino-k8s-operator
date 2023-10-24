@@ -9,13 +9,12 @@ import time
 
 import pytest
 import pytest_asyncio
-from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     GROUP_MANAGEMENT,
     METADATA,
     POSTGRES_NAME,
     RANGER_NAME,
-    TRINO_POLICY,
+    TRINO_POLICY_NAME,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
     create_group_policy,
@@ -42,14 +41,14 @@ async def deploy_ranger(ops_test: OpsTest):
     await ops_test.model.deploy(
         charm,
         resources=resources,
-        application_name=TRINO_POLICY,
+        application_name=TRINO_POLICY_NAME,
         num_units=1,
         config=trino_config,
     )
 
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
     await ops_test.model.wait_for_idle(
-        apps=[POSTGRES_NAME, TRINO_POLICY],
+        apps=[POSTGRES_NAME, TRINO_POLICY_NAME],
         status="active",
         raise_on_blocked=False,
         timeout=1200,
@@ -75,9 +74,9 @@ async def deploy_ranger(ops_test: OpsTest):
         timeout=1200,
     )
     logging.info("integrating trino and ranger")
-    await ops_test.model.integrate(RANGER_NAME, TRINO_POLICY)
+    await ops_test.model.integrate(RANGER_NAME, TRINO_POLICY_NAME)
     await ops_test.model.wait_for_idle(
-        apps=[TRINO_POLICY, RANGER_NAME],
+        apps=[TRINO_POLICY_NAME, RANGER_NAME],
         status="active",
         raise_on_blocked=False,
         timeout=1200,
@@ -100,9 +99,11 @@ class TestPolicy:
         # wait 3 minutes for the policy to be synced.
         time.sleep(180)
 
-        catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS, TRINO_POLICY)
+        catalogs = await get_catalogs(
+            ops_test, USER_WITH_ACCESS, TRINO_POLICY_NAME
+        )
         assert catalogs == [["tpch"]]
         catalogs = await get_catalogs(
-            ops_test, USER_WITHOUT_ACCESS, TRINO_POLICY
+            ops_test, USER_WITHOUT_ACCESS, TRINO_POLICY_NAME
         )
         assert catalogs == []
