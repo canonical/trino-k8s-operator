@@ -12,6 +12,7 @@ async def show_catalogs(host, user) -> str:
 
     Args:
         host: trino server address.
+        user: the user to access Trino with
 
     Returns:
         result: list of Trino catalogs

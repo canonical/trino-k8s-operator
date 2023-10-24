@@ -9,8 +9,6 @@ import time
 from pathlib import Path
 
 import yaml
-from pytest_operator.plugin import OpsTest
-from trino_client.show_catalogs import show_catalogs
 from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.model.ranger_policy import (
     RangerPolicy,
@@ -56,6 +54,7 @@ USER_WITH_ACCESS = "user1"
 USER_WITHOUT_ACCESS = "user2"
 GROUP_WITH_ACCESS = "commercial-systems"
 POLICY_NAME = "tpch - catalog, schema, table, column"
+
 
 async def get_unit_url(
     ops_test: OpsTest, application, unit, port, protocol="http"
@@ -124,7 +123,9 @@ async def run_connector_action(ops_test, action, params, user):
 
 async def create_group_policy(ops_test, ranger_url):
     """Create a Ranger group policy.
+
     Allow members of `commercial-systems` to access `tpch` catalog.
+
     Args:
         ops_test: PyTest object
         ranger_url: the polciy manager url

@@ -57,7 +57,7 @@ async def deploy_ranger(ops_test: OpsTest):
 
     ranger_config = {"user-group-configuration": GROUP_MANAGEMENT}
     await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", config=ranger_config
+        RANGER_NAME, channel="beta", config=ranger_config
     )
 
     await ops_test.model.wait_for_idle(
