@@ -68,7 +68,6 @@ async def deploy_ranger(ops_test: OpsTest):
     )
     await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
 
-    await ops_test.model.set_config({"update-status-hook-interval": "1m"})
     await ops_test.model.wait_for_idle(
         apps=[POSTGRES_NAME, RANGER_NAME],
         status="active",
