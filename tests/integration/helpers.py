@@ -54,6 +54,7 @@ USER_WITH_ACCESS = "user1"
 USER_WITHOUT_ACCESS = "user2"
 GROUP_WITH_ACCESS = "commercial-systems"
 POLICY_NAME = "tpch - catalog, schema, table, column"
+TRINO_POLICY = "trino-k8s-policy"
 
 
 async def get_unit_url(

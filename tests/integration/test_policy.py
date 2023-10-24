@@ -11,11 +11,11 @@ import pytest
 import pytest_asyncio
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
-    APP_NAME,
     GROUP_MANAGEMENT,
     METADATA,
     POSTGRES_NAME,
     RANGER_NAME,
+    TRINO_POLICY,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
     create_group_policy,
@@ -42,14 +42,14 @@ async def deploy_ranger(ops_test: OpsTest):
     await ops_test.model.deploy(
         charm,
         resources=resources,
-        application_name=APP_NAME,
+        application_name=TRINO_POLICY,
         num_units=1,
         config=trino_config,
     )
 
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
     await ops_test.model.wait_for_idle(
-        apps=[POSTGRES_NAME, APP_NAME],
+        apps=[POSTGRES_NAME, TRINO_POLICY],
         status="active",
         raise_on_blocked=False,
         timeout=1200,
@@ -76,9 +76,9 @@ async def deploy_ranger(ops_test: OpsTest):
         timeout=1200,
     )
     logging.info("integrating trino and ranger")
-    await ops_test.model.integrate(RANGER_NAME, APP_NAME)
+    await ops_test.model.integrate(RANGER_NAME, TRINO_POLICY)
     await ops_test.model.wait_for_idle(
-        apps=[APP_NAME, RANGER_NAME],
+        apps=[TRINO_POLICY, RANGER_NAME],
         status="active",
         raise_on_blocked=False,
         timeout=1200,
