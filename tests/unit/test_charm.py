@@ -10,8 +10,9 @@
 
 import json
 import logging
-from unittest import TestCase, mock
+from unittest import TestCase
 
+from ops import testing
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.testing import Harness
 
@@ -28,6 +29,20 @@ DB_PATH = "/etc/trino/catalog/example-db.properties"
 RANGER_PROPERTIES_PATH = (
     "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
 )
+POLICY_MGR_URL = "http://ranger-k8s:6080"
+GROUP_MANAGEMENT = """\
+        users:
+          - name: user1
+            firstname: One
+            lastname: User
+            email: user1@canonical.com
+        memberships:
+          - groupname: commercial-systems
+            users: [user1]
+        groups:
+          - name: commercial-systems
+            description: commercial systems team
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -253,20 +268,41 @@ class TestCharm(TestCase):
             "jdbc.url": "jdbc:trino://trino-k8s:8080",
         }
 
-    @mock.patch("charm.PolicyRelationHandler._unpack_plugin")
-    @mock.patch("charm.PolicyRelationHandler._enable_plugin")
-    def test_policy_relation_changed(self, _unpack_plugin, _enable_plugin):
+    def test_policy_relation_changed(self):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
         simulate_lifecycle(harness)
         container = harness.model.unit.get_container("trino")
 
+        # Create the relation
         rel_id = harness.add_relation("policy", "trino-k8s")
         harness.add_relation_unit(rel_id, "trino-k8s/0")
 
-        data = {"ranger-k8s": {"policy_manager_url": "http://ranger-k8s:6080"}}
+        # Create handlers for Container.exec() commands
+        for command in [
+            "bash",
+            "tar",
+            "useradd",
+            "groupadd",
+            "usermod",
+            "deluser",
+        ]:
+            harness.handle_exec("trino", [command], result=0)
+        harness.handle_exec("trino", ["getent"], handler=group_handler)
+
+        # Create and emit the policy `_on_relation_changed` event.
+        data = {
+            "ranger-k8s": {
+                "policy_manager_url": POLICY_MGR_URL,
+                "user-group-configuration": GROUP_MANAGEMENT,
+            },
+        }
         event = make_policy_relation_event(rel_id, data)
         harness.charm.policy._on_relation_changed(event)
+
+        self.assertTrue(
+            event.relation.data["ranger-k8s"]["user-group-configuration"]
+        )
         self.assertTrue(container.exists(RANGER_PROPERTIES_PATH))
 
     def test_policy_relation_broken(self):
@@ -281,6 +317,10 @@ class TestCharm(TestCase):
         data = {"ranger-k8s": {}}
         event = make_policy_relation_event(rel_id, data)
         harness.charm.policy._on_relation_broken(event)
+
+        self.assertFalse(
+            event.relation.data["ranger-k8s"].get("user-group-configuration")
+        )
         self.assertFalse(container.exists(RANGER_PROPERTIES_PATH))
 
 
@@ -325,6 +365,22 @@ def make_policy_relation_event(rel_id, data):
             ),
         },
     )
+
+
+def group_handler(args):
+    """Execution handler for getent command.
+
+    Args:
+        args: execution arguments.
+
+    Returns:
+        The execution result.
+    """
+    if args.command == ["getent", "passwd"]:
+        out = "user2:x:1002:1002:ranger:/home/user2:/bin/sh"
+    elif args.command == ["getent", "group"]:
+        out = "marketing:x:1004:user2"
+    return testing.ExecResult(stdout=out)
 
 
 class MockEvent:

@@ -13,6 +13,7 @@ import string
 import bcrypt
 from jinja2 import Environment, FileSystemLoader
 from ops.model import Container
+from ops.pebble import ExecError
 
 logger = logging.getLogger(__name__)
 
@@ -168,3 +169,36 @@ def push_files(container, file_path, destination, permissions):
     container.push(
         destination, file_content, make_dirs=True, permissions=permissions
     )
+
+
+def handle_exec_error(func):
+    """Handle ExecError while executing command on application container.
+
+    Args:
+        func: The function to decorate.
+
+    Returns:
+        wrapper: A decorated function that raises an error on failure.
+    """
+
+    def wrapper(*args, **kwargs):
+        """Execute wrapper for the decorated function and handle errors.
+
+        Args:
+            args: Positional arguments passed to the decorated function.
+            kwargs: Keyword arguments passed to the decorated function.
+
+        Returns:
+            result: The result of the decorated function if successful.
+
+        Raises:
+            ExecError: In case the command fails to execute successfully.
+        """
+        try:
+            result = func(*args, **kwargs)
+            return result
+        except ExecError:
+            logger.exception(f"Failed to execute {func.__name__}:")
+            raise
+
+    return wrapper
