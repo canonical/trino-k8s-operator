@@ -101,7 +101,9 @@ class TestPolicy:
         # wait 3 minutes for the policy to be synced.
         time.sleep(180)
 
-        catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS)
+        catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS, TRINO_POLICY)
         assert catalogs == [["tpch"]]
-        catalogs = await get_catalogs(ops_test, USER_WITHOUT_ACCESS)
+        catalogs = await get_catalogs(
+            ops_test, USER_WITHOUT_ACCESS, TRINO_POLICY
+        )
         assert catalogs == []

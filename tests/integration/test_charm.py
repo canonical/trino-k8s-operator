@@ -40,7 +40,7 @@ class TestDeployment:
 
     async def test_basic_client(self, ops_test: OpsTest):
         """Connects a client and executes a basic SQL query."""
-        catalogs = await get_catalogs(ops_test, TRINO_USER)
+        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
 

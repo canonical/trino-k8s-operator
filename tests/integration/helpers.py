@@ -79,18 +79,19 @@ async def get_unit_url(
     return f"{protocol}://{address}:{port}"
 
 
-async def get_catalogs(ops_test: OpsTest, user):
+async def get_catalogs(ops_test: OpsTest, user, app_name):
     """Return a list of catalogs from Trino charm.
 
     Args:
         ops_test: PyTest object
         user: the user to access Trino with
+        app_name: name of the application
 
     Returns:
         catalogs: list of catalogs connected to trino
     """
     status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"][
+    address = status["applications"][app_name]["units"][f"{app_name}/{0}"][
         "address"
     ]
     logger.info("executing query on app address: %s", address)
@@ -117,7 +118,7 @@ async def run_connector_action(ops_test, action, params, user):
     )
     await action.wait()
     time.sleep(30)
-    catalogs = await get_catalogs(ops_test, user)
+    catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"action {action} run, catalogs: {catalogs}")
     return catalogs
 
