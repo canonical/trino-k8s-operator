@@ -1,0 +1,69 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+# This file defines charm config options, and populates the Configure tab on Charmhub.
+# If your charm does not require configuration options, delete this file entirely.
+#
+# See https://juju.is/docs/config for guidance.
+
+options:
+  log-level:
+    description: |
+      Trino server logging level. 
+      Valid values: info, debug, warn, error.
+    default: info
+    type: string
+  application-name:
+    description: |
+      The name of the application service to be used as internal host
+      when providing a jdbc string to Ranger for the policy relation.
+    default: trino-k8s
+    type: string
+  int-comms-secret:
+    description: |
+      The secret Trino uses to communicate between nodes.
+    type: string
+  google-client-id:
+    description: |
+      Client id from Google Oauth setup
+    type: string
+  google-client-secret:
+    description: |
+      Client password from Google Oauth setup
+    type: string
+  web-proxy:
+    description: |
+      The address of the web proxy. To be used in combination
+      with google-client-id and google-client-secret values.
+    type: string 
+  ranger-service-name:
+    description: |
+      The service name for Trino in Apache Ranger when related. Defaults to relation id.
+    type: string
+  external-hostname:
+    description: |
+        The DNS listing used for external connections. 
+        Will default to the name of the deployed application.
+    type: string
+    default: trino-k8s
+  tls-secret-name:
+    description: |
+        Name of the k8s secret which contains the TLS certificate to be used by ingress.
+    default: "trino-tls"
+    type: string
+  trino-password:
+    description: |
+        Password to be used for default trino user created on startup.
+    default: ubuntu123
+    type: string
+  charm-function:
+    description: |
+      One of `coordinator`, `worker` or `all` to determine the function of the application.
+      `all` will result in a single node deployment, not recommended for production.
+    default: coordinator
+    type: string
+  discovery-uri:
+    description: |
+        When using a coordinator and worker this is the host and port of the 
+        coordinator service that the workers announce themselves to.
+    type: string
+    default: http://trino-k8s:8080
