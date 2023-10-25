@@ -1,0 +1,35 @@
+{% if CHARM_FUNCTION == "coordinator" %}
+coordinator=true
+discovery.uri={{ DISCOVERY_URI }}
+node-scheduler.include-coordinator=false
+{% elif CHARM_FUNCTION == "worker" %}
+coordinator=false
+discovery.uri={{ DISCOVERY_URI }}
+{% elif CHARM_FUNCTION == "all" %}
+coordinator=true
+node-scheduler.include-coordinator=true
+discovery.uri=http://localhost:8080
+{% endif %}
+
+http-server.http.port=8080
+node.internal-address-source=FQDN
+internal-communication.shared-secret={{ INT_COMMS_SECRET | default("changeme")}}
+
+http-server.process-forwarded=true
+http-server.authentication.allow-insecure-over-http=true
+
+{% if OAUTH_CLIENT_ID is not none and OAUTH_CLIENT_SECRET is not none %}
+http-server.authentication.type=oauth2,PASSWORD
+web-ui.authentication.type=oauth2
+http-server.authentication.oauth2.user-mapping.pattern=(.*)@.*
+http-server.authentication.oauth2.issuer=https://accounts.google.com
+http-server.authentication.oauth2.principal-field=email
+http-server.authentication.oauth2.scopes=https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,openid
+http-server.authentication.oauth2.client-id={{ OAUTH_CLIENT_ID }}
+http-server.authentication.oauth2.client-secret={{ OAUTH_CLIENT_SECRET }}
+    {% if WEB_PROXY is not none %}
+oauth2-jwk.http-client.http-proxy={{ WEB_PROXY }}
+    {% endif %}
+{% else %}
+http-server.authentication.type=PASSWORD
+{% endif %}
