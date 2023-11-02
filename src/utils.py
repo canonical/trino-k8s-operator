@@ -109,17 +109,11 @@ def validate_membership(connector_fields, conn_input):
     required = connector_fields["required"]
     optional = connector_fields["optional"]
 
-    missing_fields = []
-    for field in required:
-        if field not in conn_input:
-            missing_fields.append(field)
+    missing_fields = set(required) - set(conn_input)
     if missing_fields:
         raise ValueError(f"field(s) {missing_fields!r} are required")
 
-    illegal_fields = []
-    for field in conn_input:
-        if field not in required and field not in optional:
-            illegal_fields.append(field)
+    illegal_fields = set(conn_input) - (set(required) | set(optional))
     if illegal_fields:
         raise ValueError(f"field(s) {illegal_fields!r} are not allowed")
 

@@ -106,7 +106,7 @@ class TrinoConnector(Object):
             "-keystore",
             "truststore.jks",
             "-storepass",
-            self.charm._state.truststore_password,
+            self.charm.state.truststore_password,
             "-noprompt",
         ]
         try:
@@ -153,12 +153,12 @@ class TrinoConnector(Object):
             config: The configuration of the connector
             conn_name: The name of the connector
         """
-        if self.charm._state.connectors:
-            connectors = self.charm._state.connectors
+        if self.charm.state.connectors:
+            connectors = self.charm.state.connectors
         else:
             connectors = {}
         connectors[conn_name] = config
-        self.charm._state.connectors = connectors
+        self.charm.state.connectors = connectors
 
     def _delete_cert_from_truststore(self, container, conn_name):
         """Delete CA from JKS truststore.
@@ -179,7 +179,7 @@ class TrinoConnector(Object):
             "-keystore",
             "truststore.jks",
             "-storepass",
-            self.charm._state.truststore_password,
+            self.charm.state.truststore_password,
             "-noprompt",
         ]
         try:
@@ -213,7 +213,7 @@ class TrinoConnector(Object):
             )
             return
 
-        if not self.charm._state.connectors[conn_name]:
+        if not self.charm.state.connectors[conn_name]:
             event.fail(
                 f"Failed to remove {conn_name}, connector does not exist"
             )
@@ -230,9 +230,9 @@ class TrinoConnector(Object):
 
         container.remove_path(path=path)
 
-        existing_connectors = self.charm._state.connectors
+        existing_connectors = self.charm.state.connectors
         del existing_connectors[conn_name]
-        self.charm._state.connectors = existing_connectors
+        self.charm.state.connectors = existing_connectors
 
         self.charm._restart_trino(container)
         event.set_results({"result": "connector successfully removed"})

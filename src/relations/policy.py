@@ -92,10 +92,11 @@ class PolicyRelationHandler(framework.Object):
 
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
+            event.defer()
             return
 
         policy_manager_url = event.relation.data[event.app].get(
-            "policy_manager_url", None
+            "policy_manager_url"
         )
         if not policy_manager_url:
             return
@@ -110,13 +111,10 @@ class PolicyRelationHandler(framework.Object):
             self._enable_plugin(container)
             logger.info("Ranger plugin is enabled.")
         except ExecError as err:
-            self.charm.unit.status = BlockedStatus(
-                "Failed to enable Ranger plugin."
-            )
             raise ExecError(f"Unable to enable Ranger plugin: {err}") from err
 
         users_and_groups = event.relation.data[event.app].get(
-            "user-group-configuration", None
+            "user-group-configuration"
         )
         if users_and_groups:
             try:
@@ -124,13 +122,6 @@ class PolicyRelationHandler(framework.Object):
             except ExecError:
                 logger.exception("Failed to synchronize groups:")
                 event.defer()
-            except Exception:
-                logger.exception(
-                    "An exception occurred while sychronizing Ranger groups:"
-                )
-                self.charm.unit.status = BlockedStatus(
-                    "Failed to synchronize Ranger groups."
-                )
         self.charm._restart_trino(container)
 
     def _prepare_service(self, event):
@@ -142,7 +133,7 @@ class PolicyRelationHandler(framework.Object):
         Returns:
             service: Service values to be set in relation databag
         """
-        host = self.charm.config["application-name"]
+        host = self.charm.app.name
         port = TRINO_PORTS["HTTP"]
         uri = f"{host}:{port}"
 
@@ -173,6 +164,7 @@ class PolicyRelationHandler(framework.Object):
 
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
+            event.defer()
             return
 
         if not container.exists(self.ranger_plugin_path):
@@ -207,7 +199,7 @@ class PolicyRelationHandler(framework.Object):
             command,
             working_dir=self.ranger_plugin_path,
             environment=JAVA_ENV,
-        ).wait_output()
+        )
 
     @handle_exec_error
     def _unpack_plugin(self, container):
@@ -226,7 +218,7 @@ class PolicyRelationHandler(framework.Object):
             "xf",
             f"ranger-{tar_version}-trino-plugin.tar.gz",
         ]
-        container.exec(command, working_dir="/root").wait_output()
+        container.exec(command, working_dir="/root")
 
     def _configure_plugin_properties(
         self, container, policy_manager_url, policy_relation
@@ -367,7 +359,7 @@ class PolicyRelationHandler(framework.Object):
             elif member_type == "membership":
                 command = ["usermod", "-aG", member[0], member[1]]
 
-            container.exec(command).wait_output()
+            container.exec(command)
 
     @handle_exec_error
     def _delete_memberships(self, container, to_delete):
@@ -383,7 +375,7 @@ class PolicyRelationHandler(framework.Object):
                 logger.debug(f"Attempting to delete membership {membership}")
                 container.exec(
                     ["deluser", membership[1], membership[0]]
-                ).wait_output()
+                )
 
     @handle_exec_error
     def _get_ranger_users(self, container):
@@ -421,7 +413,6 @@ class PolicyRelationHandler(framework.Object):
             command,
             working_dir=self.ranger_plugin_path,
             environment=JAVA_ENV,
-        ).wait_output()
+        )
 
-        if container.exists(RANGER_ACCESS_CONTROL_PATH):
-            container.remove_path(RANGER_ACCESS_CONTROL_PATH)
+        container.remove_path(RANGER_ACCESS_CONTROL_PATH, recursive=True)

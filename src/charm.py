@@ -67,7 +67,7 @@ class TrinoK8SCharm(CharmBase):
         """
         super().__init__(*args)
         self.name = "trino"
-        self._state = State(self.app, lambda: self.model.get_relation("peer"))
+        self.state = State(self.app, lambda: self.model.get_relation("peer"))
         self.connector = TrinoConnector(self)
         self.policy = PolicyRelationHandler(self)
 
@@ -84,6 +84,19 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle Ingress
         self._require_nginx_route()
+
+    @property
+    def ready_to_start(self) -> bool:
+        """Check if peer relation established.
+
+        Returns:
+            True if peer relation established, else False.
+        """
+        if not self.state.is_ready():
+            self.unit.status = WaitingStatus("Waiting for peer relation.")
+            return False
+
+        return True
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
@@ -103,7 +116,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        self.unit.status = MaintenanceStatus("installing trino")
+        self.unit.status = MaintenanceStatus(f"{self.name} unit provisioned.")
 
     @log_event_handler(logger)
     def _on_pebble_ready(self, event: PebbleReadyEvent):
@@ -131,7 +144,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the peer relation changed
         """
-        if not self.ready_to_start():
+        if not self.ready_to_start:
             event.defer()
             return
 
@@ -148,7 +161,7 @@ class TrinoK8SCharm(CharmBase):
             self.unit.status = BlockedStatus(str(err))
             return
 
-        target_connectors = self._state.connectors or {}
+        target_connectors = self.state.connectors or {}
         if target_connectors == current_connectors:
             return
 
@@ -167,12 +180,9 @@ class TrinoK8SCharm(CharmBase):
             RuntimeError: Failed to return property files
         """
         properties = {}
-        out, err = container.exec(["ls", CATALOG_PATH]).wait_output()
-        if err:
-            raise RuntimeError(f"Could not return files: {err}")
-
-        files = out.strip().split("\n")
-        property_names = [file_name.split(".")[0] for file_name in files]
+        files = container.list_files(CATALOG_PATH, pattern="*.properties")
+        file_names = [f.name for f in files]
+        property_names = [file_name.split(".")[0] for file_name in file_names]
 
         for item in property_names:
             path = f"{CATALOG_PATH}/{item}.properties"
@@ -211,17 +221,6 @@ class TrinoK8SCharm(CharmBase):
         container.restart(self.name)
         self.unit.status = ActiveStatus()
 
-    def ready_to_start(self):
-        """Check if peer relation established.
-
-        Returns:
-            True if peer relation established, else False.
-        """
-        if not self._state.is_ready():
-            self.unit.status = WaitingStatus("Waiting for peer relation.")
-            return False
-
-        return True
 
     @log_event_handler(logger)
     def _on_restart(self, event):
@@ -270,9 +269,9 @@ class TrinoK8SCharm(CharmBase):
 
     def _create_truststore_password(self):
         """Create truststore password if it does not exist."""
-        if not self._state.truststore_password:
+        if not self.state.truststore_password:
             truststore_password = generate_password()
-            self._state.truststore_password = truststore_password
+            self.state.truststore_password = truststore_password
 
     def _open_service_port(self):
         """Open port 8080 on Trino coordinator."""
@@ -315,11 +314,11 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "WEB_PROXY": self.config.get("web-proxy"),
-            "SSL_PWD": self._state.truststore_password,
+            "SSL_PWD": self.state.truststore_password,
             "SSL_PATH": f"{CONF_PATH}/truststore.jks",
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
-            "APPLICATION_NAME": self.config["application-name"],
+            "APPLICATION_NAME": self.app.name,
         }
         return env
 
@@ -334,7 +333,7 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        if not self.ready_to_start():
+        if not self.ready_to_start:
             event.defer()
             return
 
