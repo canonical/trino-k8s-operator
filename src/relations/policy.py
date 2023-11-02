@@ -198,7 +198,7 @@ class PolicyRelationHandler(framework.Object):
             command,
             working_dir=self.ranger_plugin_path,
             environment=JAVA_ENV,
-        )
+        ).wait_output()
 
     @handle_exec_error
     def _unpack_plugin(self, container):
@@ -217,7 +217,7 @@ class PolicyRelationHandler(framework.Object):
             "xf",
             f"ranger-{tar_version}-trino-plugin.tar.gz",
         ]
-        container.exec(command, working_dir="/root")
+        container.exec(command, working_dir="/root").wait_output()
 
     def _configure_plugin_properties(
         self, container, policy_manager_url, policy_relation
@@ -358,7 +358,7 @@ class PolicyRelationHandler(framework.Object):
             elif member_type == "membership":
                 command = ["usermod", "-aG", member[0], member[1]]
 
-            container.exec(command)
+            container.exec(command).wait_output()
 
     @handle_exec_error
     def _delete_memberships(self, container, to_delete):
@@ -372,7 +372,9 @@ class PolicyRelationHandler(framework.Object):
         for membership in to_delete:
             if membership[1] in ranger_users:
                 logger.debug(f"Attempting to delete membership {membership}")
-                container.exec(["deluser", membership[1], membership[0]])
+                container.exec(
+                    ["deluser", membership[1], membership[0]]
+                ).wait_output()
 
     @handle_exec_error
     def _get_ranger_users(self, container):
@@ -410,6 +412,6 @@ class PolicyRelationHandler(framework.Object):
             command,
             working_dir=self.ranger_plugin_path,
             environment=JAVA_ENV,
-        )
+        ).wait_output()
 
         container.remove_path(RANGER_ACCESS_CONTROL_PATH, recursive=True)
