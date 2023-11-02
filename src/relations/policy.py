@@ -7,7 +7,6 @@ import logging
 
 import yaml
 from ops import framework
-from ops.model import BlockedStatus
 from ops.pebble import ExecError
 
 from literals import (
@@ -373,9 +372,7 @@ class PolicyRelationHandler(framework.Object):
         for membership in to_delete:
             if membership[1] in ranger_users:
                 logger.debug(f"Attempting to delete membership {membership}")
-                container.exec(
-                    ["deluser", membership[1], membership[0]]
-                )
+                container.exec(["deluser", membership[1], membership[0]])
 
     @handle_exec_error
     def _get_ranger_users(self, container):

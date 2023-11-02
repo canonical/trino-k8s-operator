@@ -50,8 +50,9 @@ class TrinoK8SCharm(CharmBase):
     """Charm the service.
 
     Attrs:
-        _state: used to store data that is persisted across invocations.
+        state: used to store data that is persisted across invocations.
         external_hostname: DNS listing used for external connections.
+        ready_to_start: boolean to confirm the charm is ready to start.
     """
 
     @property
@@ -175,9 +176,6 @@ class TrinoK8SCharm(CharmBase):
 
         Returns:
             properties: A dictionary of existing connector configurations
-
-        Raises:
-            RuntimeError: Failed to return property files
         """
         properties = {}
         files = container.list_files(CATALOG_PATH, pattern="*.properties")
@@ -220,7 +218,6 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = MaintenanceStatus("restarting trino")
         container.restart(self.name)
         self.unit.status = ActiveStatus()
-
 
     @log_event_handler(logger)
     def _on_restart(self, event):
