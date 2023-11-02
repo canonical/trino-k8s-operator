@@ -16,7 +16,6 @@ tox                      # runs 'format', 'lint', and 'unit' environments
 This charm is used to deploy Trino Server in a k8s cluster. For local deployment, follow the following steps:
 
 ## Set up your development environment
-## Set up your development environment
 ### Install Microk8s
 ```
 # Install Microk8s from snap:
