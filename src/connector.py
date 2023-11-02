@@ -110,7 +110,7 @@ class TrinoConnector(Object):
             "-noprompt",
         ]
         try:
-            container.exec(command, working_dir=CONF_PATH).wait_output()
+            container.exec(command, working_dir=CONF_PATH).wait()
         except ExecError as e:
             expected_error_string = f"alias <{conn_name}> already exists"
             if expected_error_string in str(e.stdout):
@@ -183,7 +183,7 @@ class TrinoConnector(Object):
             "-noprompt",
         ]
         try:
-            container.exec(command, working_dir=CONF_PATH).wait_output()
+            container.exec(command, working_dir=CONF_PATH).wait()
         except ExecError as e:
             expected_error_string = f"Alias <{conn_name}> does not exist"
             if expected_error_string in str(e.stdout):
