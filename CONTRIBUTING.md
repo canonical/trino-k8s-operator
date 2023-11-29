@@ -22,7 +22,7 @@ This charm is used to deploy Trino Server in a k8s cluster. For local deployment
 sudo snap install microk8s --channel 1.25-strict/stable
 
 # Add your user to the Microk8s group:
-sudo usermod -a -G snap_microk8s ubuntu
+sudo usermod -a -G snap_microk8s $USER
 
 # Switch to microk8s group
 newgrp snap_microk8s
