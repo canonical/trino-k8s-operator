@@ -52,7 +52,6 @@ class TrinoK8SCharm(CharmBase):
     Attrs:
         state: used to store data that is persisted across invocations.
         external_hostname: DNS listing used for external connections.
-        ready_to_start: boolean to confirm the charm is ready to start.
     """
 
     @property
@@ -85,19 +84,6 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle Ingress
         self._require_nginx_route()
-
-    @property
-    def ready_to_start(self) -> bool:
-        """Check if peer relation established.
-
-        Returns:
-            True if peer relation established, else False.
-        """
-        if not self.state.is_ready():
-            self.unit.status = WaitingStatus("Waiting for peer relation.")
-            return False
-
-        return True
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
@@ -145,7 +131,8 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the peer relation changed
         """
-        if not self.ready_to_start:
+        if not self.state.is_ready():
+            self.unit.status = WaitingStatus("Waiting for peer relation.")
             event.defer()
             return
 
@@ -330,7 +317,8 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        if not self.ready_to_start:
+        if not self.state.is_ready():
+            self.unit.status = WaitingStatus("Waiting for peer relation.")
             event.defer()
             return
 
