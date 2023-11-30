@@ -19,19 +19,22 @@ This charm is used to deploy Trino Server in a k8s cluster. For local deployment
 ### Install Microk8s
 ```
 # Install Microk8s from snap:
-sudo snap install microk8s --classic --channel=1.25
+sudo snap install microk8s --channel 1.25-strict/stable
 
-# Add the 'ubuntu' user to the Microk8s group:
-sudo usermod -a -G microk8s ubuntu
+# Add your user to the Microk8s group:
+sudo usermod -a -G snap_microk8s $USER
 
-# Give the 'ubuntu' user permissions to read the ~/.kube directory:
-sudo chown -f -R ubuntu ~/.kube
+# Switch to microk8s group
+newgrp snap_microk8s
 
-# Create the 'microk8s' group:
-newgrp microk8s
+# Create the ~/.kube/ directory and load microk8s configuration
+mkdir -p ~/.kube/ && microk8s config > ~/.kube/config
 
 # Enable the necessary Microk8s addons:
-microk8s enable hostpath-storage dns
+sudo microk8s enable hostpath-storage dns
+
+# Set up a short alias for Kubernetes CLI:
+sudo snap alias microk8s.kubectl kubectl
 ```
 ### Install Charmcraft
 ```
