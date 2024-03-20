@@ -22,9 +22,11 @@ from ops.model import (
     MaintenanceStatus,
     WaitingStatus,
 )
+from ops.pebble import CheckStatus
 
 from connector import TrinoConnector
 from literals import (
+    CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
     PASSWORD_DB,
@@ -77,6 +79,7 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(
             self.on.peer_relation_changed, self._on_peer_relation_changed
         )
+        self.framework.observe(self.on.update_status, self._on_update_status)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -121,6 +124,49 @@ class TrinoK8SCharm(CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
+    def _on_update_status(self, event):
+        """Handle `update-status` events.
+
+        Args:
+            event: The `update-status` event triggered at intervals
+        """
+        container = self.unit.get_container(self.name)
+
+        if not self.state.is_ready():
+            return
+
+        valid_pebble_plan = self._validate_pebble_plan(container)
+        if not valid_pebble_plan:
+            self._update(event)
+            return
+
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            check = container.get_check("up")
+            if check.status != CheckStatus.UP:
+                self.unit.status = MaintenanceStatus("Status check: DOWN")
+                return
+
+        self.unit.status = ActiveStatus("Status check: UP")
+
+    def _validate_pebble_plan(self, container):
+        """Validate Superset pebble plan.
+
+        Args:
+            container: application container
+
+        Returns:
+            bool of pebble plan validity
+        """
+        try:
+            plan = container.get_plan().to_dict()
+            return bool(
+                plan
+                and plan["services"].get(self.name, {}).get("on-check-failure")
+            )
+        except pebble.ConnectionError:
+            return False
+
+    @log_event_handler(logger)
     def _on_peer_relation_changed(self, event):
         """Handle changed peer relation.
 
@@ -160,16 +206,17 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             properties: A dictionary of existing connector configurations
         """
-        if not container.exists(CATALOG_PATH):
+        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
+        if not container.exists(catalog_path):
             return {}
 
-        files = container.list_files(CATALOG_PATH, pattern="*.properties")
+        files = container.list_files(catalog_path, pattern="*.properties")
         file_names = [f.name for f in files]
         property_names = [file_name.split(".")[0] for file_name in file_names]
 
         properties = {}
         for item in property_names:
-            path = f"{CATALOG_PATH}/{item}.properties"
+            path = f"{catalog_path}/{item}.properties"
             config = container.pull(path).read()
             properties[item] = config
 
@@ -241,13 +288,6 @@ class TrinoK8SCharm(CharmBase):
             truststore_password = generate_password()
             self.state.truststore_password = truststore_password
 
-    def _open_service_port(self):
-        """Open port 8080 on Trino coordinator."""
-        if self.config["charm-function"] in ["coordinator", "all"]:
-            self.model.unit.open_port(port=8080, protocol="tcp")
-        else:
-            self.model.unit.close_port(port=8080, protocol="tcp")
-
     def _validate_config_params(self):
         """Validate that configuration is valid.
 
@@ -316,7 +356,6 @@ class TrinoK8SCharm(CharmBase):
         logger.info("configuring trino")
         self._create_truststore_password()
         self._enable_password_auth(container)
-        self._open_service_port()
 
         env = self._create_environment()
         for template, file in CONFIG_FILES.items():
@@ -335,13 +374,29 @@ class TrinoK8SCharm(CharmBase):
                     "command": RUN_TRINO_COMMAND,
                     "startup": "enabled",
                     "environment": env,
+                    "on-check-failure": {"up": "ignore"},
                 }
             },
         }
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            pebble_layer.update(
+                {
+                    "checks": {
+                        "up": {
+                            "override": "replace",
+                            "period": "30s",
+                            "http": {"url": "http://localhost:8080/"},
+                        }
+                    }
+                },
+            )
+
+            self.model.unit.open_port(port=8080, protocol="tcp")
+
         container.add_layer(self.name, pebble_layer, combine=True)
         container.replan()
 
-        self.unit.status = ActiveStatus()
+        self.unit.status = MaintenanceStatus("replanning application")
 
 
 if __name__ == "__main__":

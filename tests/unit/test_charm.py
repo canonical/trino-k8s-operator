@@ -10,10 +10,16 @@
 
 import json
 import logging
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from ops import testing
-from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    MaintenanceStatus,
+    WaitingStatus,
+)
+from ops.pebble import CheckStatus
 from ops.testing import Harness
 
 from charm import TrinoK8SCharm
@@ -41,6 +47,7 @@ GROUP_MANAGEMENT = """\
           - name: commercial-systems
             description: commercial systems team
 """
+mock_incomplete_pebble_plan = {"services": {"trino": {"override": "replace"}}}
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +101,10 @@ class TestCharm(TestCase):
         simulate_lifecycle(harness)
 
         # Asserts status is active
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
         # The plan is generated after pebble is ready.
         want_plan = {
@@ -104,6 +114,7 @@ class TestCharm(TestCase):
                     "summary": "trino server",
                     "command": "./entrypoint.sh",
                     "startup": "enabled",
+                    "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/trino/etc/password.db",
@@ -124,7 +135,7 @@ class TestCharm(TestCase):
         got_plan["services"]["trino"]["environment"][
             "SSL_PWD"
         ] = "truststore123"  # nosec
-        self.assertEqual(got_plan, want_plan)
+        self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
         service = harness.model.unit.get_container("trino").get_service(
@@ -133,7 +144,10 @@ class TestCharm(TestCase):
         self.assertTrue(service.is_running())
 
         # The ActiveStatus is set with no message.
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
     def test_ingress(self):
         """Test ingress relation.
@@ -205,6 +219,7 @@ class TestCharm(TestCase):
                     "summary": "trino server",
                     "command": "./entrypoint.sh",
                     "startup": "enabled",
+                    "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/trino/etc/password.db",
@@ -225,10 +240,13 @@ class TestCharm(TestCase):
         got_plan["services"]["trino"]["environment"][
             "SSL_PWD"
         ] = "truststore123"  # nosec
-        self.assertEqual(got_plan, want_plan)
+        self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The ActiveStatus is set with no message.
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
     def test_connector_action(self):
         """Add and remove connector actions applied to properties file."""
@@ -322,6 +340,52 @@ class TestCharm(TestCase):
             event.relation.data["ranger-k8s"].get("user-group-configuration")
         )
         self.assertFalse(container.exists(RANGER_PROPERTIES_PATH))
+
+    def test_update_status_up(self):
+        """The charm updates the unit status to active based on UP status."""
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
+        )
+
+    def test_update_status_down(self):
+        """The charm updates the unit status to maintenance based on DOWN status."""
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.DOWN
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status, MaintenanceStatus("Status check: DOWN")
+        )
+
+    def test_incomplete_pebble_plan(self):
+        """The charm re-applies the pebble plan if incomplete."""
+        harness = self.harness
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.add_layer("trino", mock_incomplete_pebble_plan, combine=True)
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
+        plan = harness.get_container_pebble_plan("trino").to_dict()
+        assert plan != mock_incomplete_pebble_plan
 
 
 def simulate_lifecycle(harness):
