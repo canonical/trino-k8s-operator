@@ -25,10 +25,8 @@ connection-url=jdbc:postgresql://host.com:5432/database
 connection-user=testing
 connection-password=test
 """
-DB_PATH = "/etc/trino/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = (
-    "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
-)
+DB_PATH = "/trino/etc/catalog/example-db.properties"
+RANGER_PROPERTIES_PATH = "/trino/etc/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 GROUP_MANAGEMENT = """\
         users:
@@ -104,15 +102,16 @@ class TestCharm(TestCase):
                 "trino": {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": "./entrypoint.sh",
                     "startup": "enabled",
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
+                        "PASSWORD_DB_PATH": "/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
                         "WEB_PROXY": None,
-                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PATH": "/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
@@ -204,15 +203,16 @@ class TestCharm(TestCase):
                 "trino": {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": "./entrypoint.sh",
                     "startup": "enabled",
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
+                        "PASSWORD_DB_PATH": "/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
-                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PATH": "/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
                         "DISCOVERY_URI": "http://trino-k8s:8080",

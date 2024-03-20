@@ -32,50 +32,34 @@ def generate_password() -> str:
     )
 
 
-def push(container: Container, content: str, path: str) -> None:
-    """Write a file and contents to a container.
+def render(template_name, env=None):
+    """Pushes configuration files to application.
 
     Args:
-        container: container to push the files into
-        content: the text content to write to a file path
-        path: the full path of the desired file
+        template_name: template_file
+        env: (Optional) The subset of config values for the file.
     """
-    container.push(path, content, make_dirs=True)
-
-
-def charm_path(file_path):
-    """Get path for Charm.
-
-    Args:
-        file_path: charm file_path
-
-    Returns:
-        path: full charm path
-    """
+    # get the absolute path of templates directory.
     charm_dir = os.path.abspath(
         os.path.join(os.path.dirname(__file__), os.pardir)
     )
-    path = os.path.join(charm_dir, file_path)
-    return path
+    templates_path = os.path.join(charm_dir, "templates")
 
+    # handle jinja files.
+    if "jinja" in template_name:
+        loader = FileSystemLoader(templates_path)
+        content = (
+            Environment(loader=loader, autoescape=True)
+            .get_template(template_name)
+            .render(**env)
+        )
 
-def render(template_name, context):
-    """Render the template with the given name using the given context dict.
-
-    Args:
-        template_name: File name to read the template from.
-        context: Dict used for rendering.
-
-    Returns:
-        A dict containing the rendered template.
-    """
-    path = charm_path("templates")
-    loader = FileSystemLoader(path)
-    return (
-        Environment(loader=loader, autoescape=True)
-        .get_template(template_name)
-        .render(**context)
-    )
+    # handle properties files.
+    else:
+        file_path = os.path.join(templates_path, template_name)
+        with open(file_path, "r") as file:
+            content = file.read()
+    return content
 
 
 def string_to_dict(string_value):
@@ -146,23 +130,6 @@ def bcrypt_pwd(password):
     ).decode("utf-8")
     mod_password = bcrypt_password.replace("$2b$", "$2y$")
     return mod_password
-
-
-def push_files(container, file_path, destination, permissions):
-    """Push files to container destination path.
-
-    Args:
-        container: the application container
-        file_path: the path of the file
-        destination: the destination path in the application
-        permissions: the permissions of the file
-    """
-    abs_path = charm_path(file_path)
-    with open(abs_path, "r") as file:
-        file_content = file.read()
-    container.push(
-        destination, file_content, make_dirs=True, permissions=permissions
-    )
 
 
 def handle_exec_error(func):

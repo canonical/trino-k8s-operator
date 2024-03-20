@@ -11,6 +11,7 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
+import os
 
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
@@ -24,23 +25,18 @@ from ops.model import (
 
 from connector import TrinoConnector
 from literals import (
-    AUTHENTICATOR_PATH,
-    AUTHENTICATOR_PROPERTIES,
-    CATALOG_PATH,
-    CONF_PATH,
-    CONFIG_JINJA,
-    CONFIG_PATH,
-    LOG_JINJA,
-    LOG_PATH,
-    PASSWORD_DB_PATH,
+    CONF_DIR,
+    CONFIG_FILES,
+    PASSWORD_DB,
     RUN_TRINO_COMMAND,
     SYSTEM_CONNECTORS,
+    TRINO_HOME,
     TRINO_PORTS,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
 from state import State
-from utils import bcrypt_pwd, generate_password, push, render
+from utils import bcrypt_pwd, generate_password, render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -164,11 +160,14 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             properties: A dictionary of existing connector configurations
         """
-        properties = {}
+        if not container.exists(CATALOG_PATH):
+            return {}
+
         files = container.list_files(CATALOG_PATH, pattern="*.properties")
         file_names = [f.name for f in files]
         property_names = [file_name.split(".")[0] for file_name in file_names]
 
+        properties = {}
         for item in property_names:
             path = f"{CATALOG_PATH}/{item}.properties"
             config = container.pull(path).read()
@@ -224,32 +223,17 @@ class TrinoK8SCharm(CharmBase):
 
         event.set_results({"result": "trino successfully restarted"})
 
-    def _push_file(
-        self, container, context, jinja_file, path, permission=0o644
-    ):
-        """Pushes files to application.
-
-        Args:
-            container: The application container
-            context: The subset of config values for the file
-            jinja_file: The template file
-            path: The path for file in the application
-            permission: File permission (default 0o644)
-        """
-        properties = render(jinja_file, context)
-        container.push(
-            path, properties, make_dirs=True, permissions=permission
-        )
-
     def _enable_password_auth(self, container):
         """Create necessary properties and db files for authentication.
 
         Args:
             container: The application container
         """
-        push(container, AUTHENTICATOR_PROPERTIES, AUTHENTICATOR_PATH)
         password = bcrypt_pwd(self.config["trino-password"])
-        push(container, f"trino:{password}", PASSWORD_DB_PATH)
+        path = f"{TRINO_HOME}/{PASSWORD_DB}"
+        db_content = f"trino:{password}"
+
+        container.push(path, db_content, make_dirs=True, permissions=0o644)
 
     def _create_truststore_password(self):
         """Create truststore password if it does not exist."""
@@ -299,10 +283,11 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "SSL_PWD": self.state.truststore_password,
-            "SSL_PATH": f"{CONF_PATH}/truststore.jks",
+            "SSL_PATH": f"{TRINO_HOME}/{CONF_DIR}/truststore.jks",
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
+            "PASSWORD_DB_PATH": f"{TRINO_HOME}/{PASSWORD_DB}",
         }
         return env
 
@@ -334,8 +319,10 @@ class TrinoK8SCharm(CharmBase):
         self._open_service_port()
 
         env = self._create_environment()
-        self._push_file(container, env, LOG_JINJA, LOG_PATH)
-        self._push_file(container, env, CONFIG_JINJA, CONFIG_PATH)
+        for template, file in CONFIG_FILES.items():
+            path = f"{TRINO_HOME}/{file}"
+            content = render(template, env)
+            container.push(path, content, make_dirs=True, permissions=0o644)
 
         logger.info("planning trino execution")
         pebble_layer = {

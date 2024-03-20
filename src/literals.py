@@ -11,36 +11,30 @@ TRINO_PORTS = {
 }
 
 # Configuration literals
-CONF_PATH = "/etc/trino/conf"
-CATALOG_PATH = "/etc/trino/catalog"
-CONFIG_JINJA = "config.jinja"
-CONFIG_PATH = "/etc/trino/config.properties"
-LOG_PATH = "/etc/trino/log.properties"
-LOG_JINJA = "logging.jinja"
-RUN_TRINO_COMMAND = "/usr/lib/trino/bin/run-trino"
+TRINO_HOME = "/trino/etc"
+CONFIG_FILES = {
+    "config.jinja": "config.properties",
+    "logging.jinja": "log.properties",
+    "password-authenticator.jinja": "password-authenticator.properties",
+}
+
+CONF_DIR = "conf"
+CATALOG_DIR = "catalog"
+RUN_TRINO_COMMAND = "./entrypoint.sh"
 
 # Authentication literals
-PASSWORD_DB_PATH = "/etc/trino/password.db"  # nosec
-AUTHENTICATOR_PATH = "/etc/trino/password-authenticator.properties"
-AUTHENTICATOR_PROPERTIES = """password-authenticator.name=file
-file.password-file=/etc/trino/password.db
-file.refresh-period=1m
-file.auth-token-cache.max-size=1000"""
+PASSWORD_DB = "password.db"  # nosec
 
 # Ranger plugin literals
-RANGER_PLUGIN_FILE = "plugin-install.jinja"
-RANGER_PLUGIN_VERSION = {
-    "tar": "2.4.0",
-    "path": "3.0.0-SNAPSHOT",
+RANGER_PLUGIN_VERSION = "2.4.0"
+RANGER_PLUGIN_HOME = "/trino/etc/ranger"
+RANGER_PLUGIN_FILES = {
+    "access-control.properties": "access-control.properties",
+    "ranger-plugin.jinja": "install.properties",
 }
 
 JAVA_ENV = {"JAVA_HOME": "/opt/java/openjdk"}
-RANGER_POLICY_PATH = "/etc/ranger"
-RANGER_ACCESS_CONTROL = """\
-access-control.name=ranger
-ranger.use_ugi=true
-"""
-RANGER_ACCESS_CONTROL_PATH = "/etc/trino/access-control.properties"
+
 
 # UNIX literals
 UNIX_TYPE_MAPPING = {
