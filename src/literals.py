@@ -11,7 +11,7 @@ TRINO_PORTS = {
 }
 
 # Configuration literals
-TRINO_HOME = "/trino/etc"
+TRINO_HOME = "/usr/lib/trino/etc"
 CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
@@ -27,13 +27,13 @@ PASSWORD_DB = "password.db"  # nosec
 
 # Ranger plugin literals
 RANGER_PLUGIN_VERSION = "2.4.0"
-RANGER_PLUGIN_HOME = "/trino/etc/ranger"
+RANGER_PLUGIN_HOME = "/usr/lib/ranger"
 RANGER_PLUGIN_FILES = {
     "access-control.properties": "access-control.properties",
     "ranger-plugin.jinja": "install.properties",
 }
 
-JAVA_ENV = {"JAVA_HOME": "/opt/java/openjdk"}
+JAVA_ENV = {"JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64"}
 
 
 # UNIX literals

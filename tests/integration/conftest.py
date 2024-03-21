@@ -23,10 +23,12 @@ async def deploy(ops_test: OpsTest):
     }
 
     # Deploy trino and nginx charms
+    trino_config = {"ranger-service-name": "trino-service"}
     await ops_test.model.deploy(
         charm,
         resources=resources,
         application_name=APP_NAME,
+        config=trino_config,
         num_units=1,
     )
     worker_config = {"charm-function": "worker"}
@@ -42,8 +44,14 @@ async def deploy(ops_test: OpsTest):
 
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
-            apps=[NGINX_NAME, APP_NAME, WORKER_NAME],
+            apps=[APP_NAME, WORKER_NAME],
             status="active",
+            raise_on_blocked=False,
+            timeout=600,
+        )
+        await ops_test.model.wait_for_idle(
+            apps=[NGINX_NAME],
+            status="waiting",
             raise_on_blocked=False,
             timeout=600,
         )

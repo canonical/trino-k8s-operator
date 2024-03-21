@@ -8,16 +8,15 @@ import logging
 import time
 
 import pytest
-import pytest_asyncio
 from helpers import (
-    GROUP_MANAGEMENT,
-    METADATA,
+    APP_NAME,
+    LDAP_NAME,
     POSTGRES_NAME,
     RANGER_NAME,
-    TRINO_POLICY_NAME,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
-    create_group_policy,
+    USERSYNC_NAME,
+    create_policy,
     get_catalogs,
     get_unit_url,
 )
@@ -26,84 +25,83 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.skip_if_deployed
-@pytest_asyncio.fixture(name="deploy", scope="module")
-async def deploy_ranger(ops_test: OpsTest):
-    """Add Ranger relation and apply group configuration."""
-    charm = await ops_test.build_charm(".")
-    resources = {
-        "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
-    }
-    trino_config = {
-        "charm-function": "all",
-        "ranger-service-name": "trino-service",
-    }
-    await ops_test.model.deploy(
-        charm,
-        resources=resources,
-        application_name=TRINO_POLICY_NAME,
-        num_units=1,
-        config=trino_config,
-    )
-
-    await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
-    await ops_test.model.wait_for_idle(
-        apps=[POSTGRES_NAME, TRINO_POLICY_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=1200,
-    )
-
-    ranger_config = {"user-group-configuration": GROUP_MANAGEMENT}
-    await ops_test.model.deploy(
-        RANGER_NAME, channel="beta", config=ranger_config
-    )
-
-    await ops_test.model.wait_for_idle(
-        apps=[RANGER_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=1200,
-    )
-    await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
-
-    await ops_test.model.wait_for_idle(
-        apps=[POSTGRES_NAME, RANGER_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=1200,
-    )
-    logging.info("integrating trino and ranger")
-    await ops_test.model.integrate(RANGER_NAME, TRINO_POLICY_NAME)
-    await ops_test.model.wait_for_idle(
-        apps=[TRINO_POLICY_NAME, RANGER_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=1200,
-    )
-
-
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy")
-class TestPolicy:
-    """Integration test for policy relation."""
+class TestPolicyManager:
+    """Integration test for Ranger policy enforcement."""
 
-    async def test_group_policy(self, ops_test: OpsTest):
-        """Connects a client and executes a basic SQL query."""
+    async def test_policy_enforcement(self, ops_test: OpsTest):
+        """Add Ranger relation and apply group configuration."""
+        # Deploy and prepare Ranger admin.
+        await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
+        await ops_test.model.deploy(RANGER_NAME, channel="edge")
+
+        await ops_test.model.wait_for_idle(
+            apps=[POSTGRES_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1200,
+        )
+        await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+
+        await ops_test.model.wait_for_idle(
+            apps=[POSTGRES_NAME, RANGER_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1200,
+        )
+
+        # Deploy and prepare Ranger usersync.
+        await ops_test.model.deploy(LDAP_NAME, channel="edge")
+        await ops_test.model.wait_for_idle(
+            apps=[LDAP_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1500,
+        )
+        action = (
+            await ops_test.model.applications[LDAP_NAME]
+            .units[0]
+            .run_action("load-test-users")
+        )
+        await action.wait()
+
+        usersync_config = {"charm-function": "usersync"}
+        await ops_test.model.deploy(
+            RANGER_NAME,
+            channel="edge",
+            config=usersync_config,
+            application_name=USERSYNC_NAME,
+        )
+        await ops_test.model.integrate(USERSYNC_NAME, LDAP_NAME)
+        time.sleep(100)  # Provide time for user synchronization to occur.
+        await ops_test.model.wait_for_idle(
+            apps=[USERSYNC_NAME, LDAP_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1500,
+        )
+
+        # Integrate Trino and Ranger.
+        logging.info("integrating trino and ranger")
+        await ops_test.model.integrate(RANGER_NAME, APP_NAME)
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME, RANGER_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1200,
+        )
+        # Test policy implementation.
         url = await get_unit_url(
             ops_test, application=RANGER_NAME, unit=0, port=6080
         )
         logging.info(f"creating test policies for {url}")
-        await create_group_policy(ops_test, url)
+        await create_policy(ops_test, url)
 
         # wait 3 minutes for the policy to be synced.
         time.sleep(180)
 
-        catalogs = await get_catalogs(
-            ops_test, USER_WITH_ACCESS, TRINO_POLICY_NAME
-        )
-        assert catalogs == [["tpch"]]
-        catalogs = await get_catalogs(
-            ops_test, USER_WITHOUT_ACCESS, TRINO_POLICY_NAME
-        )
+        catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS, APP_NAME)
+        assert catalogs == [["system"]]
+        catalogs = await get_catalogs(ops_test, USER_WITHOUT_ACCESS, APP_NAME)
         assert catalogs == []

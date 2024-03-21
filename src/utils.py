@@ -12,7 +12,6 @@ import string
 
 import bcrypt
 from jinja2 import Environment, FileSystemLoader
-from ops.model import Container
 from ops.pebble import ExecError
 
 logger = logging.getLogger(__name__)
@@ -36,8 +35,11 @@ def render(template_name, env=None):
     """Pushes configuration files to application.
 
     Args:
-        template_name: template_file
+        template_name: template_file.
         env: (Optional) The subset of config values for the file.
+
+    Returns:
+        content: template content.
     """
     # get the absolute path of templates directory.
     charm_dir = os.path.abspath(

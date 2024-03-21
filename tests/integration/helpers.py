@@ -34,27 +34,13 @@ connection-user=trino
 connection-password=trino
 """
 RANGER_NAME = "ranger-k8s"
-GROUP_MANAGEMENT = """\
-    trino-service:
-        users:
-          - name: user1
-            firstname: One
-            lastname: User
-            email: user1@canonical.com
-        memberships:
-          - groupname: commercial-systems
-            users: [user1]
-        groups:
-          - name: commercial-systems
-            description: commercial systems team
-"""
 TRINO_USER = "trino"
 TRINO_SERVICE = "trino-service"
-USER_WITH_ACCESS = "user1"
-USER_WITHOUT_ACCESS = "user2"
-GROUP_WITH_ACCESS = "commercial-systems"
-POLICY_NAME = "tpch - catalog, schema, table, column"
-TRINO_POLICY_NAME = "trino-k8s-policy"
+USER_WITH_ACCESS = "dev"
+USER_WITHOUT_ACCESS = "user"
+POLICY_NAME = "system - catalog, schema, table, column"
+LDAP_NAME = "comsys-openldap-k8s"
+USERSYNC_NAME = "ranger-usersync-k8s"
 
 
 async def get_unit_url(
@@ -123,10 +109,10 @@ async def run_connector_action(ops_test, action, params, user):
     return catalogs
 
 
-async def create_group_policy(ops_test, ranger_url):
-    """Create a Ranger group policy.
+async def create_policy(ops_test, ranger_url):
+    """Create a Ranger user policy.
 
-    Allow members of `commercial-systems` to access `tpch` catalog.
+    Allow user `user1` to access `system` catalog.
 
     Args:
         ops_test: PyTest object
@@ -138,13 +124,13 @@ async def create_group_policy(ops_test, ranger_url):
     policy.name = POLICY_NAME
     policy.resources = {
         "schema": RangerPolicyResource({"values": ["*"]}),
-        "catalog": RangerPolicyResource({"values": ["tpch"]}),
+        "catalog": RangerPolicyResource({"values": ["system"]}),
         "table": RangerPolicyResource({"values": ["*"]}),
         "column": RangerPolicyResource({"values": ["*"]}),
     }
 
     allow_items = RangerPolicyItem()
-    allow_items.groups = [GROUP_WITH_ACCESS]
+    allow_items.users = [USER_WITH_ACCESS]
     allow_items.accesses = [RangerPolicyItemAccess({"type": "select"})]
     policy.policyItems = [allow_items]
     ranger.create_policy(policy)

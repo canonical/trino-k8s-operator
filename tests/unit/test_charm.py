@@ -31,8 +31,8 @@ connection-url=jdbc:postgresql://host.com:5432/database
 connection-user=testing
 connection-password=test
 """
-DB_PATH = "/trino/etc/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = "/trino/etc/ranger/install.properties"
+DB_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
+RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 GROUP_MANAGEMENT = """\
         users:
@@ -117,16 +117,17 @@ class TestCharm(TestCase):
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
-                        "PASSWORD_DB_PATH": "/trino/etc/password.db",
+                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
                         "WEB_PROXY": None,
-                        "SSL_PATH": "/trino/etc/conf/truststore.jks",
+                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
+                        "TRINO_HOME": "/usr/lib/trino/etc",
                     },
                 }
             },
@@ -222,16 +223,17 @@ class TestCharm(TestCase):
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
-                        "PASSWORD_DB_PATH": "/trino/etc/password.db",
+                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
-                        "SSL_PATH": "/trino/etc/conf/truststore.jks",
+                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
+                        "TRINO_HOME": "/usr/lib/trino/etc",
                     },
                 }
             },
@@ -327,10 +329,10 @@ class TestCharm(TestCase):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
         simulate_lifecycle(harness)
-        container = harness.model.unit.get_container("trino")
 
         rel_id = harness.add_relation("policy", "trino-k8s")
         harness.add_relation_unit(rel_id, "trino-k8s/0")
+        harness.handle_exec("trino", ["bash"], result=0)
 
         data = {"ranger-k8s": {}}
         event = make_policy_relation_event(rel_id, data)
@@ -339,7 +341,6 @@ class TestCharm(TestCase):
         self.assertFalse(
             event.relation.data["ranger-k8s"].get("user-group-configuration")
         )
-        self.assertFalse(container.exists(RANGER_PROPERTIES_PATH))
 
     def test_update_status_up(self):
         """The charm updates the unit status to active based on UP status."""

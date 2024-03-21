@@ -11,7 +11,6 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
-import os
 
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
@@ -135,6 +134,9 @@ class TrinoK8SCharm(CharmBase):
         if not self.state.is_ready():
             return
 
+        if not container.can_connect():
+            return
+
         valid_pebble_plan = self._validate_pebble_plan(container)
         if not valid_pebble_plan:
             self._update(event)
@@ -163,7 +165,7 @@ class TrinoK8SCharm(CharmBase):
                 plan
                 and plan["services"].get(self.name, {}).get("on-check-failure")
             )
-        except pebble.ConnectionError:
+        except ConnectionError:
             return False
 
     @log_event_handler(logger)
@@ -183,7 +185,6 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        self.unit.status = WaitingStatus("updating peers")
         container = self.unit.get_container(self.name)
         try:
             current_connectors = self._get_current_connectors(container)
@@ -230,14 +231,15 @@ class TrinoK8SCharm(CharmBase):
             target: intended connectors from _state
             container: Trino container
         """
+        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
         for key, config in target.items():
             if key not in current:
-                path = f"{CATALOG_PATH}/{key}.properties"
+                path = f"{catalog_path}/{key}.properties"
                 container.push(path, config, make_dirs=True)
 
         for key in current.keys():
             if key not in target.keys() and key not in SYSTEM_CONNECTORS:
-                path = f"{CATALOG_PATH}/{key}.properties"
+                path = f"{catalog_path}/{key}.properties"
                 container.remove_path(path)
 
         self._restart_trino(container)
@@ -250,7 +252,6 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = MaintenanceStatus("restarting trino")
         container.restart(self.name)
-        self.unit.status = ActiveStatus()
 
     @log_event_handler(logger)
     def _on_restart(self, event):
@@ -328,6 +329,7 @@ class TrinoK8SCharm(CharmBase):
             "DISCOVERY_URI": self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": f"{TRINO_HOME}/{PASSWORD_DB}",
+            "TRINO_HOME": TRINO_HOME,
         }
         return env
 

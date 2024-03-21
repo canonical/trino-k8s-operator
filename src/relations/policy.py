@@ -13,6 +13,7 @@ from literals import (
     JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
+    TRINO_HOME,
     TRINO_PORTS,
     UNIX_TYPE_MAPPING,
 )
@@ -154,20 +155,11 @@ class PolicyRelationHandler(framework.Object):
             event.defer()
             return
 
-        if not container.exists(RANGER_PLUGIN_HOME):
-            return
-
         try:
             self._disable_ranger_plugin(container)
             logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
             raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
-
-        if container.exists(RANGER_POLICY_PATH):
-            container.remove_path(RANGER_POLICY_PATH, recursive=True)
-
-        if container.exists(RANGER_PLUGIN_HOME):
-            container.remove_path(RANGER_PLUGIN_HOME, recursive=True)
 
         self.charm._restart_trino(container)
 
@@ -205,7 +197,10 @@ class PolicyRelationHandler(framework.Object):
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
-            path = f"{RANGER_PLUGIN_HOME}/{file}"
+            if file == "access-control.properties":
+                path = f"{TRINO_HOME}/{file}"
+            else:
+                path = f"{RANGER_PLUGIN_HOME}/{file}"
             container.push(path, content, make_dirs=True, permissions=0o744)
 
     @handle_exec_error
@@ -374,4 +369,6 @@ class PolicyRelationHandler(framework.Object):
             environment=JAVA_ENV,
         ).wait()
 
-        container.remove_path(RANGER_ACCESS_CONTROL_PATH, recursive=True)
+        container.remove_path(
+            f"{TRINO_HOME}/access-control.properties", recursive=True
+        )
