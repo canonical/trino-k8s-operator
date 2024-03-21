@@ -16,6 +16,7 @@ header:
     - '**/*.j2'
     - '**/*.json'
     - '**/*.md'
+    - '**/*.properties'
     - '**/*.rule'
     - '**/*.tmpl'
     - '**/*.txt'
