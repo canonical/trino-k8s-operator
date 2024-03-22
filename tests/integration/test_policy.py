@@ -33,7 +33,9 @@ class TestPolicyManager:
     async def test_policy_enforcement(self, ops_test: OpsTest):
         """Add Ranger relation and apply group configuration."""
         # Deploy and prepare Ranger admin.
-        await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
+        await ops_test.model.deploy(
+            POSTGRES_NAME, channel="14/stable", trust=True
+        )
         await ops_test.model.deploy(RANGER_NAME, channel="edge")
 
         await ops_test.model.wait_for_idle(
@@ -74,19 +76,12 @@ class TestPolicyManager:
             application_name=USERSYNC_NAME,
         )
         await ops_test.model.integrate(USERSYNC_NAME, LDAP_NAME)
-        time.sleep(100)  # Provide time for user synchronization to occur.
-        await ops_test.model.wait_for_idle(
-            apps=[USERSYNC_NAME, LDAP_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=1500,
-        )
 
         # Integrate Trino and Ranger.
         logging.info("integrating trino and ranger")
         await ops_test.model.integrate(RANGER_NAME, APP_NAME)
         await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, RANGER_NAME],
+            apps=[APP_NAME, RANGER_NAME, USERSYNC_NAME, LDAP_NAME],
             status="active",
             raise_on_blocked=False,
             timeout=1200,
@@ -103,5 +98,7 @@ class TestPolicyManager:
 
         catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS, APP_NAME)
         assert catalogs == [["system"]]
+        logger.info(f"{USER_WITH_ACCESS} can access {catalogs}.")
         catalogs = await get_catalogs(ops_test, USER_WITHOUT_ACCESS, APP_NAME)
+        logger.info(f"{USER_WITHOUT_ACCESS}, cam access {catalogs}.")
         assert catalogs == []
