@@ -55,6 +55,7 @@ USER_WITHOUT_ACCESS = "user2"
 GROUP_WITH_ACCESS = "commercial-systems"
 POLICY_NAME = "tpch - catalog, schema, table, column"
 TRINO_POLICY_NAME = "trino-k8s-policy"
+SECURE_PWD = "Qeyt5QnHF30tsqm"  # nosec
 
 
 async def get_unit_url(
