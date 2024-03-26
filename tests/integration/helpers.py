@@ -41,6 +41,20 @@ USER_WITHOUT_ACCESS = "user"
 POLICY_NAME = "system - catalog, schema, table, column"
 LDAP_NAME = "comsys-openldap-k8s"
 USERSYNC_NAME = "ranger-usersync-k8s"
+HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+}
+DEV_USER = {
+    "user": {
+        "name": USER_WITH_ACCESS,
+        "password": "devpassword",
+        "firstName": USER_WITH_ACCESS,
+        "lastName": "user",
+        "emailAddress": "dev@example.com",
+        "status": 1,
+    }
+}
 
 
 async def get_unit_url(

@@ -2,7 +2,6 @@
 # See LICENSE file for licensing details.
 
 """Trino charm integration test config."""
-
 import logging
 
 import pytest
@@ -42,29 +41,28 @@ async def deploy(ops_test: OpsTest):
 
     await ops_test.model.deploy(NGINX_NAME, trust=True)
 
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=600,
-        )
-        await ops_test.model.wait_for_idle(
-            apps=[NGINX_NAME],
-            status="waiting",
-            raise_on_blocked=False,
-            timeout=600,
-        )
+    await ops_test.model.wait_for_idle(
+        apps=[APP_NAME, WORKER_NAME],
+        status="active",
+        raise_on_blocked=False,
+        timeout=600,
+    )
+    await ops_test.model.wait_for_idle(
+        apps=[NGINX_NAME],
+        status="waiting",
+        raise_on_blocked=False,
+        timeout=600,
+    )
 
-        await ops_test.model.integrate(APP_NAME, NGINX_NAME)
+    await ops_test.model.integrate(APP_NAME, NGINX_NAME)
 
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=300,
-        )
-        assert (
-            ops_test.model.applications[APP_NAME].units[0].workload_status
-            == "active"
-        )
+    await ops_test.model.wait_for_idle(
+        apps=[APP_NAME],
+        status="active",
+        raise_on_blocked=False,
+        timeout=300,
+    )
+    assert (
+        ops_test.model.applications[APP_NAME].units[0].workload_status
+        == "active"
+    )
