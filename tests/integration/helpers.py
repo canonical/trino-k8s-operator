@@ -69,6 +69,9 @@ DEV_USER = {
     "emailAddress": "dev@example.com",
 }
 
+# Upgrades secure password
+SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
+
 
 async def get_unit_url(
     ops_test: OpsTest, application, unit, port, protocol="http"
