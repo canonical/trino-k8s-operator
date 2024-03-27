@@ -7,12 +7,13 @@
 from trino.dbapi import connect
 
 
-async def show_catalogs(host, user) -> str:
+async def query_trino(host, user, query) -> str:
     """Trino catalogs.
 
     Args:
         host: trino server address.
-        user: the user to access Trino with
+        user: the user with which to access Trino.
+        query: the query to execute.
 
     Returns:
         result: list of Trino catalogs
@@ -25,6 +26,6 @@ async def show_catalogs(host, user) -> str:
         verify=False,
     )
     cur = conn.cursor()
-    cur.execute("SHOW CATALOGS")
+    cur.execute(query)
     result = cur.fetchall()
     return result

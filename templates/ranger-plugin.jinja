@@ -20,7 +20,7 @@ INSTALL_ENV=docker
 # This location should be relative to the parent of the directory containing
 # the plugin installation files.
 #
-COMPONENT_INSTALL_DIR_NAME=/etc/trino
+COMPONENT_INSTALL_DIR_NAME={{ TRINO_HOME | default("/usr/lib/trino/etc")}}
 
 # Enable audit logs to Solr
 #Example
