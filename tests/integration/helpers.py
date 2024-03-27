@@ -4,10 +4,13 @@
 
 """Trino charm integration test helpers."""
 
+import json
 import logging
+import os
 import time
 from pathlib import Path
 
+import requests
 import yaml
 from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.model.ranger_policy import (
@@ -21,39 +24,49 @@ from trino_client.show_catalogs import show_catalogs
 
 logger = logging.getLogger(__name__)
 
-RANGER_AUTH = ("admin", "rangerR0cks!")
-CONN_NAME = "connection-test"
-METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
+
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..")
+)
+METADATA = yaml.safe_load(Path(f"{BASE_DIR}/metadata.yaml").read_text())
+TRINO_IMAGE = {
+    "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
+}
+
+# Charm name literals
 APP_NAME = METADATA["name"]
 WORKER_NAME = f"{APP_NAME}-worker"
 POSTGRES_NAME = "postgresql-k8s"
 NGINX_NAME = "nginx-ingress-integrator"
-CONN_CONFIG = """connector.name=postgresql
+
+# Database configuration literals
+CONN_NAME = "connection-test"
+CONN_CONFIG = """\
+connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
 connection-user=trino
 connection-password=trino
 """
-RANGER_NAME = "ranger-k8s"
 TRINO_USER = "trino"
+
+# Ranger policy literals
+RANGER_NAME = "ranger-k8s"
+RANGER_AUTH = ("admin", "rangerR0cks!")
 TRINO_SERVICE = "trino-service"
 USER_WITH_ACCESS = "dev"
 USER_WITHOUT_ACCESS = "user"
 POLICY_NAME = "system - catalog, schema, table, column"
-LDAP_NAME = "comsys-openldap-k8s"
-USERSYNC_NAME = "ranger-usersync-k8s"
+
 HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
 }
 DEV_USER = {
-    "user": {
-        "name": USER_WITH_ACCESS,
-        "password": "devpassword",
-        "firstName": USER_WITH_ACCESS,
-        "lastName": "user",
-        "emailAddress": "dev@example.com",
-        "status": 1,
-    }
+    "name": USER_WITH_ACCESS,
+    "password": "aP6X1HhJe6Toui!",
+    "firstName": USER_WITH_ACCESS,
+    "lastName": "user",
+    "emailAddress": "dev@example.com",
 }
 
 
@@ -121,6 +134,21 @@ async def run_connector_action(ops_test, action, params, user):
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"action {action} run, catalogs: {catalogs}")
     return catalogs
+
+
+async def create_user(ops_test, ranger_url):
+    """Create Ranger user.
+
+    Args:
+        ops_test: PyTest object
+        ranger_url: the polciy manager url
+    """
+    url = f"{ranger_url}/service/xusers/users"
+    response = requests.post(
+        url, headers=HEADERS, json=DEV_USER, auth=RANGER_AUTH, timeout=20
+    )
+    r = json.loads(response.text)
+    logger.info(r)
 
 
 async def create_policy(ops_test, ranger_url):

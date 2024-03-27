@@ -6,36 +6,32 @@ import logging
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, METADATA, NGINX_NAME, WORKER_NAME
+from helpers import APP_NAME, BASE_DIR, NGINX_NAME, TRINO_IMAGE, WORKER_NAME
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
+
+WORKER_CONFIG = {"charm-function": "worker"}
 
 
 @pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy", scope="module")
 async def deploy(ops_test: OpsTest):
     """Deploy the app."""
-    charm = await ops_test.build_charm(".")
-    resources = {
-        "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
-    }
+    charm = await ops_test.build_charm(BASE_DIR)
 
     # Deploy trino and nginx charms
-    trino_config = {"ranger-service-name": "trino-service"}
     await ops_test.model.deploy(
         charm,
-        resources=resources,
+        resources=TRINO_IMAGE,
         application_name=APP_NAME,
-        config=trino_config,
         num_units=1,
     )
-    worker_config = {"charm-function": "worker"}
     await ops_test.model.deploy(
         charm,
-        resources=resources,
+        resources=TRINO_IMAGE,
         application_name=WORKER_NAME,
-        config=worker_config,
+        config=WORKER_CONFIG,
         num_units=1,
     )
 
