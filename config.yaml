@@ -61,3 +61,7 @@ options:
         coordinator service that the workers announce themselves to.
     type: string
     default: http://trino-k8s:8080
+  catalog-config:
+    description: |
+      Catalogs for which Trino should be connected.
+    type: string

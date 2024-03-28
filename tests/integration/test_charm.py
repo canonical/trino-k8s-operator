@@ -11,12 +11,12 @@ import requests
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
-    CONN_CONFIG,
-    CONN_NAME,
+    CATALOG_NAME,
     TRINO_USER,
     get_catalogs,
     get_unit_url,
-    run_connector_action,
+    update_catalog_config,
+    TEST_CATALOG_CONFIG,
 )
 from pytest_operator.plugin import OpsTest
 
@@ -44,29 +44,12 @@ class TestDeployment:
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
 
-    async def test_add_connector_action(self, ops_test: OpsTest):
+    async def test_add_catalog(self, ops_test: OpsTest):
         """Adds a PostgreSQL connector and confirms database added."""
-        params = {
-            "conn-name": CONN_NAME,
-            "conn-config": CONN_CONFIG,
-        }
-        catalogs = await run_connector_action(
-            ops_test,
-            "add-connector",
-            params,
-            TRINO_USER,
-        )
-        assert [CONN_NAME] in catalogs
+        catalogs = await update_catalog_config(ops_test, TEST_CATALOG_CONFIG, TRINO_USER)
+        assert CATALOG_NAME in catalogs
 
     async def test_remove_connector_action(self, ops_test: OpsTest):
         """Removes an existing connector confirms database removed."""
-        params = {
-            "conn-name": CONN_NAME,
-        }
-        catalogs = await run_connector_action(
-            ops_test,
-            "remove-connector",
-            params,
-            TRINO_USER,
-        )
-        assert [CONN_NAME] not in catalogs
+        catalogs = await update_catalog_config(ops_test, None, TRINO_USER)
+        assert CATALOG_NAME not in catalogs

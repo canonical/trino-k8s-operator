@@ -40,12 +40,13 @@ POSTGRES_NAME = "postgresql-k8s"
 NGINX_NAME = "nginx-ingress-integrator"
 
 # Database configuration literals
-CONN_NAME = "connection-test"
-CONN_CONFIG = """\
-connector.name=postgresql
-connection-url=jdbc:postgresql://example.host.com:5432/test
-connection-user=trino
-connection-password=trino
+CATALOG_NAME = "example-db"
+TEST_CATALOG_CONFIG = """\
+example-db: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host.com:5432/database
+  connection-user=testing
+  connection-password=test
 """
 TRINO_USER = "trino"
 
@@ -112,7 +113,7 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
     return catalogs
 
 
-async def run_connector_action(ops_test, action, params, user):
+async def update_catalog_config(ops_test, catalog_config, user):
     """Run connection action.
 
     Args:
@@ -124,13 +125,8 @@ async def run_connector_action(ops_test, action, params, user):
     Returns:
         catalogs: list of trino catalogs after action
     """
-    action = (
-        await ops_test.model.applications[APP_NAME]
-        .units[0]
-        .run_action(action, **params)
-    )
-    await action.wait()
-    time.sleep(30)
+    await ops_test.model.applications[APP_NAME].set_config({"catalog-config": catalog_config})
+    await ops_test.model.wait_for_idle(status="active",  timeout=60)
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"action {action} run, catalogs: {catalogs}")
     return catalogs

@@ -11,7 +11,8 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
-
+import yaml
+from yaml.parser import ScannerError
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
@@ -23,21 +24,25 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus
 
-from connector import TrinoConnector
 from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
-    SYSTEM_CONNECTORS,
     TRINO_HOME,
     TRINO_PORTS,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
 from state import State
-from utils import bcrypt_pwd, generate_password, render
+from utils import (
+    add_cert_to_truststore,
+    bcrypt_pwd,
+    create_cert_and_catalog_dicts,
+    generate_password,
+    render,
+)
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -65,7 +70,6 @@ class TrinoK8SCharm(CharmBase):
         super().__init__(*args)
         self.name = "trino"
         self.state = State(self.app, lambda: self.model.get_relation("peer"))
-        self.connector = TrinoConnector(self)
         self.policy = PolicyRelationHandler(self)
 
         # Handle basic charm lifecycle
@@ -75,9 +79,6 @@ class TrinoK8SCharm(CharmBase):
         )
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
-        self.framework.observe(
-            self.on.peer_relation_changed, self._on_peer_relation_changed
-        )
         self.framework.observe(self.on.update_status, self._on_update_status)
 
         # Handle Ingress
@@ -168,82 +169,6 @@ class TrinoK8SCharm(CharmBase):
         except ConnectionError:
             return False
 
-    @log_event_handler(logger)
-    def _on_peer_relation_changed(self, event):
-        """Handle changed peer relation.
-
-        Args:
-            event: The event triggered when the peer relation changed
-        """
-        if not self.state.is_ready():
-            self.unit.status = WaitingStatus("Waiting for peer relation.")
-            event.defer()
-            return
-
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        container = self.unit.get_container(self.name)
-        try:
-            current_connectors = self._get_current_connectors(container)
-        except RuntimeError as err:
-            self.unit.status = BlockedStatus(str(err))
-            return
-
-        target_connectors = self.state.connectors or {}
-        if target_connectors == current_connectors:
-            return
-
-        self._handle_diff(current_connectors, target_connectors, container)
-
-    def _get_current_connectors(self, container):
-        """Create a dictionary of existing connector configurations.
-
-        Args:
-            container: Trino container
-
-        Returns:
-            properties: A dictionary of existing connector configurations
-        """
-        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
-        if not container.exists(catalog_path):
-            return {}
-
-        files = container.list_files(catalog_path, pattern="*.properties")
-        file_names = [f.name for f in files]
-        property_names = [file_name.split(".")[0] for file_name in file_names]
-
-        properties = {}
-        for item in property_names:
-            path = f"{catalog_path}/{item}.properties"
-            config = container.pull(path).read()
-            properties[item] = config
-
-        return properties
-
-    def _handle_diff(self, current, target, container):
-        """Handle differences between state and unit connectors.
-
-        Args:
-            current: existing unit connectors
-            target: intended connectors from _state
-            container: Trino container
-        """
-        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
-        for key, config in target.items():
-            if key not in current:
-                path = f"{catalog_path}/{key}.properties"
-                container.push(path, config, make_dirs=True)
-
-        for key in current.keys():
-            if key not in target.keys() and key not in SYSTEM_CONNECTORS:
-                path = f"{catalog_path}/{key}.properties"
-                container.remove_path(path)
-
-        self._restart_trino(container)
-
     def _restart_trino(self, container):
         """Restart Trino.
 
@@ -289,6 +214,63 @@ class TrinoK8SCharm(CharmBase):
             truststore_password = generate_password()
             self.state.truststore_password = truststore_password
 
+    def _add_catalogs(self, container, catalogs, path):
+        """Add catalogs to Trino.
+
+        Args:
+            container: The application container.
+            catalogs: Dictionary of catalog configurations.
+            path: Trino catalog path.
+        """
+        for name, config in catalogs.items():
+            logger.info(f"{path}/{name}.properties")
+            container.push(f"{path}/{name}.properties", config, make_dirs=True)
+
+    def _add_certs(self, container, certs, path):
+        """Prepare and add certificates to Trino truststore.
+
+        Args:
+            container: The application container.
+            certs: Dictionary of certificate configurations.
+            path: Trino catalog path.
+        """
+        self._create_truststore_password()
+        for name, cert in certs.items():
+            container.push(
+                f"{path}/{name}.crt",
+                cert,
+                make_dirs=True,
+            )
+            try:
+                add_cert_to_truststore(container, name, cert, self.state.truststore_password)
+                container.remove_path(f"{path}/{name}.crt")
+            except Exception as e:
+                logger.debug(f"Failed to add {name} cert: {e}")
+
+    def _configure_catalogs(self, container):
+        """Manage catalog configurations.
+
+        Args:
+            container: The application container.
+        """
+        # Get dictionary of certs and catalogs.
+        catalog_config = self.config.get("catalog-config")
+        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
+        conf_path = f"{TRINO_HOME}/{CONF_DIR}"
+
+        # Remove existing catalogs and add from config.
+        for path in [catalog_path, conf_path]:
+            if container.exists(path):
+                container.remove_path(path, recursive=True)
+
+        # Add catalogs from config
+        if catalogs:
+            self._add_catalogs(container, catalogs, catalog_path)
+
+        if certs:
+            self._add_certs(container, certs, conf_path)
+
     def _validate_config_params(self):
         """Validate that configuration is valid.
 
@@ -311,6 +293,13 @@ class TrinoK8SCharm(CharmBase):
         if web_proxy and not web_proxy.strip():
             raise ValueError("Web-proxy value cannot be an empty string")
 
+        catalogs = self.config.get("catalog-config")
+        # try:
+        #     yaml.safe_load(catalogs)
+        # except ScannerError as e:
+        #     raise ValueError("Incorrectly formatted catalog-config")
+            
+
     def _create_environment(self):
         """Create application environment.
 
@@ -330,6 +319,7 @@ class TrinoK8SCharm(CharmBase):
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": f"{TRINO_HOME}/{PASSWORD_DB}",
             "TRINO_HOME": TRINO_HOME,
+            "CATALOG_CONFIG": self.config.get("catalog-config"),
         }
         return env
 
@@ -356,7 +346,8 @@ class TrinoK8SCharm(CharmBase):
             return
 
         logger.info("configuring trino")
-        self._create_truststore_password()
+        if self.config.get("catalog-config"):
+            self._configure_catalogs(container)
         self._enable_password_auth(container)
 
         env = self._create_environment()
