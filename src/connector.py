@@ -115,7 +115,7 @@ class TrinoConnector(Object):
         ]
         try:
             container.exec(
-                command, working_dir=self.charm.conf_abs_path
+                command, working_dir=str(self.charm.conf_abs_path)
             ).wait()
         except ExecError as e:
             expected_error_string = f"alias <{conn_name}> already exists"
@@ -192,7 +192,7 @@ class TrinoConnector(Object):
         ]
         try:
             container.exec(
-                command, working_dir=self.charm.conf_abs_path
+                command, working_dir=str(self.charm.conf_abs_path)
             ).wait()
         except ExecError as e:
             expected_error_string = f"Alias <{conn_name}> does not exist"

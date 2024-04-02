@@ -185,7 +185,7 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=self.ranger_abs_path,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
 
@@ -374,7 +374,7 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=RANGER_PLUGIN_HOME,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
 
