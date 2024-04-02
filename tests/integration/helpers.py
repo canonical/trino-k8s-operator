@@ -190,17 +190,18 @@ async def scale(ops_test: OpsTest, app, units):
         app: Application to be scaled.
         units: Number of units required.
     """
-    await ops_test.model.applications[app].scale(scale=units)
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[app].scale(scale=units)
 
-    # Wait for model to settle
-    await ops_test.model.wait_for_idle(
-        apps=[app],
-        status="active",
-        idle_period=30,
-        raise_on_blocked=True,
-        timeout=600,
-        wait_for_exact_units=units,
-    )
+        # Wait for model to settle
+        await ops_test.model.wait_for_idle(
+            apps=[app],
+            status="active",
+            idle_period=30,
+            raise_on_blocked=True,
+            timeout=600,
+            wait_for_exact_units=units,
+        )
 
 
 async def get_active_workers(ops_test: OpsTest):
@@ -218,5 +219,7 @@ async def get_active_workers(ops_test: OpsTest):
     ]
     logger.info("executing query on app address: %s", address)
     result = await query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
-    active_workers = [x for x in result if x[0].startswith("trino-k8s-worker")]
+    active_workers = [
+        x for x in result if x[1].startswith("http://trino-k8s-worker")
+    ]
     return active_workers
