@@ -4,6 +4,7 @@
 """Defines policy relation event handling methods."""
 
 import logging
+from pathlib import Path
 
 import yaml
 from ops import framework
@@ -13,7 +14,6 @@ from literals import (
     JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
-    TRINO_HOME,
     TRINO_PORTS,
     UNIX_TYPE_MAPPING,
 )
@@ -24,7 +24,16 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyRelationHandler(framework.Object):
-    """Client for trino policy relations."""
+    """Client for trino policy relations.
+
+    Attrs:
+        ranger_abs_path: The absolute path for Ranger plugin home directory.
+    """
+
+    @property
+    def ranger_abs_path(self):
+        """Return the Ranger plugin absolute path."""
+        return Path(RANGER_PLUGIN_HOME)
 
     def __init__(self, charm, relation_name="policy"):
         """Construct.
@@ -176,7 +185,7 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=RANGER_PLUGIN_HOME,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
 
@@ -198,9 +207,9 @@ class PolicyRelationHandler(framework.Object):
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
             if file == "access-control.properties":
-                path = f"{TRINO_HOME}/{file}"
+                path = self.charm.trino_abs_path.joinpath(file)
             else:
-                path = f"{RANGER_PLUGIN_HOME}/{file}"
+                path = self.ranger_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
 
     @handle_exec_error
@@ -365,10 +374,11 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=RANGER_PLUGIN_HOME,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
 
         container.remove_path(
-            f"{TRINO_HOME}/access-control.properties", recursive=True
+            self.charm.trino_abs_path.joinpath("access-control.properties"),
+            recursive=True,
         )

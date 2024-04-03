@@ -33,7 +33,9 @@ RANGER_PLUGIN_FILES = {
     "ranger-plugin.jinja": "install.properties",
 }
 
-JAVA_ENV = {"JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64"}
+JAVA_ENV = {
+    "JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64",
+}
 
 
 # UNIX literals
@@ -95,5 +97,3 @@ CONNECTOR_FIELDS = {
         "optional": [],
     },
 }
-
-SYSTEM_CONNECTORS = ["jmx", "memory", "tpcds", "tpch"]

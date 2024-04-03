@@ -1,33 +1,5 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-add-connector:
-  description: Provide Trino access to connector.
-  params:
-    conn-name:
-      description: |
-        The name of the connector you are connecting to Trino
-      type: string
-    conn-config:
-      description: |
-        Connector configuration values, differs by connector type. 
-        Visit https://trino.io/docs/current/connector.html for templates.
-      type: string
-    conn-cert:
-      description: |
-        Optional database certificate for TLS. 
-        Available only for PostgreSQL database connections.
-      type: string
-  required: [conn-name, conn-config]
-  additionalProperties: false
-remove-connector:
-  description: Remove Trino access from connector.
-  params:
-    conn-name:
-      description: |
-        The name of the connector you are connecting to Trino
-        If not provided this value is overridden by connector name from jconnc
-      type: string
-  required: [conn-name]
 restart:
     description: Restart the Trino server.

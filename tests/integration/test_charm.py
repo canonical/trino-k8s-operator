@@ -11,12 +11,14 @@ import requests
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
-    CONN_CONFIG,
-    CONN_NAME,
+    EXAMPLE_CATALOG_CONFIG,
+    EXAMPLE_CATALOG_NAME,
+    TEMP_CATALOG_CONFIG,
+    TEMP_CATALOG_NAME,
     TRINO_USER,
     get_catalogs,
     get_unit_url,
-    run_connector_action,
+    update_catalog_config,
 )
 from pytest_operator.plugin import OpsTest
 
@@ -44,29 +46,23 @@ class TestDeployment:
         logging.info(f"trino catalogs: {catalogs}")
         assert catalogs
 
-    async def test_add_connector_action(self, ops_test: OpsTest):
+    async def test_add_catalog(self, ops_test: OpsTest):
         """Adds a PostgreSQL connector and confirms database added."""
-        params = {
-            "conn-name": CONN_NAME,
-            "conn-config": CONN_CONFIG,
-        }
-        catalogs = await run_connector_action(
-            ops_test,
-            "add-connector",
-            params,
-            TRINO_USER,
+        catalog_config = EXAMPLE_CATALOG_CONFIG + TEMP_CATALOG_CONFIG
+        catalogs = await update_catalog_config(
+            ops_test, catalog_config, TRINO_USER
         )
-        assert [CONN_NAME] in catalogs
 
-    async def test_remove_connector_action(self, ops_test: OpsTest):
+        # Verify that both catalogs have been added.
+        assert TEMP_CATALOG_NAME in catalogs
+        assert EXAMPLE_CATALOG_NAME in catalogs
+
+    async def test_remove_catalog(self, ops_test: OpsTest):
         """Removes an existing connector confirms database removed."""
-        params = {
-            "conn-name": CONN_NAME,
-        }
-        catalogs = await run_connector_action(
-            ops_test,
-            "remove-connector",
-            params,
-            TRINO_USER,
+        catalogs = await update_catalog_config(
+            ops_test, EXAMPLE_CATALOG_CONFIG, TRINO_USER
         )
-        assert [CONN_NAME] not in catalogs
+
+        # Verigy that only the temp catalog has been removed.
+        assert TEMP_CATALOG_NAME not in catalogs
+        assert EXAMPLE_CATALOG_NAME in catalogs

@@ -26,12 +26,14 @@ from charm import TrinoK8SCharm
 from state import State
 
 SERVER_PORT = "8080"
-CONN_CONFIG = """connector.name=postgresql
-connection-url=jdbc:postgresql://host.com:5432/database
-connection-user=testing
-connection-password=test
+TEST_CATALOG_CONFIG = """\
+example-db: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host.com:5432/database
+  connection-user=testing
+  connection-password=test
 """
-DB_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
+TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 GROUP_MANAGEMENT = """\
@@ -116,6 +118,7 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
+                        "CATALOG_CONFIG": None,
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
@@ -222,6 +225,7 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
+                        "CATALOG_CONFIG": None,
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
@@ -250,23 +254,29 @@ class TestCharm(TestCase):
             MaintenanceStatus("replanning application"),
         )
 
-    def test_connector_action(self):
-        """Add and remove connector actions applied to properties file."""
+    def test_catalog_added(self):
+        """The catalog directory is updated to add the new catalog."""
         harness = self.harness
         simulate_lifecycle(harness)
 
-        # Simulate add-connector action.
-        event = MockEvent()
-        harness.charm.connector._on_add_connector(event)
+        # Update the config.
+        self.harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
 
+        # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
-        self.assertTrue(container.exists(DB_PATH))
+        self.assertTrue(container.exists(TEST_CATALOG_PATH))
 
-        # Simulate remove-connector action.
-        harness.charm.connector._on_remove_connector(event)
+    def test_catalog_removed(self):
+        """The catalog directory is updated to remove existing catalogs."""
+        harness = self.harness
+        simulate_lifecycle(harness)
 
+        # Update the config.
+        self.harness.update_config({"catalog-config": None})
+
+        # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
-        self.assertFalse(container.exists(DB_PATH))
+        self.assertFalse(container.exists(TEST_CATALOG_PATH))
 
     def test_policy_relation_created(self):
         """Add policy relation."""
@@ -446,26 +456,6 @@ def group_handler(args):
     elif args.command == ["getent", "group"]:
         out = "marketing:x:1004:user2"
     return testing.ExecResult(stdout=out)
-
-
-class MockEvent:
-    """Mock event action class."""
-
-    def __init__(self):
-        """Mock handle params."""
-        self.params = {
-            "conn-name": "example-db",
-            "conn-config": CONN_CONFIG,
-        }
-        self.result = {}
-
-    def set_results(self, results):
-        """Mock set results of action.
-
-        Args:
-            results: result of action
-        """
-        self.result = results
 
 
 class TestState(TestCase):

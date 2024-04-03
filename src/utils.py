@@ -11,8 +11,11 @@ import secrets
 import string
 
 import bcrypt
+import yaml
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
+
+from literals import JAVA_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +168,68 @@ def handle_exec_error(func):
             raise
 
     return wrapper
+
+
+def create_cert_and_catalog_dicts(config):
+    """Identify certs and connection values from config.
+
+    Args:
+        config: the catalog-config file content.
+
+    Returns:
+        certs: dictionary of certificates.
+        catalogs: dictionary of catalog values.
+    """
+    certs = {}
+    catalogs = {}
+    catalogs_with_certs = yaml.safe_load(config)
+    for key, value in catalogs_with_certs.items():
+        if "_cert" in key:
+            certs[key] = value
+        else:
+            catalogs[key] = value
+    return certs, catalogs
+
+
+def add_cert_to_truststore(container, name, cert, storepass, conf_path):
+    """Add CA to JKS truststore.
+
+    Args:
+        container: Trino container.
+        name: Certificate file name.
+        cert: Certificate content.
+        storepass: Truststore password.
+        conf_path: The conf directory.
+
+    Raises:
+        ExecError: In case of error during keytool certificate import
+    """
+    java_home = JAVA_ENV["JAVA_HOME"]
+    command = [
+        f"{java_home}/bin/keytool",
+        "-import",
+        "-v",
+        "-alias",
+        name,
+        "-file",
+        f"{name}.crt",
+        "-keystore",
+        "truststore.jks",
+        "-storepass",
+        storepass,
+        "-noprompt",
+    ]
+    try:
+        process = container.exec(
+            command,
+            working_dir=conf_path,
+        )
+        stdout, _ = process.wait_output()
+        logger.info(stdout)
+    except ExecError as e:
+        expected_error_string = f"alias <{name}> already exists"
+        if expected_error_string in str(e.stdout):
+            logger.debug(expected_error_string)
+            return
+        logger.error(e.stdout)
+        raise

@@ -45,50 +45,40 @@ juju relate trino-k8s nginx-ingress-integrator
 Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
 
 ## Trino connectors
-Adding or removing a connector from Trino is done using a `juju action` and configuration values passed as parameters to this action. This is best done with a `yaml` file.
+Adding or removing a connector from Trino is done using the `juju config` parameter `catalog-config`, as there are likely to be a number of catalogs to connect this is recommended to be done through a `catalog_config.yaml` file.
+The below is an example of the `catalog_config.yaml`, which connects 1 postgresql database without TLS and 1 with TLS.
 
+### The config file
 ```
-# adding a connector
-juju run trino-k8s/0 add-connector --params database.yaml
-
-# removing a connector
-juju run trino-k8s/0 remove-connector --params database.yaml
-```
-Details on the `database.yaml` file below.
-
-### Without TLS
-Connecting Trino to a database without TLS, requires a `<database>.yaml` structured as below (this example is for a PostgreSQL connector):
-```
-conn-name: example
-conn-config: |
+production_db: |
   connector.name=postgresql
-  connection-url=jdbc:postgresql://host.com:5432/database
-  connection-user=example-user
-  connection-password=example-password
+  connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={{ SSL_PATH }}&sslrootcertpassword={{ SSL_PWD }}
+  connection-user=user
+  connection-password=password
+production_cert: |
+  -----BEGIN CERTIFICATE-----
+  Certificate values...
+  -----END CERTIFICATE-----
+staging_db: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host:port/staging_db
+  connection-user=user
+  connection-password=password
 ```
-Note: the fields required for `conn-config` can change significantly by database type, see supported connectors and their properties files [here](https://trino.io/docs/current/connector.html). 
+Note: the fields required for can change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
+
+The key value is important as for certificates this must end in `_cert` to be automatically imported to the truststore. For all other entries this will be the name of the catalog you can access through Trino. [More information on catalog terminology found here](https://trino.io/docs/current/overview/concepts.html).
 
 The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
 
-### With TLS
-Connecting Trino to a database with TLS, requires a `<database>.yaml` structured as below (this example is for a PostgreSQL connector):
-```
-conn-name: example
-conn-config: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={{ SSL_PATH }}&sslrootcertpassword={{ SSL_PWD }}
-  connection-user=example-user
-  connection-password=example-password
-conn-cert:
-  -----BEGIN CERTIFICATE-----
-  YOUR CERTIFICATE CONTENT
-  -----END CERTIFICATE-----
-```
-Note: the `connection-url` parameters for TLS are specific to the connector.
-`{{ SSL_PATH }}` and `{{ SSL PWD }}` variables should be used in place of the truststore path and password. These are environmental variables of the Trino application.
+`{{ SSL_PATH }}` and `{{ SSL PWD }}` variables will be replaces with the truststore path and password by the charm, as long as the certificte has been added with the key appended with '_cert' this will be added to the trustore automatically.
 
-### Removing a database from Trino
-To remove a database you must provide the full configuration of that database. The user and password must match those that the connection was established with. It is not enough for them to have permissions to the database. For this reason we recommend creating a distinct `trino` user for this connection.
+### Adding or removing a catalog
+Once you have your `catalog_config.yaml` file you can configure the Trino charm with the below:
+```
+juju config trino-k8s catalog-config=@/path/to/file/trino_catalogs.yaml
+```
+To add or remove a connector simply update the file and run the above again.
 
 ### Connecting database clusters
 In order to connect clustered database systems to Trino please connect the read-only and read-write endpoints with 2 separate `juju actions`. The read-only database should be appended with `_ro` to distinguish between the two. 
