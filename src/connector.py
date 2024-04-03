@@ -10,7 +10,7 @@ from ops.charm import ActionEvent
 from ops.framework import Object
 from ops.pebble import ExecError
 
-from literals import CATALOG_DIR, CONF_DIR, CONNECTOR_FIELDS, TRINO_HOME
+from literals import CONNECTOR_FIELDS
 from log import log_event_handler
 from utils import string_to_dict, validate_jdbc_pattern, validate_membership
 
@@ -53,7 +53,7 @@ class TrinoConnector(Object):
         conn_input = string_to_dict(conn_string)
 
         if container.exists(
-            f"{TRINO_HOME}/{CATALOG_DIR}/{conn_name}.properties"
+            self.charm.catalog_abs_path.joinpath(f"{conn_name}.properties")
         ):
             event.fail(f"Failed to add {conn_name}, connector already exists")
             return
@@ -71,7 +71,7 @@ class TrinoConnector(Object):
 
         if conn_cert:
             container.push(
-                f"{TRINO_HOME}/{CONF_DIR}/{conn_name}.crt",
+                self.charm.conf_abs_path.joinpath(f"{conn_name}.crt"),
                 conn_cert,
                 make_dirs=True,
             )
@@ -83,7 +83,7 @@ class TrinoConnector(Object):
                 )
                 return
 
-        path = f"{TRINO_HOME}/{CATALOG_DIR}/{conn_name}.properties"
+        path = self.charm.catalog_abs_path.joinpath(f"{conn_name}.properties")
         container.push(path, conn_string, make_dirs=True)
         self._add_connector_to_state(conn_string, conn_name)
         self.charm._restart_trino(container)
@@ -115,7 +115,7 @@ class TrinoConnector(Object):
         ]
         try:
             container.exec(
-                command, working_dir=f"{TRINO_HOME}/{CONF_DIR}"
+                command, working_dir=str(self.charm.conf_abs_path)
             ).wait()
         except ExecError as e:
             expected_error_string = f"alias <{conn_name}> already exists"
@@ -125,7 +125,9 @@ class TrinoConnector(Object):
             logger.error(e.stdout)
             raise
 
-        container.remove_path(f"{TRINO_HOME}/{CONF_DIR}/{conn_name}.crt")
+        container.remove_path(
+            self.charm.conf_abs_path.joinpath(f"{conn_name}.crt")
+        )
 
     def _is_valid_connection(self, conn_input, conn_type):
         """Validate configuration for connector.
@@ -190,7 +192,7 @@ class TrinoConnector(Object):
         ]
         try:
             container.exec(
-                command, working_dir=f"{TRINO_HOME}/{CONF_DIR}"
+                command, working_dir=str(self.charm.conf_abs_path)
             ).wait()
         except ExecError as e:
             expected_error_string = f"Alias <{conn_name}> does not exist"
@@ -214,7 +216,7 @@ class TrinoConnector(Object):
 
         conn_name = event.params["conn-name"]
 
-        path = f"{TRINO_HOME}/{CATALOG_DIR}/{conn_name}.properties"
+        path = self.charm.catalog_abs_path.joinpath(f"{conn_name}.properties")
         if not container.exists(path):
             event.fail(
                 f"Failed to remove {conn_name}, connector does not exist"
@@ -227,7 +229,9 @@ class TrinoConnector(Object):
             )
             return
 
-        if container.exists(f"{TRINO_HOME}/{CONF_DIR}.truststore.jks"):
+        if container.exists(
+            self.charm.conf_abs_path.joinpath("truststore.jks")
+        ):
             try:
                 self._delete_cert_from_truststore(container, conn_name)
             except ExecError:
