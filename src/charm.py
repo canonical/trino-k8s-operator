@@ -276,7 +276,7 @@ class TrinoK8SCharm(CharmBase):
                 logger.debug(f"Failed to add {name} cert: {e}")
 
     def _configure_catalogs(self, container):
-        """Manage catalog configurations.
+        """Manage catalog properties files.
 
         Args:
             container: The application container.
