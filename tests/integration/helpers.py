@@ -141,7 +141,7 @@ async def create_user(ops_test, ranger_url):
 
     Args:
         ops_test: PyTest object
-        ranger_url: the polciy manager url
+        ranger_url: the policy manager url
     """
     url = f"{ranger_url}/service/xusers/users"
     response = requests.post(

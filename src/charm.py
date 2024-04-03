@@ -417,6 +417,8 @@ class TrinoK8SCharm(CharmBase):
             )
 
             self.model.unit.open_port(port=8080, protocol="tcp")
+        else:
+            self.model.unit.close_port(port=8080, protocol="tcp")
 
         container.add_layer(self.name, pebble_layer, combine=True)
         container.replan()
