@@ -4,10 +4,13 @@
 
 """Trino charm integration test helpers."""
 
+import json
 import logging
+import os
 import time
 from pathlib import Path
 
+import requests
 import yaml
 from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.model.ranger_policy import (
@@ -21,40 +24,50 @@ from trino_client.show_catalogs import show_catalogs
 
 logger = logging.getLogger(__name__)
 
-RANGER_AUTH = ("admin", "rangerR0cks!")
-CONN_NAME = "connection-test"
-METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
+
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..")
+)
+METADATA = yaml.safe_load(Path(f"{BASE_DIR}/metadata.yaml").read_text())
+TRINO_IMAGE = {
+    "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
+}
+
+# Charm name literals
 APP_NAME = METADATA["name"]
 WORKER_NAME = f"{APP_NAME}-worker"
 POSTGRES_NAME = "postgresql-k8s"
 NGINX_NAME = "nginx-ingress-integrator"
-CONN_CONFIG = """connector.name=postgresql
+
+# Database configuration literals
+CONN_NAME = "connection-test"
+CONN_CONFIG = """\
+connector.name=postgresql
 connection-url=jdbc:postgresql://example.host.com:5432/test
 connection-user=trino
 connection-password=trino
 """
-RANGER_NAME = "ranger-k8s"
-GROUP_MANAGEMENT = """\
-    trino-service:
-        users:
-          - name: user1
-            firstname: One
-            lastname: User
-            email: user1@canonical.com
-        memberships:
-          - groupname: commercial-systems
-            users: [user1]
-        groups:
-          - name: commercial-systems
-            description: commercial systems team
-"""
 TRINO_USER = "trino"
+
+# Ranger policy literals
+RANGER_NAME = "ranger-k8s"
+RANGER_AUTH = ("admin", "rangerR0cks!")
 TRINO_SERVICE = "trino-service"
-USER_WITH_ACCESS = "user1"
-USER_WITHOUT_ACCESS = "user2"
-GROUP_WITH_ACCESS = "commercial-systems"
-POLICY_NAME = "tpch - catalog, schema, table, column"
-TRINO_POLICY_NAME = "trino-k8s-policy"
+USER_WITH_ACCESS = "dev"
+USER_WITHOUT_ACCESS = "user"
+POLICY_NAME = "system - catalog, schema, table, column"
+
+HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+}
+DEV_USER = {
+    "name": USER_WITH_ACCESS,
+    "password": "aP6X1HhJe6Toui!",
+    "firstName": USER_WITH_ACCESS,
+    "lastName": "user",
+    "emailAddress": "dev@example.com",
+}
 
 
 async def get_unit_url(
@@ -123,10 +136,25 @@ async def run_connector_action(ops_test, action, params, user):
     return catalogs
 
 
-async def create_group_policy(ops_test, ranger_url):
-    """Create a Ranger group policy.
+async def create_user(ops_test, ranger_url):
+    """Create Ranger user.
 
-    Allow members of `commercial-systems` to access `tpch` catalog.
+    Args:
+        ops_test: PyTest object
+        ranger_url: the policy manager url
+    """
+    url = f"{ranger_url}/service/xusers/users"
+    response = requests.post(
+        url, headers=HEADERS, json=DEV_USER, auth=RANGER_AUTH, timeout=20
+    )
+    r = json.loads(response.text)
+    logger.info(r)
+
+
+async def create_policy(ops_test, ranger_url):
+    """Create a Ranger user policy.
+
+    Allow user `user1` to access `system` catalog.
 
     Args:
         ops_test: PyTest object
@@ -138,13 +166,13 @@ async def create_group_policy(ops_test, ranger_url):
     policy.name = POLICY_NAME
     policy.resources = {
         "schema": RangerPolicyResource({"values": ["*"]}),
-        "catalog": RangerPolicyResource({"values": ["tpch"]}),
+        "catalog": RangerPolicyResource({"values": ["system"]}),
         "table": RangerPolicyResource({"values": ["*"]}),
         "column": RangerPolicyResource({"values": ["*"]}),
     }
 
     allow_items = RangerPolicyItem()
-    allow_items.groups = [GROUP_WITH_ACCESS]
+    allow_items.users = [USER_WITH_ACCESS]
     allow_items.accesses = [RangerPolicyItemAccess({"type": "select"})]
     policy.policyItems = [allow_items]
     ranger.create_policy(policy)

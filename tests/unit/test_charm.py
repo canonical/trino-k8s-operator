@@ -10,10 +10,16 @@
 
 import json
 import logging
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from ops import testing
-from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    MaintenanceStatus,
+    WaitingStatus,
+)
+from ops.pebble import CheckStatus
 from ops.testing import Harness
 
 from charm import TrinoK8SCharm
@@ -25,10 +31,8 @@ connection-url=jdbc:postgresql://host.com:5432/database
 connection-user=testing
 connection-password=test
 """
-DB_PATH = "/etc/trino/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = (
-    "/root/ranger-3.0.0-SNAPSHOT-trino-plugin/install.properties"
-)
+DB_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
+RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 GROUP_MANAGEMENT = """\
         users:
@@ -43,6 +47,7 @@ GROUP_MANAGEMENT = """\
           - name: commercial-systems
             description: commercial systems team
 """
+mock_incomplete_pebble_plan = {"services": {"trino": {"override": "replace"}}}
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +101,10 @@ class TestCharm(TestCase):
         simulate_lifecycle(harness)
 
         # Asserts status is active
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
         # The plan is generated after pebble is ready.
         want_plan = {
@@ -104,19 +112,22 @@ class TestCharm(TestCase):
                 "trino": {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": "./entrypoint.sh",
                     "startup": "enabled",
+                    "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
+                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
                         "WEB_PROXY": None,
-                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
+                        "TRINO_HOME": "/usr/lib/trino/etc",
                     },
                 }
             },
@@ -125,7 +136,7 @@ class TestCharm(TestCase):
         got_plan["services"]["trino"]["environment"][
             "SSL_PWD"
         ] = "truststore123"  # nosec
-        self.assertEqual(got_plan, want_plan)
+        self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
         service = harness.model.unit.get_container("trino").get_service(
@@ -134,7 +145,10 @@ class TestCharm(TestCase):
         self.assertTrue(service.is_running())
 
         # The ActiveStatus is set with no message.
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
     def test_ingress(self):
         """Test ingress relation.
@@ -204,19 +218,22 @@ class TestCharm(TestCase):
                 "trino": {
                     "override": "replace",
                     "summary": "trino server",
-                    "command": "/usr/lib/trino/bin/run-trino",
+                    "command": "./entrypoint.sh",
                     "startup": "enabled",
+                    "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "DEFAULT_PASSWORD": "ubuntu123",
+                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
-                        "SSL_PATH": "/etc/trino/conf/truststore.jks",
+                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
                         "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
+                        "TRINO_HOME": "/usr/lib/trino/etc",
                     },
                 }
             },
@@ -225,10 +242,13 @@ class TestCharm(TestCase):
         got_plan["services"]["trino"]["environment"][
             "SSL_PWD"
         ] = "truststore123"  # nosec
-        self.assertEqual(got_plan, want_plan)
+        self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The ActiveStatus is set with no message.
-        self.assertEqual(harness.model.unit.status, ActiveStatus())
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
 
     def test_connector_action(self):
         """Add and remove connector actions applied to properties file."""
@@ -309,10 +329,10 @@ class TestCharm(TestCase):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
         simulate_lifecycle(harness)
-        container = harness.model.unit.get_container("trino")
 
         rel_id = harness.add_relation("policy", "trino-k8s")
         harness.add_relation_unit(rel_id, "trino-k8s/0")
+        harness.handle_exec("trino", ["bash"], result=0)
 
         data = {"ranger-k8s": {}}
         event = make_policy_relation_event(rel_id, data)
@@ -321,7 +341,52 @@ class TestCharm(TestCase):
         self.assertFalse(
             event.relation.data["ranger-k8s"].get("user-group-configuration")
         )
-        self.assertFalse(container.exists(RANGER_PROPERTIES_PATH))
+
+    def test_update_status_up(self):
+        """The charm updates the unit status to active based on UP status."""
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
+        )
+
+    def test_update_status_down(self):
+        """The charm updates the unit status to maintenance based on DOWN status."""
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.DOWN
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status, MaintenanceStatus("Status check: DOWN")
+        )
+
+    def test_incomplete_pebble_plan(self):
+        """The charm re-applies the pebble plan if incomplete."""
+        harness = self.harness
+        simulate_lifecycle(harness)
+
+        container = harness.model.unit.get_container("trino")
+        container.add_layer("trino", mock_incomplete_pebble_plan, combine=True)
+        harness.charm.on.update_status.emit()
+
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
+        plan = harness.get_container_pebble_plan("trino").to_dict()
+        assert plan != mock_incomplete_pebble_plan
 
 
 def simulate_lifecycle(harness):

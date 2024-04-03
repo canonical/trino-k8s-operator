@@ -4,6 +4,7 @@
 """Defines policy relation event handling methods."""
 
 import logging
+from pathlib import Path
 
 import yaml
 from ops import framework
@@ -11,11 +12,8 @@ from ops.pebble import ExecError
 
 from literals import (
     JAVA_ENV,
-    RANGER_ACCESS_CONTROL,
-    RANGER_ACCESS_CONTROL_PATH,
-    RANGER_PLUGIN_FILE,
-    RANGER_PLUGIN_VERSION,
-    RANGER_POLICY_PATH,
+    RANGER_PLUGIN_FILES,
+    RANGER_PLUGIN_HOME,
     TRINO_PORTS,
     UNIX_TYPE_MAPPING,
 )
@@ -28,13 +26,14 @@ logger = logging.getLogger(__name__)
 class PolicyRelationHandler(framework.Object):
     """Client for trino policy relations.
 
-    Attributes:
-        plugin_version: The version of the Ranger plugin
-        ranger_plugin_path: The path of the unpacked ranger plugin
+    Attrs:
+        ranger_abs_path: The absolute path for Ranger plugin home directory.
     """
 
-    plugin_version = RANGER_PLUGIN_VERSION["path"]
-    ranger_plugin_path = f"/root/ranger-{plugin_version}-trino-plugin"
+    @property
+    def ranger_abs_path(self):
+        """Return the Ranger plugin absolute path."""
+        return Path(RANGER_PLUGIN_HOME)
 
     def __init__(self, charm, relation_name="policy"):
         """Construct.
@@ -103,7 +102,6 @@ class PolicyRelationHandler(framework.Object):
         policy_relation = f"relation_{event.relation.id}"
 
         try:
-            self._unpack_plugin(container)
             self._configure_plugin_properties(
                 container, policy_manager_url, policy_relation
             )
@@ -166,20 +164,11 @@ class PolicyRelationHandler(framework.Object):
             event.defer()
             return
 
-        if not container.exists(self.ranger_plugin_path):
-            return
-
         try:
             self._disable_ranger_plugin(container)
             logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
             raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
-
-        if container.exists(RANGER_POLICY_PATH):
-            container.remove_path(RANGER_POLICY_PATH, recursive=True)
-
-        if container.exists(self.ranger_plugin_path):
-            container.remove_path(self.ranger_plugin_path, recursive=True)
 
         self.charm._restart_trino(container)
 
@@ -196,28 +185,9 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=self.ranger_plugin_path,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
-
-    @handle_exec_error
-    def _unpack_plugin(self, container):
-        """Unpack ranger plugin tar.
-
-        Args:
-            container: application container
-        """
-        if container.exists(self.ranger_plugin_path):
-            return
-
-        tar_version = RANGER_PLUGIN_VERSION["tar"]
-
-        command = [
-            "tar",
-            "xf",
-            f"ranger-{tar_version}-trino-plugin.tar.gz",
-        ]
-        container.exec(command, working_dir="/root").wait()
 
     def _configure_plugin_properties(
         self, container, policy_manager_url, policy_relation
@@ -229,24 +199,18 @@ class PolicyRelationHandler(framework.Object):
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
         """
-        ranger_properties_path = f"/root/ranger-{self.plugin_version}-trino-plugin/install.properties"
         policy_context = {
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
         }
-        properties = render(RANGER_PLUGIN_FILE, policy_context)
-        container.push(
-            ranger_properties_path,
-            properties,
-            make_dirs=True,
-            permissions=0o744,
-        )
-        container.push(
-            RANGER_ACCESS_CONTROL_PATH,
-            RANGER_ACCESS_CONTROL,
-            make_dirs=True,
-        )
+        for template, file in RANGER_PLUGIN_FILES.items():
+            content = render(template, policy_context)
+            if file == "access-control.properties":
+                path = self.charm.trino_abs_path.joinpath(file)
+            else:
+                path = self.ranger_abs_path.joinpath(file)
+            container.push(path, content, make_dirs=True, permissions=0o744)
 
     @handle_exec_error
     def _synchronize(self, config, container):
@@ -410,8 +374,11 @@ class PolicyRelationHandler(framework.Object):
         ]
         container.exec(
             command,
-            working_dir=self.ranger_plugin_path,
+            working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
 
-        container.remove_path(RANGER_ACCESS_CONTROL_PATH, recursive=True)
+        container.remove_path(
+            self.charm.trino_abs_path.joinpath("access-control.properties"),
+            recursive=True,
+        )

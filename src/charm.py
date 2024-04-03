@@ -11,6 +11,7 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
+from pathlib import Path
 
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
@@ -21,26 +22,23 @@ from ops.model import (
     MaintenanceStatus,
     WaitingStatus,
 )
+from ops.pebble import CheckStatus
 
 from connector import TrinoConnector
 from literals import (
-    AUTHENTICATOR_PATH,
-    AUTHENTICATOR_PROPERTIES,
-    CATALOG_PATH,
-    CONF_PATH,
-    CONFIG_JINJA,
-    CONFIG_PATH,
-    LOG_JINJA,
-    LOG_PATH,
-    PASSWORD_DB_PATH,
+    CATALOG_DIR,
+    CONF_DIR,
+    CONFIG_FILES,
+    PASSWORD_DB,
     RUN_TRINO_COMMAND,
     SYSTEM_CONNECTORS,
+    TRINO_HOME,
     TRINO_PORTS,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
 from state import State
-from utils import bcrypt_pwd, generate_password, push, render
+from utils import bcrypt_pwd, generate_password, render
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -52,12 +50,30 @@ class TrinoK8SCharm(CharmBase):
     Attrs:
         state: used to store data that is persisted across invocations.
         external_hostname: DNS listing used for external connections.
+        trino_abs_path: The absolute path for Trino home directory.
+        catalog_abs_path: The absolute path for the catalog directory.
+        conf_abs_path: the absolute path for the conf directory.
     """
 
     @property
     def external_hostname(self):
         """Return the DNS listing used for external connections."""
         return self.config["external-hostname"] or self.app.name
+
+    @property
+    def trino_abs_path(self):
+        """Return the catalog absolute path."""
+        return Path(TRINO_HOME)
+
+    @property
+    def catalog_abs_path(self):
+        """Return the catalog absolute path."""
+        return self.trino_abs_path.joinpath(CATALOG_DIR)
+
+    @property
+    def conf_abs_path(self):
+        """Return the catalog absolute path."""
+        return self.trino_abs_path.joinpath(CONF_DIR)
 
     def __init__(self, *args):
         """Construct.
@@ -81,6 +97,7 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(
             self.on.peer_relation_changed, self._on_peer_relation_changed
         )
+        self.framework.observe(self.on.update_status, self._on_update_status)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -125,6 +142,52 @@ class TrinoK8SCharm(CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
+    def _on_update_status(self, event):
+        """Handle `update-status` events.
+
+        Args:
+            event: The `update-status` event triggered at intervals
+        """
+        container = self.unit.get_container(self.name)
+
+        if not self.state.is_ready():
+            return
+
+        if not container.can_connect():
+            return
+
+        valid_pebble_plan = self._validate_pebble_plan(container)
+        if not valid_pebble_plan:
+            self._update(event)
+            return
+
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            check = container.get_check("up")
+            if check.status != CheckStatus.UP:
+                self.unit.status = MaintenanceStatus("Status check: DOWN")
+                return
+
+        self.unit.status = ActiveStatus("Status check: UP")
+
+    def _validate_pebble_plan(self, container):
+        """Validate Superset pebble plan.
+
+        Args:
+            container: application container
+
+        Returns:
+            bool of pebble plan validity
+        """
+        try:
+            plan = container.get_plan().to_dict()
+            return bool(
+                plan
+                and plan["services"].get(self.name, {}).get("on-check-failure")
+            )
+        except ConnectionError:
+            return False
+
+    @log_event_handler(logger)
     def _on_peer_relation_changed(self, event):
         """Handle changed peer relation.
 
@@ -141,7 +204,6 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        self.unit.status = WaitingStatus("updating peers")
         container = self.unit.get_container(self.name)
         try:
             current_connectors = self._get_current_connectors(container)
@@ -164,13 +226,18 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             properties: A dictionary of existing connector configurations
         """
-        properties = {}
-        files = container.list_files(CATALOG_PATH, pattern="*.properties")
+        if not container.exists(self.catalog_abs_path):
+            return {}
+
+        files = container.list_files(
+            self.catalog_abs_path, pattern="*.properties"
+        )
         file_names = [f.name for f in files]
         property_names = [file_name.split(".")[0] for file_name in file_names]
 
+        properties = {}
         for item in property_names:
-            path = f"{CATALOG_PATH}/{item}.properties"
+            path = self.catalog_abs_path.joinpath(f"{item}.properties")
             config = container.pull(path).read()
             properties[item] = config
 
@@ -186,12 +253,14 @@ class TrinoK8SCharm(CharmBase):
         """
         for key, config in target.items():
             if key not in current:
-                path = f"{CATALOG_PATH}/{key}.properties"
+                file = f"{key}.properties"
+                path = self.catalog_abs_path.joinpath(file)
                 container.push(path, config, make_dirs=True)
 
         for key in current.keys():
             if key not in target.keys() and key not in SYSTEM_CONNECTORS:
-                path = f"{CATALOG_PATH}/{key}.properties"
+                file = f"{key}.properties"
+                path = self.catalog_abs_path.joinpath(file)
                 container.remove_path(path)
 
         self._restart_trino(container)
@@ -204,7 +273,6 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = MaintenanceStatus("restarting trino")
         container.restart(self.name)
-        self.unit.status = ActiveStatus()
 
     @log_event_handler(logger)
     def _on_restart(self, event):
@@ -224,45 +292,23 @@ class TrinoK8SCharm(CharmBase):
 
         event.set_results({"result": "trino successfully restarted"})
 
-    def _push_file(
-        self, container, context, jinja_file, path, permission=0o644
-    ):
-        """Pushes files to application.
-
-        Args:
-            container: The application container
-            context: The subset of config values for the file
-            jinja_file: The template file
-            path: The path for file in the application
-            permission: File permission (default 0o644)
-        """
-        properties = render(jinja_file, context)
-        container.push(
-            path, properties, make_dirs=True, permissions=permission
-        )
-
     def _enable_password_auth(self, container):
         """Create necessary properties and db files for authentication.
 
         Args:
             container: The application container
         """
-        push(container, AUTHENTICATOR_PROPERTIES, AUTHENTICATOR_PATH)
         password = bcrypt_pwd(self.config["trino-password"])
-        push(container, f"trino:{password}", PASSWORD_DB_PATH)
+        path = self.trino_abs_path.joinpath(PASSWORD_DB)
+        db_content = f"trino:{password}"
+
+        container.push(path, db_content, make_dirs=True, permissions=0o644)
 
     def _create_truststore_password(self):
         """Create truststore password if it does not exist."""
         if not self.state.truststore_password:
             truststore_password = generate_password()
             self.state.truststore_password = truststore_password
-
-    def _open_service_port(self):
-        """Open port 8080 on Trino coordinator."""
-        if self.config["charm-function"] in ["coordinator", "all"]:
-            self.model.unit.open_port(port=8080, protocol="tcp")
-        else:
-            self.model.unit.close_port(port=8080, protocol="tcp")
 
     def _validate_config_params(self):
         """Validate that configuration is valid.
@@ -292,6 +338,8 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             env: a dictionary of trino environment variables
         """
+        truststore_path = self.conf_abs_path.joinpath("truststore.jks")
+        db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "DEFAULT_PASSWORD": self.config["trino-password"],
@@ -299,10 +347,12 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "SSL_PWD": self.state.truststore_password,
-            "SSL_PATH": f"{CONF_PATH}/truststore.jks",
+            "SSL_PATH": str(truststore_path),
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
+            "PASSWORD_DB_PATH": str(db_path),
+            "TRINO_HOME": str(self.trino_abs_path),
         }
         return env
 
@@ -331,11 +381,12 @@ class TrinoK8SCharm(CharmBase):
         logger.info("configuring trino")
         self._create_truststore_password()
         self._enable_password_auth(container)
-        self._open_service_port()
 
         env = self._create_environment()
-        self._push_file(container, env, LOG_JINJA, LOG_PATH)
-        self._push_file(container, env, CONFIG_JINJA, CONFIG_PATH)
+        for template, file in CONFIG_FILES.items():
+            path = self.trino_abs_path.joinpath(file)
+            content = render(template, env)
+            container.push(path, content, make_dirs=True, permissions=0o644)
 
         logger.info("planning trino execution")
         pebble_layer = {
@@ -348,13 +399,31 @@ class TrinoK8SCharm(CharmBase):
                     "command": RUN_TRINO_COMMAND,
                     "startup": "enabled",
                     "environment": env,
+                    "on-check-failure": {"up": "ignore"},
                 }
             },
         }
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            pebble_layer.update(
+                {
+                    "checks": {
+                        "up": {
+                            "override": "replace",
+                            "period": "30s",
+                            "http": {"url": "http://localhost:8080/"},
+                        }
+                    }
+                },
+            )
+
+            self.model.unit.open_port(port=8080, protocol="tcp")
+        else:
+            self.model.unit.close_port(port=8080, protocol="tcp")
+
         container.add_layer(self.name, pebble_layer, combine=True)
         container.replan()
 
-        self.unit.status = ActiveStatus()
+        self.unit.status = MaintenanceStatus("replanning application")
 
 
 if __name__ == "__main__":
