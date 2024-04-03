@@ -97,8 +97,6 @@ juju config trino-k8s log-level=debug
 juju run trino-k8s/0 restart
 ```
 
-Note: the example of actions above are for postgres connector, however any connector listed [here](https://trino.io/docs/current/connector.html) are permissible.
-
 ## Accessing Trino
 ```
 # Port forward (http)
