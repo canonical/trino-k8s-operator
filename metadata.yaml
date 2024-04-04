@@ -36,6 +36,16 @@ requires:
   policy:
     interface: ranger_client
     limit: 1
+  log-proxy:
+    interface: loki_push_api
+    optional: true
+    limit: 1
+
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard  
 
 peers:
   peer:

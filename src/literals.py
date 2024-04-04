@@ -3,6 +3,7 @@
 # See LICENSE file for licensing details.
 
 """Literals used by the Trino K8s charm."""
+import textwrap
 
 APP_NAME = "trino-k8s"
 TRINO_PORTS = {
@@ -10,12 +11,24 @@ TRINO_PORTS = {
     "HTTP": 8080,
 }
 
+# Observability literals
+PROMETHEUS_PORT = 12345
+LOG_FILE = "data/trino/var/log/http-request.log"
+JMX_PATH = "trino/jmx/config.yaml"
+JMX_RULES = textwrap.dedent(
+    """
+    rules:
+    - pattern: ".*"
+    """
+)
+
 # Configuration literals
 TRINO_HOME = "/usr/lib/trino/etc"
 CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
     "password-authenticator.jinja": "password-authenticator.properties",
+    "jvm.jinja": "jvm.config",
 }
 
 CONF_DIR = "conf"

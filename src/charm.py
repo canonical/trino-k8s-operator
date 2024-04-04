@@ -12,7 +12,9 @@ https://discourse.charmhub.io/t/4208
 
 import logging
 from pathlib import Path
-
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
@@ -32,8 +34,12 @@ from literals import (
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     SYSTEM_CONNECTORS,
+    JMX_PATH,
+    JMX_RULES,
     TRINO_HOME,
     TRINO_PORTS,
+    LOG_FILE,
+    PROMETHEUS_PORT,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
@@ -101,6 +107,24 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle Ingress
         self._require_nginx_route()
+
+        # Prometheus
+        self._prometheus_scraping = MetricsEndpointProvider(
+            self,
+            relation_name="metrics-endpoint",
+            jobs=[{"static_configs": [{"targets": [f"*:{PROMETHEUS_PORT}"]}]}],
+            refresh_event=self.on.config_changed,
+        )
+
+        # Loki
+        self.log_proxy = LogProxyConsumer(
+            self, log_files=[LOG_FILE], relation_name="log-proxy"
+        )
+
+        # Grafana
+        self._grafana_dashboards = GrafanaDashboardProvider(
+            self, relation_name="grafana-dashboard"
+        )
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
@@ -340,6 +364,7 @@ class TrinoK8SCharm(CharmBase):
         """
         truststore_path = self.conf_abs_path.joinpath("truststore.jks")
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
+        jmx_path = self.trino_abs_path.joinpath(JMX_PATH)
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "DEFAULT_PASSWORD": self.config["trino-password"],
@@ -353,6 +378,7 @@ class TrinoK8SCharm(CharmBase):
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
+            "JMX_PATH": str(jmx_path),
         }
         return env
 
@@ -387,6 +413,12 @@ class TrinoK8SCharm(CharmBase):
             path = self.trino_abs_path.joinpath(file)
             content = render(template, env)
             container.push(path, content, make_dirs=True, permissions=0o644)
+
+        container.push(
+            str(self.trino_abs_path.joinpath(JMX_PATH)),
+            JMX_RULES,
+            make_dirs=True,
+        )
 
         logger.info("planning trino execution")
         pebble_layer = {
