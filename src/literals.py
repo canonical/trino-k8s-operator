@@ -12,8 +12,9 @@ TRINO_PORTS = {
 }
 
 # Observability literals
-PROMETHEUS_PORT = 12345
-LOG_FILE = "data/trino/var/log/http-request.log"
+METRICS_PORT = 9090
+JMX_PORT = 9081
+LOG_FILE = "data/trino/var/log/server.log"
 JMX_PATH = "trino/jmx/config.yaml"
 JMX_RULES = textwrap.dedent(
     """

@@ -39,7 +39,8 @@ from literals import (
     TRINO_HOME,
     TRINO_PORTS,
     LOG_FILE,
-    PROMETHEUS_PORT,
+    METRICS_PORT,
+    JMX_PORT,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
@@ -112,7 +113,7 @@ class TrinoK8SCharm(CharmBase):
         self._prometheus_scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{PROMETHEUS_PORT}"]}]}],
+            jobs=[{"static_configs": [{"targets": [f"*:{METRICS_PORT}"]}]}],
             refresh_event=self.on.config_changed,
         )
 
@@ -379,6 +380,8 @@ class TrinoK8SCharm(CharmBase):
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
             "JMX_PATH": str(jmx_path),
+            "METRICS_PORT": METRICS_PORT,
+            "JMX_PORT": JMX_PORT,
         }
         return env
 

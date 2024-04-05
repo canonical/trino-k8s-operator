@@ -1,5 +1,5 @@
 -server
--Xmx16G
+-Xmx20G
 -XX:InitialRAMPercentage=80
 -XX:MaxRAMPercentage=80
 -XX:G1HeapRegionSize=32M
@@ -20,11 +20,11 @@
 -XX:+EnableDynamicAgentLoading
 # jmx
 -Dcom.sun.management.jmxremote
--Dcom.sun.management.jmxremote.port=9080
--Dcom.sun.management.jmxremote.rmi.port=9080
+-Dcom.sun.management.jmxremote.port={{ JMX_PORT }}
+-Dcom.sun.management.jmxremote.rmi.port={{ JMX_PORT }}
 -Dcom.sun.management.jmxremote.local.only=false
 -Dcom.sun.management.jmxremote.authenticate=false
 -Dcom.sun.management.jmxremote.ssl=false
 -Djava.rmi.server.hostname=127.0.0.1
 # prometheus jmx exporter
--javaagent:/usr/lib/trino/lib/jmx_prometheus_javaagent.jar=12345:{{ JMX_PATH }}
+-javaagent:/usr/lib/trino/lib/jmx_prometheus_javaagent.jar={{ METRICS_PORT }}:{{ JMX_PATH }}
