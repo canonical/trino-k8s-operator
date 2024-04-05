@@ -14,7 +14,7 @@ TRINO_PORTS = {
 # Observability literals
 METRICS_PORT = 9090
 JMX_PORT = 9081
-LOG_FILE = "data/trino/var/log/server.log"
+LOG_FILES = ["data/trino/var/log/http-request.log", "data/trino/var/log/launcher.log", "data/trino/var/log/server.log"]
 JMX_PATH = "trino/jmx/config.yaml"
 JMX_RULES = textwrap.dedent(
     """

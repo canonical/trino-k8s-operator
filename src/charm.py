@@ -38,7 +38,7 @@ from literals import (
     JMX_RULES,
     TRINO_HOME,
     TRINO_PORTS,
-    LOG_FILE,
+    LOG_FILES,
     METRICS_PORT,
     JMX_PORT,
 )
@@ -119,7 +119,7 @@ class TrinoK8SCharm(CharmBase):
 
         # Loki
         self.log_proxy = LogProxyConsumer(
-            self, log_files=[LOG_FILE], relation_name="log-proxy"
+            self, log_files=LOG_FILES, relation_name="log-proxy"
         )
 
         # Grafana
