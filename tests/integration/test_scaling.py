@@ -4,6 +4,7 @@
 """Trino charm scaling integration tests."""
 
 import logging
+
 import pytest
 from helpers import WORKER_NAME, get_active_workers, scale
 from pytest_operator.plugin import OpsTest

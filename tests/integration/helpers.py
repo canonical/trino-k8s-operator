@@ -73,6 +73,9 @@ DEV_USER = {
 # Scaling literals
 WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 
+# Upgrades secure password
+SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
+
 
 async def get_unit_url(
     ops_test: OpsTest, application, unit, port, protocol="http"
@@ -145,7 +148,7 @@ async def create_user(ops_test, ranger_url):
 
     Args:
         ops_test: PyTest object
-        ranger_url: the polciy manager url
+        ranger_url: the policy manager url
     """
     url = f"{ranger_url}/service/xusers/users"
     response = requests.post(

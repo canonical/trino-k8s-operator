@@ -11,6 +11,7 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
+from pathlib import Path
 
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
@@ -49,12 +50,30 @@ class TrinoK8SCharm(CharmBase):
     Attrs:
         state: used to store data that is persisted across invocations.
         external_hostname: DNS listing used for external connections.
+        trino_abs_path: The absolute path for Trino home directory.
+        catalog_abs_path: The absolute path for the catalog directory.
+        conf_abs_path: the absolute path for the conf directory.
     """
 
     @property
     def external_hostname(self):
         """Return the DNS listing used for external connections."""
         return self.config["external-hostname"] or self.app.name
+
+    @property
+    def trino_abs_path(self):
+        """Return the catalog absolute path."""
+        return Path(TRINO_HOME)
+
+    @property
+    def catalog_abs_path(self):
+        """Return the catalog absolute path."""
+        return self.trino_abs_path.joinpath(CATALOG_DIR)
+
+    @property
+    def conf_abs_path(self):
+        """Return the catalog absolute path."""
+        return self.trino_abs_path.joinpath(CONF_DIR)
 
     def __init__(self, *args):
         """Construct.
@@ -207,17 +226,18 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             properties: A dictionary of existing connector configurations
         """
-        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
-        if not container.exists(catalog_path):
+        if not container.exists(self.catalog_abs_path):
             return {}
 
-        files = container.list_files(catalog_path, pattern="*.properties")
+        files = container.list_files(
+            self.catalog_abs_path, pattern="*.properties"
+        )
         file_names = [f.name for f in files]
         property_names = [file_name.split(".")[0] for file_name in file_names]
 
         properties = {}
         for item in property_names:
-            path = f"{catalog_path}/{item}.properties"
+            path = self.catalog_abs_path.joinpath(f"{item}.properties")
             config = container.pull(path).read()
             properties[item] = config
 
@@ -231,15 +251,16 @@ class TrinoK8SCharm(CharmBase):
             target: intended connectors from _state
             container: Trino container
         """
-        catalog_path = f"{TRINO_HOME}/{CATALOG_DIR}"
         for key, config in target.items():
             if key not in current:
-                path = f"{catalog_path}/{key}.properties"
+                file = f"{key}.properties"
+                path = self.catalog_abs_path.joinpath(file)
                 container.push(path, config, make_dirs=True)
 
         for key in current.keys():
             if key not in target.keys() and key not in SYSTEM_CONNECTORS:
-                path = f"{catalog_path}/{key}.properties"
+                file = f"{key}.properties"
+                path = self.catalog_abs_path.joinpath(file)
                 container.remove_path(path)
 
         self._restart_trino(container)
@@ -278,7 +299,7 @@ class TrinoK8SCharm(CharmBase):
             container: The application container
         """
         password = bcrypt_pwd(self.config["trino-password"])
-        path = f"{TRINO_HOME}/{PASSWORD_DB}"
+        path = self.trino_abs_path.joinpath(PASSWORD_DB)
         db_content = f"trino:{password}"
 
         container.push(path, db_content, make_dirs=True, permissions=0o644)
@@ -317,6 +338,8 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             env: a dictionary of trino environment variables
         """
+        truststore_path = self.conf_abs_path.joinpath("truststore.jks")
+        db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "DEFAULT_PASSWORD": self.config["trino-password"],
@@ -324,12 +347,12 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "SSL_PWD": self.state.truststore_password,
-            "SSL_PATH": f"{TRINO_HOME}/{CONF_DIR}/truststore.jks",
+            "SSL_PATH": str(truststore_path),
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
-            "PASSWORD_DB_PATH": f"{TRINO_HOME}/{PASSWORD_DB}",
-            "TRINO_HOME": TRINO_HOME,
+            "PASSWORD_DB_PATH": str(db_path),
+            "TRINO_HOME": str(self.trino_abs_path),
         }
         return env
 
@@ -361,7 +384,7 @@ class TrinoK8SCharm(CharmBase):
 
         env = self._create_environment()
         for template, file in CONFIG_FILES.items():
-            path = f"{TRINO_HOME}/{file}"
+            path = self.trino_abs_path.joinpath(file)
             content = render(template, env)
             container.push(path, content, make_dirs=True, permissions=0o644)
 
@@ -394,6 +417,8 @@ class TrinoK8SCharm(CharmBase):
             )
 
             self.model.unit.open_port(port=8080, protocol="tcp")
+        else:
+            self.model.unit.close_port(port=8080, protocol="tcp")
 
         container.add_layer(self.name, pebble_layer, combine=True)
         container.replan()
