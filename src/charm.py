@@ -12,10 +12,11 @@ https://discourse.charmhub.io/t/4208
 
 import logging
 from pathlib import Path
+
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -31,16 +32,16 @@ from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    JMX_PATH,
+    JMX_PORT,
+    JMX_RULES,
+    LOG_FILES,
+    METRICS_PORT,
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     SYSTEM_CONNECTORS,
-    JMX_PATH,
-    JMX_RULES,
     TRINO_HOME,
     TRINO_PORTS,
-    LOG_FILES,
-    METRICS_PORT,
-    JMX_PORT,
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
