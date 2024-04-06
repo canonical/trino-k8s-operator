@@ -32,9 +32,7 @@ from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
-    JMX_PATH,
     JMX_PORT,
-    JMX_RULES,
     LOG_FILES,
     METRICS_PORT,
     PASSWORD_DB,
@@ -366,7 +364,6 @@ class TrinoK8SCharm(CharmBase):
         """
         truststore_path = self.conf_abs_path.joinpath("truststore.jks")
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
-        jmx_path = self.trino_abs_path.joinpath(JMX_PATH)
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "DEFAULT_PASSWORD": self.config["trino-password"],
@@ -380,7 +377,6 @@ class TrinoK8SCharm(CharmBase):
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
-            "JMX_PATH": str(jmx_path),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
         }
@@ -417,12 +413,6 @@ class TrinoK8SCharm(CharmBase):
             path = self.trino_abs_path.joinpath(file)
             content = render(template, env)
             container.push(path, content, make_dirs=True, permissions=0o644)
-
-        container.push(
-            str(self.trino_abs_path.joinpath(JMX_PATH)),
-            JMX_RULES,
-            make_dirs=True,
-        )
 
         logger.info("planning trino execution")
         pebble_layer = {
