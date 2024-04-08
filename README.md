@@ -65,7 +65,7 @@ staging_db: |
   connection-user=user
   connection-password=password
 ```
-Note: the fields required for can change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
+Note: the required fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
 
 The key value is important as for certificates this must end in `_cert` to be automatically imported to the truststore. For all other entries this will be the name of the catalog you can access through Trino. [More information on catalog terminology found here](https://trino.io/docs/current/overview/concepts.html).
 

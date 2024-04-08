@@ -63,6 +63,6 @@ class TestDeployment:
             ops_test, EXAMPLE_CATALOG_CONFIG, TRINO_USER
         )
 
-        # Verigy that only the temp catalog has been removed.
+        # Verify that only the temp catalog has been removed.
         assert TEMP_CATALOG_NAME not in catalogs
         assert EXAMPLE_CATALOG_NAME in catalogs
