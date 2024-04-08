@@ -29,10 +29,6 @@ resources:
     type: oci-image
     description: OCI image for trino
     upstream-source: ghcr.io/canonical/charmed-trino-rock:418-22.04-edge
-  promtail-bin:
-    type: file
-    description: Promtail binary for logging
-    filename: promtail-linux
 
 requires:
   nginx-route:
