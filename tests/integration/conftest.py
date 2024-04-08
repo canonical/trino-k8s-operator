@@ -19,6 +19,8 @@ WORKER_CONFIG = {"charm-function": "worker"}
 async def deploy(ops_test: OpsTest):
     """Deploy the app."""
     charm = await ops_test.build_charm(BASE_DIR)
+
+    # Deploy trino and nginx charms
     async with ops_test.fast_forward():
         await ops_test.model.deploy(
             charm,

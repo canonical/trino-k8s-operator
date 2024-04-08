@@ -19,7 +19,7 @@ from apache_ranger.model.ranger_policy import (
     RangerPolicyResource,
 )
 from pytest_operator.plugin import OpsTest
-from trino_client.show_catalogs import show_catalogs
+from trino_client.trino_client import query_trino
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,8 @@ temp-db: |
   connection-user=testing
   connection-password=test
 """
+
+CATALOG_QUERY = "SHOW CATALOGS"
 TRINO_USER = "trino"
 
 # Ranger policy literals
@@ -76,6 +78,9 @@ DEV_USER = {
     "lastName": "user",
     "emailAddress": "dev@example.com",
 }
+
+# Scaling literals
+WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 
 # Upgrades secure password
 SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
@@ -119,7 +124,7 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
         "address"
     ]
     logger.info("executing query on app address: %s", address)
-    catalogs = await show_catalogs(address, user)
+    catalogs = await query_trino(address, user, CATALOG_QUERY)
     return catalogs
 
 
@@ -184,3 +189,46 @@ async def create_policy(ops_test, ranger_url):
     allow_items.accesses = [RangerPolicyItemAccess({"type": "select"})]
     policy.policyItems = [allow_items]
     ranger.create_policy(policy)
+
+
+async def scale(ops_test: OpsTest, app, units):
+    """Scale the application to the provided number and wait for idle.
+
+    Args:
+        ops_test: PyTest object.
+        app: Application to be scaled.
+        units: Number of units required.
+    """
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[app].scale(scale=units)
+
+        # Wait for model to settle
+        await ops_test.model.wait_for_idle(
+            apps=[app],
+            status="active",
+            idle_period=30,
+            raise_on_blocked=True,
+            timeout=600,
+            wait_for_exact_units=units,
+        )
+
+
+async def get_active_workers(ops_test: OpsTest):
+    """Get active trino workers.
+
+    Args:
+        ops_test: PyTest object.
+
+    Returns:
+        active_workers: list of active workers.
+    """
+    status = await ops_test.model.get_status()  # noqa: F821
+    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"][
+        "address"
+    ]
+    logger.info("executing query on app address: %s", address)
+    result = await query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
+    active_workers = [
+        x for x in result if x[1].startswith("http://trino-k8s-worker")
+    ]
+    return active_workers
