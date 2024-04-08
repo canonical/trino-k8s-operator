@@ -41,10 +41,15 @@ NGINX_NAME = "nginx-ingress-integrator"
 # Database configuration literals
 EXAMPLE_CATALOG_NAME = "example-db"
 TEMP_CATALOG_NAME = "temp-db"
-EXAMPLE_CATALOG_CONFIG = """\
+CATALOG_CONFIG = """\
 example-db: |
   connector.name=postgresql
   connection-url=jdbc:postgresql://host.com:5432/database
+  connection-user=testing
+  connection-password=test
+temp-db: |
+  connector.name=postgresql
+  connection-url=jdbc:postgresql://host.com:5432/temp-db
   connection-user=testing
   connection-password=test
 """
@@ -232,3 +237,49 @@ async def get_active_workers(ops_test: OpsTest):
         x for x in result if x[1].startswith("http://trino-k8s-worker")
     ]
     return active_workers
+
+
+async def simulate_crash_and_restart(ops_test):
+    """Simulates the crash of the Trino coordinator.
+
+    Args:
+        ops_test: PyTest object.
+    """
+    # Destroy charm
+    await ops_test.model.applications[APP_NAME].destroy()
+    await ops_test.model.block_until(
+        lambda: APP_NAME not in ops_test.model.applications
+    )
+
+    # Deploy charm again
+    charm = await ops_test.build_charm(BASE_DIR)
+    async with ops_test.fast_forward():
+        await ops_test.model.deploy(
+            charm,
+            resources=TRINO_IMAGE,
+            application_name=APP_NAME,
+            num_units=1,
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1000,
+        )
+
+
+async def curl_unit_ip(ops_test):
+    """Curl the coordinator unit IP.
+
+    Args:
+        ops_test: PyTest object.
+
+    Returns:
+        response: Request response.
+    """
+    url = await get_unit_url(ops_test, application=APP_NAME, unit=0, port=8080)
+    logger.info("curling app address: %s", url)
+
+    response = requests.get(url, timeout=300, verify=False)  # nosec
+    return response
