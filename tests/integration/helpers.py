@@ -90,6 +90,12 @@ WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 # Upgrades secure password
 SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
 
+WORKER_CONFIG = {"charm-function": "worker"}
+COORDINATOR_CONFIG = {
+    "charm-function": "coordinator",
+    "catalog-config": TEMP_CATALOG_CONFIG,
+}
+
 
 async def get_unit_url(
     ops_test: OpsTest, application, unit, port, protocol="http"
@@ -258,6 +264,7 @@ async def simulate_crash_and_restart(ops_test):
             charm,
             resources=TRINO_IMAGE,
             application_name=APP_NAME,
+            config=COORDINATOR_CONFIG,
             num_units=1,
         )
 

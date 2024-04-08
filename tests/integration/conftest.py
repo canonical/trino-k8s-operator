@@ -10,19 +10,13 @@ from helpers import (
     APP_NAME,
     BASE_DIR,
     NGINX_NAME,
-    TEMP_CATALOG_CONFIG,
     TRINO_IMAGE,
+    WORKER_CONFIG,
     WORKER_NAME,
 )
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
-
-WORKER_CONFIG = {"charm-function": "worker"}
-COORDINATOR_CONFIG = {
-    "charm-function": "coordinator",
-    "catalog-config": TEMP_CATALOG_CONFIG,
-}
 
 
 @pytest.mark.skip_if_deployed
