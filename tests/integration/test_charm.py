@@ -48,8 +48,8 @@ class TestDeployment:
         )
 
         # Verify that both catalogs have been added.
-        assert TEMP_CATALOG_NAME in catalogs
-        assert EXAMPLE_CATALOG_NAME in catalogs
+        assert TEMP_CATALOG_NAME in str(catalogs)
+        assert EXAMPLE_CATALOG_NAME in str(catalogs)
 
     async def test_remove_catalog(self, ops_test: OpsTest):
         """Removes an existing connector confirms database removed."""
@@ -58,8 +58,8 @@ class TestDeployment:
         )
 
         # Verify that only the temp catalog has been removed.
-        assert TEMP_CATALOG_NAME in catalogs
-        assert EXAMPLE_CATALOG_NAME not in catalogs
+        assert TEMP_CATALOG_NAME in str(catalogs)
+        assert EXAMPLE_CATALOG_NAME not in str(catalogs)
 
     async def test_simulate_crash(self, ops_test: OpsTest):
         """Simulate the crash of the Trino coordinator charm.
@@ -72,4 +72,4 @@ class TestDeployment:
         assert response.status_code == 200
 
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
-        assert TEMP_CATALOG_NAME in catalogs
+        assert TEMP_CATALOG_NAME in str(catalogs)

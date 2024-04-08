@@ -157,7 +157,7 @@ async def update_catalog_config(ops_test, catalog_config, user):
         await ops_test.model.wait_for_idle(status="active", timeout=600)
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"Catalogs: {catalogs}")
-    return str(catalogs)
+    return catalogs
 
 
 async def create_user(ops_test, ranger_url):
