@@ -10,6 +10,15 @@ TRINO_PORTS = {
     "HTTP": 8080,
 }
 
+# Observability literals
+METRICS_PORT = 9090
+JMX_PORT = 9081
+LOG_FILES = [
+    "data/trino/var/log/http-request.log",
+    "data/trino/var/log/launcher.log",
+    "data/trino/var/log/server.log",
+]
+
 # Configuration literals
 TRINO_HOME = "/usr/lib/trino/etc"
 CONFIG_FILES = {

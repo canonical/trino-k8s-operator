@@ -135,6 +135,8 @@ class TestCharm(TestCase):
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
                         "TRINO_HOME": "/usr/lib/trino/etc",
+                        "JMX_PORT": 9081,
+                        "METRICS_PORT": 9090,
                     },
                 }
             },
@@ -237,6 +239,8 @@ class TestCharm(TestCase):
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
                         "TRINO_HOME": "/usr/lib/trino/etc",
+                        "JMX_PORT": 9081,
+                        "METRICS_PORT": 9090,
                     },
                 }
             },
