@@ -12,6 +12,7 @@ from helpers import (
     APP_NAME,
     CATALOG_CONFIG,
     EXAMPLE_CATALOG_NAME,
+    TEMP_CATALOG_CONFIG,
     TEMP_CATALOG_NAME,
     TRINO_USER,
     curl_unit_ip,
