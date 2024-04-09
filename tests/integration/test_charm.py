@@ -11,9 +11,9 @@ import requests
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
+    CATALOG_CONFIG,
     EXAMPLE_CATALOG_CONFIG,
     EXAMPLE_CATALOG_NAME,
-    TEMP_CATALOG_CONFIG,
     TEMP_CATALOG_NAME,
     TRINO_USER,
     get_catalogs,
@@ -48,7 +48,7 @@ class TestDeployment:
 
     async def test_add_catalog(self, ops_test: OpsTest):
         """Adds a PostgreSQL connector and confirms database added."""
-        catalog_config = EXAMPLE_CATALOG_CONFIG + TEMP_CATALOG_CONFIG
+        catalog_config = CATALOG_CONFIG
         catalogs = await update_catalog_config(
             ops_test, catalog_config, TRINO_USER
         )

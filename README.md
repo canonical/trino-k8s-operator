@@ -50,20 +50,22 @@ The below is an example of the `catalog_config.yaml`, which connects 1 postgresq
 
 ### The config file
 ```
-production_db: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={{ SSL_PATH }}&sslrootcertpassword={{ SSL_PWD }}
-  connection-user=user
-  connection-password=password
-production_cert: |
-  -----BEGIN CERTIFICATE-----
-  Certificate values...
-  -----END CERTIFICATE-----
-staging_db: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host:port/staging_db
-  connection-user=user
-  connection-password=password
+catalogs:
+  production_db: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    connection-user=user
+    connection-password=password
+  staging_db: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://host:port/staging_db
+    connection-user=user
+    connection-password=password
+certs:
+  production_cert: |
+    -----BEGIN CERTIFICATE-----
+    Certificate values...
+    -----END CERTIFICATE-----
 ```
 Note: the required fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
 
@@ -71,7 +73,7 @@ The key value is important as for certificates this must end in `_cert` to be au
 
 The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
 
-`{{ SSL_PATH }}` and `{{ SSL PWD }}` variables will be replaces with the truststore path and password by the charm, as long as the certificte has been added with the key appended with '_cert' this will be added to the trustore automatically.
+`{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore path and password by the charm, as long as the certificte has been added to the `certs` key this will be added to the trustore automatically.
 
 ### Adding or removing a catalog
 Once you have your `catalog_config.yaml` file you can configure the Trino charm with the below:

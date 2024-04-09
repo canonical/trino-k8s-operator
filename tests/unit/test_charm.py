@@ -27,11 +27,17 @@ from state import State
 
 SERVER_PORT = "8080"
 TEST_CATALOG_CONFIG = """\
-example-db: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host.com:5432/database
-  connection-user=testing
-  connection-password=test
+catalogs:
+    example-db: |
+        connector.name=postgresql
+        connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+        connection-user=testing
+        connection-password=test
+certs:
+    example-cert: |
+        -----BEGIN CERTIFICATE-----
+        CERTIFICATE CONTENT...
+        -----END CERTIFICATE-----
 """
 TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
@@ -125,8 +131,6 @@ class TestCharm(TestCase):
                         "OAUTH_CLIENT_ID": None,
                         "OAUTH_CLIENT_SECRET": None,
                         "WEB_PROXY": None,
-                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
-                        "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
@@ -136,9 +140,6 @@ class TestCharm(TestCase):
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "SSL_PWD"
-        ] = "truststore123"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
@@ -232,8 +233,6 @@ class TestCharm(TestCase):
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
-                        "SSL_PATH": "/usr/lib/trino/etc/conf/truststore.jks",
-                        "SSL_PWD": "truststore123",
                         "CHARM_FUNCTION": "worker",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
@@ -243,9 +242,6 @@ class TestCharm(TestCase):
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "SSL_PWD"
-        ] = "truststore123"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The ActiveStatus is set with no message.
