@@ -7,7 +7,6 @@
 import json
 import logging
 import os
-import time
 from pathlib import Path
 
 import requests
@@ -40,14 +39,31 @@ POSTGRES_NAME = "postgresql-k8s"
 NGINX_NAME = "nginx-ingress-integrator"
 
 # Database configuration literals
-CATALOG_QUERY = "SHOW CATALOGS"
-CONN_NAME = "connection-test"
-CONN_CONFIG = """\
-connector.name=postgresql
-connection-url=jdbc:postgresql://example.host.com:5432/test
-connection-user=trino
-connection-password=trino
+EXAMPLE_CATALOG_NAME = "example-db"
+TEMP_CATALOG_NAME = "temp-db"
+EXAMPLE_CATALOG_CONFIG = """\
+catalogs:
+    example-db: |
+        connector.name=postgresql
+        connection-url=jdbc:postgresql://host.com:5432/database
+        connection-user=testing
+        connection-password=test
 """
+CATALOG_CONFIG = """\
+catalogs:
+    example-db: |
+        connector.name=postgresql
+        connection-url=jdbc:postgresql://host.com:5432/database
+        connection-user=testing
+        connection-password=test
+    temp-db: |
+        connector.name=postgresql
+        connection-url=jdbc:postgresql://host.com:5432/temp-db
+        connection-user=testing
+        connection-password=test
+"""
+
+CATALOG_QUERY = "SHOW CATALOGS"
 TRINO_USER = "trino"
 
 # Ranger policy literals
@@ -119,28 +135,25 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
     return catalogs
 
 
-async def run_connector_action(ops_test, action, params, user):
+async def update_catalog_config(ops_test, catalog_config, user):
     """Run connection action.
 
     Args:
-        ops_test: PyTest object
-        action: either add-connection or remove-connection action
-        params: action parameters
-        user: the user to access Trino with
+        ops_test: PyTest object.
+        catalog_config: The catalogs configuration value.
+        user: the user to access Trino with.
 
     Returns:
-        catalogs: list of trino catalogs after action
+        A string of trino catalogs.
     """
-    action = (
-        await ops_test.model.applications[APP_NAME]
-        .units[0]
-        .run_action(action, **params)
+    await ops_test.model.applications[APP_NAME].set_config(
+        {"catalog-config": catalog_config}
     )
-    await action.wait()
-    time.sleep(30)
+    async with ops_test.fast_forward():
+        await ops_test.model.wait_for_idle(status="active", timeout=600)
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
-    logging.info(f"action {action} run, catalogs: {catalogs}")
-    return catalogs
+    logging.info(f"Catalogs: {catalogs}")
+    return str(catalogs)
 
 
 async def create_user(ops_test, ranger_url):

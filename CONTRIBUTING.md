@@ -93,17 +93,9 @@ juju config trino-k8s log-level=debug
 
 ## Trino actions
 ```
-# Add a database:
-juju run trino-k8s/0 add-connector --params connector.yaml
-
-# Remove a database:
-juju run trino-k8s/0 remove-connector --params connector.yaml
-
 # Restart Trino Server:
 juju run trino-k8s/0 restart
 ```
-
-Note: the example of actions above are for postgres connector, however any connector listed [here](https://trino.io/docs/current/connector.html) are permissible.
 
 ## Accessing Trino
 ```
