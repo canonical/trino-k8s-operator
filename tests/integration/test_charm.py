@@ -12,7 +12,6 @@ from helpers import (
     APP_NAME,
     CATALOG_CONFIG,
     EXAMPLE_CATALOG_NAME,
-    TEMP_CATALOG_CONFIG,
     TEMP_CATALOG_NAME,
     TRINO_USER,
     curl_unit_ip,
@@ -57,7 +56,7 @@ class TestDeployment:
             ops_test, TEMP_CATALOG_CONFIG, TRINO_USER
         )
 
-        # Verify that only the temp catalog has been removed.
+        # Verify that only the example catalog has been removed.
         assert TEMP_CATALOG_NAME in str(catalogs)
         assert EXAMPLE_CATALOG_NAME not in str(catalogs)
 

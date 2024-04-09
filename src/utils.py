@@ -180,14 +180,9 @@ def create_cert_and_catalog_dicts(config):
         certs: dictionary of certificates.
         catalogs: dictionary of catalog values.
     """
-    certs = {}
-    catalogs = {}
     catalogs_with_certs = yaml.safe_load(config)
-    for key, value in catalogs_with_certs.items():
-        if "_cert" in key:
-            certs[key] = value
-        else:
-            catalogs[key] = value
+    catalogs = catalogs_with_certs.get("catalogs")
+    certs = catalogs_with_certs.get("certs")
     return certs, catalogs
 
 

@@ -50,28 +50,28 @@ The below is an example of the `catalog_config.yaml`, which connects 1 postgresq
 
 ### The config file
 ```
-production_db: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={{ SSL_PATH }}&sslrootcertpassword={{ SSL_PWD }}
-  connection-user=user
-  connection-password=password
-production_cert: |
-  -----BEGIN CERTIFICATE-----
-  Certificate values...
-  -----END CERTIFICATE-----
-staging_db: |
-  connector.name=postgresql
-  connection-url=jdbc:postgresql://host:port/staging_db
-  connection-user=user
-  connection-password=password
+catalogs:
+  production_db: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    connection-user=user
+    connection-password=password
+  staging_db: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://host:port/staging_db
+    connection-user=user
+    connection-password=password
+certs:
+  production_cert: |
+    -----BEGIN CERTIFICATE-----
+    Certificate values...
+    -----END CERTIFICATE-----
 ```
 Note: the required fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
 
-The key value is important as for certificates this must end in `_cert` to be automatically imported to the truststore. For all other entries this will be the name of the catalog you can access through Trino. [More information on catalog terminology found here](https://trino.io/docs/current/overview/concepts.html).
-
 The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
 
-`{{ SSL_PATH }}` and `{{ SSL PWD }}` variables will be replaces with the truststore path and password by the charm, as long as the certificte has been added with the key appended with '_cert' this will be added to the trustore automatically.
+`{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore path and password by the charm, as long as the certificte has been added to the `certs` key this will be added to the trustore automatically.
 
 ### Adding or removing a catalog
 Once you have your `catalog_config.yaml` file you can configure the Trino charm with the below:
@@ -102,6 +102,38 @@ juju relate ranger-k8s postgresql-k8s
 
 # relate trino-k8s ranger-k8s
 juju relate trino-k8s ranger-k8s
+```
+
+### Observability
+
+The Trino charm can be related to the
+[Canonical Observability Stack](https://charmhub.io/topics/canonical-observability-stack)
+in order to collect logs and telemetry.
+To deploy cos-lite and expose its endpoints as offers, follow these steps:
+
+```bash
+# Deploy the cos-lite bundle:
+juju add-model cos
+juju deploy cos-lite --trust
+```
+
+```bash
+# Expose the cos integration endpoints:
+juju offer prometheus:metrics-endpoint
+juju offer loki:logging
+juju offer grafana:grafana-dashboard
+
+# Relate trino to the cos-lite apps:
+juju relate trino-k8s admin/cos.grafana
+juju relate trino-k8s admin/cos.loki
+juju relate trino-k8s admin/cos.prometheus
+```
+
+```bash
+# Access grafana with username "admin" and password:
+juju run grafana/0 -m cos get-admin-password --wait 1m
+# Grafana is listening on port 3000 of the app ip address.
+# Dashboard can be accessed under "Trino Server Metrics", make sure to select the juju model which contains your Trino charm.
 ```
 
 ## Contributing

@@ -13,8 +13,12 @@ https://discourse.charmhub.io/t/4208
 import logging
 from pathlib import Path
 
+
 import yaml
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -29,6 +33,9 @@ from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    JMX_PORT,
+    LOG_FILES,
+    METRICS_PORT,
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
@@ -53,11 +60,12 @@ class TrinoK8SCharm(CharmBase):
     """Charm the service.
 
     Attrs:
-        state: used to store data that is persisted across invocations.
+        state: Used to store data that is persisted across invocations.
         external_hostname: DNS listing used for external connections.
         trino_abs_path: The absolute path for Trino home directory.
         catalog_abs_path: The absolute path for the catalog directory.
-        conf_abs_path: the absolute path for the conf directory.
+        conf_abs_path: The absolute path for the conf directory.
+        truststore_abs_path: The absolute path for the truststore.
     """
 
     @property
@@ -79,6 +87,11 @@ class TrinoK8SCharm(CharmBase):
     def conf_abs_path(self):
         """Return the catalog absolute path."""
         return self.trino_abs_path.joinpath(CONF_DIR)
+
+    @property
+    def truststore_abs_path(self):
+        """Return the truststore absolute path."""
+        return self.conf_abs_path.joinpath("truststore.jks")
 
     def __init__(self, *args):
         """Construct.
@@ -102,6 +115,24 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle Ingress
         self._require_nginx_route()
+
+        # Prometheus
+        self._prometheus_scraping = MetricsEndpointProvider(
+            self,
+            relation_name="metrics-endpoint",
+            jobs=[{"static_configs": [{"targets": [f"*:{METRICS_PORT}"]}]}],
+            refresh_event=self.on.config_changed,
+        )
+
+        # Loki
+        self.log_proxy = LogProxyConsumer(
+            self, log_files=LOG_FILES, relation_name="log-proxy"
+        )
+
+        # Grafana
+        self._grafana_dashboards = GrafanaDashboardProvider(
+            self, relation_name="grafana-dashboard"
+        )
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
@@ -227,34 +258,35 @@ class TrinoK8SCharm(CharmBase):
 
         container.push(path, db_content, make_dirs=True, permissions=0o644)
 
-    def _create_truststore_password(self):
-        """Create truststore password if it does not exist."""
-        if not self.state.truststore_password:
-            truststore_password = generate_password()
-            self.state.truststore_password = truststore_password
-
-    def _add_catalogs(self, container, catalogs):
+    def _add_catalogs(self, container, catalogs, truststore_pwd):
         """Add catalogs to Trino.
 
         Args:
             container: The application container.
             catalogs: Dictionary of catalog configurations.
+            truststore_pwd: The truststore password.
         """
         for name, config in catalogs.items():
+            # Inject truststore path and password.
+            config = config.format(
+                SSL_PATH=str(self.truststore_abs_path),
+                SSL_PWD=truststore_pwd,
+            )
+            # Add catalog.
             container.push(
                 self.catalog_abs_path.joinpath(f"{name}.properties"),
                 config,
                 make_dirs=True,
             )
 
-    def _add_certs(self, container, certs):
+    def _add_certs(self, container, certs, truststore_pwd):
         """Prepare and add certificates to Trino truststore.
 
         Args:
             container: The application container.
             certs: Dictionary of certificate configurations.
+            truststore_pwd: The truststore password.
         """
-        self._create_truststore_password()
         for name, cert in certs.items():
             container.push(
                 self.conf_abs_path.joinpath(f"{name}.crt"),
@@ -266,14 +298,14 @@ class TrinoK8SCharm(CharmBase):
                     container,
                     name,
                     cert,
-                    self.state.truststore_password,
+                    truststore_pwd,
                     str(self.conf_abs_path),
                 )
                 container.remove_path(
                     self.conf_abs_path.joinpath(f"{name}.crt")
                 )
             except Exception as e:
-                logger.debug(f"Failed to add {name} cert: {e}")
+                logger.error(f"Failed to add {name} cert: {e}")
 
     def _configure_catalogs(self, container):
         """Manage catalog properties files.
@@ -284,18 +316,22 @@ class TrinoK8SCharm(CharmBase):
         # Get dictionary of certs and catalogs.
         catalog_config = self.config.get("catalog-config")
         certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+        truststore_pwd = generate_password()
 
-        # Remove existing catalogs and add from config.
+        # Remove existing catalogs and certs.
         for path in [self.catalog_abs_path, self.conf_abs_path]:
             if container.exists(path):
                 container.remove_path(path, recursive=True)
 
         # Add catalogs from config
-        if catalogs:
-            self._add_catalogs(container, catalogs)
+        if not catalogs:
+            return
+        self._add_catalogs(container, catalogs, truststore_pwd)
 
-        if certs:
-            self._add_certs(container, certs)
+        # Add certs from config
+        if not certs:
+            return
+        self._add_certs(container, certs, truststore_pwd)
 
     def _validate_config_params(self):
         """Validate that configuration is valid.
@@ -335,7 +371,6 @@ class TrinoK8SCharm(CharmBase):
         Returns:
             env: a dictionary of trino environment variables
         """
-        truststore_path = self.conf_abs_path.joinpath("truststore.jks")
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
             "LOG_LEVEL": self.config["log-level"],
@@ -343,14 +378,14 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "WEB_PROXY": self.config.get("web-proxy"),
-            "SSL_PWD": self.state.truststore_password,
-            "SSL_PATH": str(truststore_path),
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
             "CATALOG_CONFIG": self.config.get("catalog-config"),
+            "METRICS_PORT": METRICS_PORT,
+            "JMX_PORT": JMX_PORT,
         }
         return env
 
