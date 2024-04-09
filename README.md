@@ -143,7 +143,7 @@ juju relate trino-k8s admin/cos.prometheus
 # Access grafana with username "admin" and password:
 juju run grafana/0 -m cos get-admin-password --wait 1m
 # Grafana is listening on port 3000 of the app ip address.
-# Dashboard can be accessed under "Trino Server Metrics", make sure to select the juju model which contains your Tino charm.
+# Dashboard can be accessed under "Trino Server Metrics", make sure to select the juju model which contains your Trino charm.
 ```
 
 ## Contributing
