@@ -114,6 +114,38 @@ juju relate ranger-k8s postgresql-k8s
 juju relate trino-k8s ranger-k8s
 ```
 
+### Observability
+
+The Trino charm can be related to the
+[Canonical Observability Stack](https://charmhub.io/topics/canonical-observability-stack)
+in order to collect logs and telemetry.
+To deploy cos-lite and expose its endpoints as offers, follow these steps:
+
+```bash
+# Deploy the cos-lite bundle:
+juju add-model cos
+juju deploy cos-lite --trust
+```
+
+```bash
+# Expose the cos integration endpoints:
+juju offer prometheus:metrics-endpoint
+juju offer loki:logging
+juju offer grafana:grafana-dashboard
+
+# Relate trino to the cos-lite apps:
+juju relate trino-k8s admin/cos.grafana
+juju relate trino-k8s admin/cos.loki
+juju relate trino-k8s admin/cos.prometheus
+```
+
+```bash
+# Access grafana with username "admin" and password:
+juju run grafana/0 -m cos get-admin-password --wait 1m
+# Grafana is listening on port 3000 of the app ip address.
+# Dashboard can be accessed under "Trino Server Metrics", make sure to select the juju model which contains your Trino charm.
+```
+
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
 
