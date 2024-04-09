@@ -6,12 +6,17 @@ import logging
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, BASE_DIR, NGINX_NAME, TRINO_IMAGE, WORKER_NAME
+from helpers import (
+    APP_NAME,
+    BASE_DIR,
+    NGINX_NAME,
+    TRINO_IMAGE,
+    WORKER_CONFIG,
+    WORKER_NAME,
+)
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
-
-WORKER_CONFIG = {"charm-function": "worker"}
 
 
 @pytest.mark.skip_if_deployed

@@ -41,11 +41,11 @@ NGINX_NAME = "nginx-ingress-integrator"
 # Database configuration literals
 EXAMPLE_CATALOG_NAME = "example-db"
 TEMP_CATALOG_NAME = "temp-db"
-EXAMPLE_CATALOG_CONFIG = """\
+TEMP_CATALOG_CONFIG = """\
 catalogs:
-    example-db: |
+    temp-db: |
         connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/database
+        connection-url=jdbc:postgresql://host.com:5432/temp-db
         connection-user=testing
         connection-password=test
 """
@@ -91,6 +91,12 @@ WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 
 # Upgrades secure password
 SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
+
+WORKER_CONFIG = {"charm-function": "worker"}
+COORDINATOR_CONFIG = {
+    "charm-function": "coordinator",
+    "catalog-config": TEMP_CATALOG_CONFIG,
+}
 
 
 async def get_unit_url(
@@ -153,7 +159,7 @@ async def update_catalog_config(ops_test, catalog_config, user):
         await ops_test.model.wait_for_idle(status="active", timeout=600)
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"Catalogs: {catalogs}")
-    return str(catalogs)
+    return catalogs
 
 
 async def create_user(ops_test, ranger_url):
@@ -239,3 +245,50 @@ async def get_active_workers(ops_test: OpsTest):
         x for x in result if x[1].startswith("http://trino-k8s-worker")
     ]
     return active_workers
+
+
+async def simulate_crash_and_restart(ops_test):
+    """Simulates the crash of the Trino coordinator.
+
+    Args:
+        ops_test: PyTest object.
+    """
+    # Destroy charm
+    await ops_test.model.applications[APP_NAME].destroy()
+    await ops_test.model.block_until(
+        lambda: APP_NAME not in ops_test.model.applications
+    )
+
+    # Deploy charm again
+    charm = await ops_test.build_charm(BASE_DIR)
+    async with ops_test.fast_forward():
+        await ops_test.model.deploy(
+            charm,
+            resources=TRINO_IMAGE,
+            application_name=APP_NAME,
+            config=COORDINATOR_CONFIG,
+            num_units=1,
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=1000,
+        )
+
+
+async def curl_unit_ip(ops_test):
+    """Curl the coordinator unit IP.
+
+    Args:
+        ops_test: PyTest object.
+
+    Returns:
+        response: Request response.
+    """
+    url = await get_unit_url(ops_test, application=APP_NAME, unit=0, port=8080)
+    logger.info("curling app address: %s", url)
+
+    response = requests.get(url, timeout=300, verify=False)  # nosec
+    return response
