@@ -13,6 +13,7 @@ https://discourse.charmhub.io/t/4208
 import logging
 from pathlib import Path
 
+
 import yaml
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
