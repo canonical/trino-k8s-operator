@@ -32,7 +32,7 @@ catalogs:
         connector.name=postgresql
         connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
         connection-user=testing
-        connection-password=test
+        connection-password=pd3h@!}93*hdu
 certs:
     example-cert: |
         -----BEGIN CERTIFICATE-----
