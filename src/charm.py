@@ -13,7 +13,6 @@ https://discourse.charmhub.io/t/4208
 import logging
 from pathlib import Path
 
-
 import yaml
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -268,10 +267,10 @@ class TrinoK8SCharm(CharmBase):
         """
         for name, config in catalogs.items():
             # Inject truststore path and password.
-            config = config.format(
-                SSL_PATH=str(self.truststore_abs_path),
-                SSL_PWD=truststore_pwd,
-            )
+            config = config.replace(
+                "{SSL_PATH}", str(self.truststore_abs_path)
+            ).replace("{SSL_PWD}", truststore_pwd)
+
             # Add catalog.
             container.push(
                 self.catalog_abs_path.joinpath(f"{name}.properties"),
