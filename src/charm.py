@@ -315,7 +315,6 @@ class TrinoK8SCharm(CharmBase):
         """
         # Get dictionary of certs and catalogs.
         catalog_config = self.config.get("catalog-config")
-        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
         truststore_pwd = generate_password()
 
         # Remove existing catalogs and certs.
@@ -324,8 +323,9 @@ class TrinoK8SCharm(CharmBase):
                 container.remove_path(path, recursive=True)
 
         # Add catalogs from config
-        if not catalogs:
+        if not catalog_config:
             return
+        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
         self._add_catalogs(container, catalogs, truststore_pwd)
 
         # Add certs from config
