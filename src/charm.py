@@ -241,6 +241,7 @@ class TrinoK8SCharm(CharmBase):
 
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
+        self._configure_catalogs(container)
         self._enable_password_auth(container)
 
         event.set_results({"result": "trino successfully restarted"})
