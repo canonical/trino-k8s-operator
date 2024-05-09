@@ -375,20 +375,20 @@ class PolicyRelationHandler(framework.Object):
         Args:
             container: application container
         """
-        if container.exists(f"{TRINO_PLUGIN_DIR}/ranger"):
-            command = [
-                "bash",
-                "disable-trino-plugin.sh",
-            ]
-            container.exec(
-                command,
-                working_dir=str(self.ranger_abs_path),
-                environment=JAVA_ENV,
-            ).wait()
+        if not container.exists(f"{TRINO_PLUGIN_DIR}/ranger"):
+            return
 
-            container.remove_path(
-                self.charm.trino_abs_path.joinpath(
-                    "access-control.properties"
-                ),
-                recursive=True,
-            )
+        command = [
+            "bash",
+            "disable-trino-plugin.sh",
+        ]
+        container.exec(
+            command,
+            working_dir=str(self.ranger_abs_path),
+            environment=JAVA_ENV,
+        ).wait()
+
+        container.remove_path(
+            self.charm.trino_abs_path.joinpath("access-control.properties"),
+            recursive=True,
+        )
