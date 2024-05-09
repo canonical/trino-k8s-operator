@@ -38,6 +38,7 @@ from literals import (
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
+    TRINO_PLUGIN_DIR,
     TRINO_PORTS,
 )
 from log import log_event_handler
@@ -225,8 +226,6 @@ class TrinoK8SCharm(CharmBase):
             container: Trino container
         """
         self.unit.status = MaintenanceStatus("restarting trino")
-        self._configure_catalogs(container)
-        self._enable_password_auth(container)
         container.restart(self.name)
 
     @log_event_handler(logger)
@@ -243,6 +242,7 @@ class TrinoK8SCharm(CharmBase):
 
         self.unit.status = MaintenanceStatus("restarting trino")
         self._restart_trino(container)
+        self._enable_password_auth(container)
 
         event.set_results({"result": "trino successfully restarted"})
 
@@ -449,6 +449,11 @@ class TrinoK8SCharm(CharmBase):
                     }
                 },
             )
+            # Handle Ranger plugin
+            if self.state.ranger_enabled and not container.exists(
+                f"{TRINO_PLUGIN_DIR}/ranger"
+            ):
+                self.policy._configure_ranger_plugin(container)
 
             self.model.unit.open_port(port=8080, protocol="tcp")
         else:
