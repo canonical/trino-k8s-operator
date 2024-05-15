@@ -319,7 +319,7 @@ class PolicyRelationHandler(framework.Object):
                 command = [f"{member_type}add", member]
             elif member_type == "user":
                 command = [f"{member_type}add", "-c", "ranger", member]
-            elif member_type == "membership":
+            else:
                 command = ["usermod", "-aG", member[0], member[1]]
 
             container.exec(command).wait()
