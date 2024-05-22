@@ -328,7 +328,8 @@ class PolicyRelationHandler(framework.Object):
                 command = [f"{member_type}add", "-c", "ranger", member]
             elif member_type == "membership":
                 command = ["usermod", "-aG", member[0], member[1]]
-
+            else:
+                return
             container.exec(command).wait()
 
     @handle_exec_error
