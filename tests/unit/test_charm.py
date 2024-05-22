@@ -466,7 +466,7 @@ def group_handler(args):
     elif args.command == ["getent", "group"]:
         out = "marketing:x:1004:user2"
     else:
-        return
+        out = ""
     return testing.ExecResult(stdout=out)
 
 
