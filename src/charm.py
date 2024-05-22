@@ -453,6 +453,8 @@ class TrinoK8SCharm(CharmBase):
             if self.state.ranger_enabled and not container.exists(
                 f"{TRINO_PLUGIN_DIR}/ranger"
             ):
+                # No leadership check required as coordinator
+                # and single node cannot scale.
                 self.policy._configure_ranger_plugin(container)
 
             self.model.unit.open_port(port=8080, protocol="tcp")
