@@ -38,6 +38,7 @@ from literals import (
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
+    TRINO_PLUGIN_DIR,
     TRINO_PORTS,
 )
 from log import log_event_handler
@@ -314,7 +315,6 @@ class TrinoK8SCharm(CharmBase):
         """
         # Get dictionary of certs and catalogs.
         catalog_config = self.config.get("catalog-config")
-        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
         truststore_pwd = generate_password()
 
         # Remove existing catalogs and certs.
@@ -323,8 +323,9 @@ class TrinoK8SCharm(CharmBase):
                 container.remove_path(path, recursive=True)
 
         # Add catalogs from config
-        if not catalogs:
+        if not catalog_config:
             return
+        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
         self._add_catalogs(container, catalogs, truststore_pwd)
 
         # Add certs from config
@@ -448,6 +449,13 @@ class TrinoK8SCharm(CharmBase):
                     }
                 },
             )
+            # Handle Ranger plugin
+            if self.state.ranger_enabled and not container.exists(
+                f"{TRINO_PLUGIN_DIR}/ranger"
+            ):
+                # No leadership check required as coordinator
+                # and single node cannot scale.
+                self.policy._configure_ranger_plugin(container)
 
             self.model.unit.open_port(port=8080, protocol="tcp")
         else:

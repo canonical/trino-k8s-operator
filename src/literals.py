@@ -30,6 +30,7 @@ CONFIG_FILES = {
 CONF_DIR = "conf"
 CATALOG_DIR = "catalog"
 RUN_TRINO_COMMAND = "./entrypoint.sh"
+TRINO_PLUGIN_DIR = "/usr/lib/trino/plugin"
 
 # Authentication literals
 PASSWORD_DB = "password.db"  # nosec

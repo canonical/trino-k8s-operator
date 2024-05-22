@@ -56,6 +56,7 @@ GROUP_MANAGEMENT = """\
             description: commercial systems team
 """
 mock_incomplete_pebble_plan = {"services": {"trino": {"override": "replace"}}}
+RANGER_LIB = "/usr/lib/ranger"
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +353,15 @@ class TestCharm(TestCase):
             event.relation.data["ranger-k8s"].get("user-group-configuration")
         )
 
+    def test_restore_ranger_plugin(self):
+        """Restore plugin if lost."""
+        harness = self.harness
+        self.test_policy_relation_changed()
+        container = harness.model.unit.get_container("trino")
+        container.remove_path(RANGER_LIB, recursive=True)
+        harness.charm.on.trino_pebble_ready.emit(container)
+        assert container.exists(RANGER_LIB)
+
     def test_update_status_up(self):
         """The charm updates the unit status to active based on UP status."""
         harness = self.harness
@@ -455,6 +465,8 @@ def group_handler(args):
         out = "user2:x:1002:1002:ranger:/home/user2:/bin/sh"
     elif args.command == ["getent", "group"]:
         out = "marketing:x:1004:user2"
+    else:
+        out = ""
     return testing.ExecResult(stdout=out)
 
 

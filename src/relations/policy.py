@@ -14,6 +14,7 @@ from literals import (
     JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
+    TRINO_PLUGIN_DIR,
     TRINO_PORTS,
     UNIX_TYPE_MAPPING,
 )
@@ -81,9 +82,6 @@ class PolicyRelationHandler(framework.Object):
 
         Args:
             event: Relation changed event.
-
-        Raises:
-            ExecError: When failure to enable Ranger plugin.
         """
         if not self.charm.unit.is_leader():
             return
@@ -93,22 +91,14 @@ class PolicyRelationHandler(framework.Object):
             event.defer()
             return
 
-        policy_manager_url = event.relation.data[event.app].get(
-            "policy_manager_url"
-        )
-        if not policy_manager_url:
+        self.charm.state.policy_manager_url = event.relation.data[
+            event.app
+        ].get("policy_manager_url")
+        if not self.charm.state.policy_manager_url:
             return
 
-        policy_relation = f"relation_{event.relation.id}"
-
-        try:
-            self._configure_plugin_properties(
-                container, policy_manager_url, policy_relation
-            )
-            self._enable_plugin(container)
-            logger.info("Ranger plugin is enabled.")
-        except ExecError as err:
-            raise ExecError(f"Unable to enable Ranger plugin: {err}") from err
+        self.charm.state.policy_relation = f"relation_{event.relation.id}"
+        self._configure_ranger_plugin(container)
 
         users_and_groups = event.relation.data[event.app].get(
             "user-group-configuration"
@@ -166,6 +156,7 @@ class PolicyRelationHandler(framework.Object):
 
         try:
             self._disable_ranger_plugin(container)
+            self.charm.state.ranger_enabled = False
             logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
             raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
@@ -173,7 +164,23 @@ class PolicyRelationHandler(framework.Object):
         self.charm._restart_trino(container)
 
     @handle_exec_error
-    def _enable_plugin(self, container):
+    def _configure_ranger_plugin(self, container):
+        """Enable the ranger plugin for Trino.
+
+        Args:
+            container: The application container.
+        """
+        self._push_plugin_files(
+            container,
+            self.charm.state.policy_manager_url,
+            self.charm.state.policy_relation,
+        )
+        self._run_plugin_entrypoint(container)
+        self.charm.state.ranger_enabled = True
+        logger.info("Ranger plugin is enabled.")
+
+    @handle_exec_error
+    def _run_plugin_entrypoint(self, container):
         """Enable ranger plugin.
 
         Args:
@@ -189,7 +196,7 @@ class PolicyRelationHandler(framework.Object):
             environment=JAVA_ENV,
         ).wait()
 
-    def _configure_plugin_properties(
+    def _push_plugin_files(
         self, container, policy_manager_url, policy_relation
     ):
         """Configure the Ranger plugin install.properties file.
@@ -321,7 +328,8 @@ class PolicyRelationHandler(framework.Object):
                 command = [f"{member_type}add", "-c", "ranger", member]
             elif member_type == "membership":
                 command = ["usermod", "-aG", member[0], member[1]]
-
+            else:
+                return
             container.exec(command).wait()
 
     @handle_exec_error
@@ -368,6 +376,9 @@ class PolicyRelationHandler(framework.Object):
         Args:
             container: application container
         """
+        if not container.exists(f"{TRINO_PLUGIN_DIR}/ranger"):
+            return
+
         command = [
             "bash",
             "disable-trino-plugin.sh",
