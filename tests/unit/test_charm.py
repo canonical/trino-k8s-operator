@@ -463,7 +463,7 @@ def group_handler(args):
     """
     if args.command == ["getent", "passwd"]:
         out = "user2:x:1002:1002:ranger:/home/user2:/bin/sh"
-    elif args.command == ["getent", "group"]:
+    else:
         out = "marketing:x:1004:user2"
     else:
         out = ""

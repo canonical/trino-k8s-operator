@@ -1,3 +1,6 @@
+[![Charmhub Badge](https://charmhub.io/trino-k8s/badge.svg)](https://charmhub.io/trino-k8s)
+[![Release Edge](https://github.com/canonical/trino-k8s-operator/actions/workflows/test_and_publish_charm.yaml/badge.svg)](https://github.com/canonical/trino-k8s-operator/actions/workflows/test_and_publish_charm.yaml)
+
 # Trino K8s Operator
 The Charmed Trino K8s Operator delivers automated management on [Trino](https://trino.io/) data virtualization software on top of a Kubernetes cluster. Trino is a distributed SQL query engine designed to query large data sets distributed over one or more heterogeneous data sources.
 
