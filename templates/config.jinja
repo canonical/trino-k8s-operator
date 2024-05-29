@@ -21,7 +21,9 @@ http-server.authentication.allow-insecure-over-http=true
 {% if OAUTH_CLIENT_ID is not none and OAUTH_CLIENT_SECRET is not none %}
 http-server.authentication.type=oauth2,PASSWORD
 web-ui.authentication.type=oauth2
-http-server.authentication.oauth2.user-mapping.pattern=(.*)@.*
+    {% if OAUTH_USER_MAPPING is not none %}
+http-server.authentication.oauth2.user-mapping.pattern={{ OAUTH_USER_MAPPING }}
+    {% endif %}
 http-server.authentication.oauth2.issuer=https://accounts.google.com
 http-server.authentication.oauth2.principal-field=email
 http-server.authentication.oauth2.scopes=https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,openid

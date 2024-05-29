@@ -377,6 +377,7 @@ class TrinoK8SCharm(CharmBase):
             "DEFAULT_PASSWORD": self.config["trino-password"],
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
+            "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "CHARM_FUNCTION": self.config["charm-function"],
             "DISCOVERY_URI": self.config["discovery-uri"],
