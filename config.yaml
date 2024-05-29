@@ -65,3 +65,8 @@ options:
     description: |
       Catalogs for which Trino should be connected.
     type: string
+  oauth-user-mapping:
+    description: |
+      Optional regex pattern with capture group to determine the username from oauth email.
+      ie. (.*)@.*
+    type: string

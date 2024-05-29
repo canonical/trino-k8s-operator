@@ -138,6 +138,7 @@ class TestCharm(TestCase):
                         "TRINO_HOME": "/usr/lib/trino/etc",
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
+                        "OAUTH_USER_MAPPING": None,
                     },
                 }
             },
@@ -242,6 +243,7 @@ class TestCharm(TestCase):
                         "TRINO_HOME": "/usr/lib/trino/etc",
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
+                        "OAUTH_USER_MAPPING": None,
                     },
                 }
             },
