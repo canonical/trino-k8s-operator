@@ -69,4 +69,4 @@ options:
     description: |
       Optional regex pattern with capture group to determine the username from oauth email.
       ie. (.*)@.*
-    type: string 
+    type: string
