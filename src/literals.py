@@ -47,14 +47,6 @@ JAVA_ENV = {
     "JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64",
 }
 
-
-# UNIX literals
-UNIX_TYPE_MAPPING = {
-    "user": "passwd",
-    "group": "group",
-    "membership": "group",
-}
-
 # Connector literal
 CONNECTOR_FIELDS = {
     "elasticsearch": {
