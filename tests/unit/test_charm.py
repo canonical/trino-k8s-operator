@@ -198,7 +198,7 @@ class TestCharm(TestCase):
             "nginx-route", "ingress"
         )
         self.harness.update_config(
-            {"ingress-whitelist": "127.0.0.1,123.123.123.123"}
+            {"ingress-allowlist": "127.0.0.1,123.123.123.123"}
         )
         harness.charm._require_nginx_route()
 
