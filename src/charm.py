@@ -136,14 +136,19 @@ class TrinoK8SCharm(CharmBase):
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
-        require_nginx_route(
-            charm=self,
-            service_hostname=self.external_hostname,
-            service_name=self.app.name,
-            service_port=TRINO_PORTS["HTTP"],
-            tls_secret_name=self.config["tls-secret-name"],
-            backend_protocol="HTTP",
-        )
+        route_params = {
+            "charm": self,
+            "service_hostname": self.external_hostname,
+            "service_name": self.app.name,
+            "service_port": TRINO_PORTS["HTTP"],
+            "tls_secret_name": self.config["tls-secret-name"],
+            "backend_protocol": "HTTP",
+        }
+
+        if self.config.get("ingress-allowlist") is not None:
+            route_params["limit_whitelist"] = self.config["ingress-allowlist"]
+
+        require_nginx_route(**route_params)
 
     @log_event_handler(logger)
     def _on_install(self, event):

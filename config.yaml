@@ -70,3 +70,7 @@ options:
       Optional regex pattern with capture group to determine the username from oauth email.
       ie. (.*)@.*
     type: string
+  ingress-allowlist:
+    description: |
+      IPs from which to allow Trino access.
+    type: string

@@ -2,3 +2,5 @@ ignore_files:
   # Ignore ingress charm library as it uses non compliant terminology:
   # whitelist.
   - lib/charms/nginx_ingress_integrator/v0/nginx_route.py
+  - src/charm.py
+  - tests/unit/test_charm.py
