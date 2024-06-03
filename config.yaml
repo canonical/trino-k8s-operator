@@ -70,3 +70,23 @@ options:
       Optional regex pattern with capture group to determine the username from oauth email.
       ie. (.*)@.*
     type: string
+  acl-mode-default:
+    description: |
+      The default ACLs for all Trino catalogs, one of `all` or `none`.
+      `all`: Allow all users access to all catalogs.
+      `none`: Deny all users access to all catalogs.
+      A Ranger relation will supersede this default.
+    type: string
+    default: all
+  acl-user-pattern:
+    description: |
+      The pattern to match users, for which the policy should be applied.
+      The default value `.*` applies to all users.
+    type: string
+    default: .*
+  acl-catalog-pattern:
+    description: |
+      The pattern to match catalog names, for which the policy should be applied.
+      The default value `.*` applies to all catalogs.
+    type: string
+    default: .*

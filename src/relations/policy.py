@@ -202,10 +202,7 @@ class PolicyRelationHandler(framework.Object):
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
-            if file == "access-control.properties":
-                path = self.charm.trino_abs_path.joinpath(file)
-            else:
-                path = self.ranger_abs_path.joinpath(file)
+            path = self.ranger_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
 
     @handle_exec_error
@@ -227,8 +224,3 @@ class PolicyRelationHandler(framework.Object):
             working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
-
-        container.remove_path(
-            self.charm.trino_abs_path.joinpath("access-control.properties"),
-            recursive=True,
-        )

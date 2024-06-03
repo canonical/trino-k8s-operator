@@ -25,6 +25,8 @@ CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
     "password-authenticator.jinja": "password-authenticator.properties",
+    "access-control.jinja": "access-control.properties",
+    "rules.jinja": "rules.json",
 }
 
 CONF_DIR = "conf"
@@ -39,7 +41,6 @@ PASSWORD_DB = "password.db"  # nosec
 RANGER_PLUGIN_VERSION = "2.4.0"
 RANGER_PLUGIN_HOME = "/usr/lib/ranger"
 RANGER_PLUGIN_FILES = {
-    "access-control.properties": "access-control.properties",
     "ranger-plugin.jinja": "install.properties",
 }
 

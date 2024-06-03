@@ -139,6 +139,10 @@ class TestCharm(TestCase):
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
+                        "RANGER_RELATION": False,
+                        "ACL_ACCESS_MODE": "all",
+                        "ACL_CATALOG_PATTERN": ".*",
+                        "ACL_USER_PATTERN": ".*",
                     },
                 }
             },
@@ -244,6 +248,10 @@ class TestCharm(TestCase):
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
+                        "RANGER_RELATION": False,
+                        "ACL_ACCESS_MODE": "all",
+                        "ACL_CATALOG_PATTERN": ".*",
+                        "ACL_USER_PATTERN": ".*",
                     },
                 }
             },
@@ -311,17 +319,7 @@ class TestCharm(TestCase):
         rel_id = harness.add_relation("policy", "trino-k8s")
         harness.add_relation_unit(rel_id, "trino-k8s/0")
 
-        # Create handlers for Container.exec() commands
-        for command in [
-            "bash",
-            "tar",
-            "useradd",
-            "groupadd",
-            "usermod",
-            "deluser",
-        ]:
-            harness.handle_exec("trino", [command], result=0)
-        harness.handle_exec("trino", ["getent"], handler=group_handler)
+        harness.handle_exec("trino", ["bash"], result=0)
 
         # Create and emit the policy `_on_relation_changed` event.
         data = {

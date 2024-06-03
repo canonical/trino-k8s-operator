@@ -73,3 +73,15 @@ class TestDeployment:
 
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
         assert TEMP_CATALOG_NAME in str(catalogs)
+
+    async def test_trino_default_policy(self, ops_test: OpsTest):
+        """Update the config and verify no catalog access."""
+        await ops_test.model.applications[APP_NAME].set_config(
+            {"access-control-default": "none"}
+        )
+
+        async with ops_test.fast_forward():
+            await ops_test.model.wait_for_idle(status="active", timeout=600)
+        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
+        logging.info(f"Found catalogs: {catalogs}")
+        assert not catalogs

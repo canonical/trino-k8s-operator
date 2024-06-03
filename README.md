@@ -86,7 +86,7 @@ In order to connect clustered database systems to Trino please connect the read-
 salesforce #read-write endpoint
 salesforce_ro #read-only endpoint
 ```
-## Relations
+## Policy
 ### Ranger
 Ranger acts as a fine-grained authorization manager for the Trino charm. It is an optional relation in order to provide access control on the data connected to Trino.
 
@@ -103,6 +103,7 @@ juju relate ranger-k8s postgresql-k8s
 # relate trino-k8s ranger-k8s
 juju relate trino-k8s ranger-k8s
 ```
+By default Trino has an allow all access control policy. If you're using an alternative to Trino's built-in ACLs (ie Ranger) then you can configure the default Trino policy to default to `none`. This will deny all access in the case that Ranger is unavailable.
 
 ### Observability
 
