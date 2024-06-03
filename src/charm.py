@@ -43,6 +43,7 @@ from literals import (
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
+from relations.trino import TrinoRelationHandler
 from state import State
 from utils import (
     add_cert_to_truststore,
@@ -103,6 +104,7 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self.state = State(self.app, lambda: self.model.get_relation("peer"))
         self.policy = PolicyRelationHandler(self)
+        self.trino = TrinoRelationHandler(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
