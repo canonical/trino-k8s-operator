@@ -77,7 +77,7 @@ class TestDeployment:
     async def test_trino_default_policy(self, ops_test: OpsTest):
         """Update the config and verify no catalog access."""
         await ops_test.model.applications[APP_NAME].set_config(
-            {"access-control-default": "none"}
+            {"acl-mode-default": "none"}
         )
 
         async with ops_test.fast_forward():
