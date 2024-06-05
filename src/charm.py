@@ -104,7 +104,12 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self.state = State(self.app, lambda: self.model.get_relation("peer"))
         self.policy = PolicyRelationHandler(self)
-        self.trino = TrinoRelationHandler(self)
+        self.trino_coordinator = TrinoRelationHandler(
+            self, relation_name="trino-coordinator"
+        )
+        self.trino_worker = TrinoRelationHandler(
+            self, relation_name="trino-worker"
+        )
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -174,6 +179,7 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
+        self.trino_coordinator._handle_coordinator(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -316,7 +322,10 @@ class TrinoK8SCharm(CharmBase):
             container: The application container.
         """
         # Get dictionary of certs and catalogs.
-        catalog_config = self.config.get("catalog-config")
+        # Worker uses state, coordinator uses config.
+        catalog_config = self.state.catalog_config or self.config.get(
+            "catalog-config"
+        )
         truststore_pwd = generate_password()
 
         # Remove existing catalogs and certs.
@@ -367,6 +376,18 @@ class TrinoK8SCharm(CharmBase):
                     f"Incorrectly formatted catalog-config: {e}"
                 )
 
+    def _validate_relations(self):
+        """Validate that required relations are valid and ready.
+
+        Raises:
+            ValueError: in case of invalid configuration.
+        """
+        if not self.state.is_ready():
+            raise ValueError("peer relation not ready")
+
+        if self.config["charm-function"] == "worker":
+            self.trino_worker._validate()
+
     def _create_environment(self):
         """Create application environment.
 
@@ -382,11 +403,13 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "CHARM_FUNCTION": self.config["charm-function"],
-            "DISCOVERY_URI": self.config["discovery-uri"],
+            "DISCOVERY_URI": self.state.discovery_uri
+            or self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
-            "CATALOG_CONFIG": self.config.get("catalog-config"),
+            "CATALOG_CONFIG": self.state.catalog_config
+            or self.config.get("catalog-config"),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
         }
@@ -403,20 +426,15 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        if not self.state.is_ready():
-            self.unit.status = WaitingStatus("Waiting for peer relation.")
-            event.defer()
-            return
-
         try:
             self._validate_config_params()
+            self._validate_relations()
         except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return
 
         logger.info("configuring trino")
-        if self.config.get("catalog-config"):
-            self._configure_catalogs(container)
+        self._configure_catalogs(container)
         self._enable_password_auth(container)
 
         env = self._create_environment()
