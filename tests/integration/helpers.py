@@ -274,6 +274,16 @@ async def simulate_crash_and_restart(ops_test):
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=1000,
+        )
+
+        await ops_test.model.integrate(
+            f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker"
+        )
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME, WORKER_NAME],
             status="active",
             raise_on_blocked=False,
             timeout=1000,
