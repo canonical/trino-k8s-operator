@@ -43,7 +43,8 @@ from literals import (
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
-from relations.trino import TrinoRelationHandler
+from relations.trino_coordinator import TrinoCoordinator
+from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
     add_cert_to_truststore,
@@ -104,12 +105,8 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self.state = State(self.app, lambda: self.model.get_relation("peer"))
         self.policy = PolicyRelationHandler(self)
-        self.trino_coordinator = TrinoRelationHandler(
-            self, relation_name="trino-coordinator"
-        )
-        self.trino_worker = TrinoRelationHandler(
-            self, relation_name="trino-worker"
-        )
+        self.trino_coordinator = TrinoCoordinator(self)
+        self.trino_worker = TrinoWorker(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -179,7 +176,8 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
-        self.trino_coordinator._handle_coordinator_relation_changed(event)
+        if self.config["charm-function"] == "coordinator":
+            self.trino_coordinator._on_relation_changed(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -201,17 +199,16 @@ class TrinoK8SCharm(CharmBase):
             self._update(event)
             return
 
+        try:
+            self._validate_relations()
+        except ValueError as err:
+            self.unit.status = BlockedStatus(str(err))
+            return
+
         if self.config["charm-function"] in ["coordinator", "all"]:
             check = container.get_check("up")
             if check.status != CheckStatus.UP:
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
-                return
-
-        if self.config["charm-function"] == "worker":
-            try:
-                self.trino_worker._validate_worker()
-            except ValueError as err:
-                self.unit.status = BlockedStatus(str(err))
                 return
 
         self.unit.status = ActiveStatus("Status check: UP")
@@ -393,10 +390,10 @@ class TrinoK8SCharm(CharmBase):
             raise ValueError("peer relation not ready")
 
         if self.config["charm-function"] == "worker":
-            self.trino_worker._validate_worker()
+            self.trino_worker._validate()
 
         if self.config["charm-function"] == "coordinator":
-            self.trino_coordinator._validate_coordinator()
+            self.trino_coordinator._validate()
 
     def _create_environment(self):
         """Create application environment.
