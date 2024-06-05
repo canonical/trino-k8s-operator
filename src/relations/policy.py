@@ -13,7 +13,6 @@ from literals import (
     JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
-    TRINO_HOME,
     TRINO_PLUGIN_DIR,
     TRINO_PORTS,
 )
@@ -151,7 +150,7 @@ class PolicyRelationHandler(framework.Object):
         except ExecError as err:
             raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
 
-        self.charm._restart_trino(container)
+        self.charm._update(event)
 
     @handle_exec_error
     def _configure_ranger_plugin(self, container):
@@ -205,8 +204,9 @@ class PolicyRelationHandler(framework.Object):
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
             if file == "access-control.properties":
-                path = f"{TRINO_HOME}/{file}"
-            path = self.ranger_abs_path.joinpath(file)
+                path = self.charm.trino_abs_path.joinpath(file)
+            else:
+                path = self.ranger_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
 
     @handle_exec_error
