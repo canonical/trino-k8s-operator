@@ -81,7 +81,9 @@ class TestDeployment:
         )
 
         async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(status="active", timeout=600)
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME], status="active", timeout=600
+            )
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
         logging.info(f"Found catalogs: {catalogs}")
         assert not catalogs

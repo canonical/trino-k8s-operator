@@ -13,6 +13,7 @@ from literals import (
     JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
+    TRINO_HOME,
     TRINO_PLUGIN_DIR,
     TRINO_PORTS,
 )
@@ -199,9 +200,12 @@ class PolicyRelationHandler(framework.Object):
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
+            "RANGER_RELATION": True,
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
+            if file == "access-control.properties":
+                path = f"{TRINO_HOME}/{file}"
             path = self.ranger_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
 

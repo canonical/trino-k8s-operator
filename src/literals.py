@@ -42,6 +42,7 @@ RANGER_PLUGIN_VERSION = "2.4.0"
 RANGER_PLUGIN_HOME = "/usr/lib/ranger"
 RANGER_PLUGIN_FILES = {
     "ranger-plugin.jinja": "install.properties",
+    "access-control.jinja": "access-control.properties",
 }
 
 JAVA_ENV = {
