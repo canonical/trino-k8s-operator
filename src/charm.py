@@ -179,7 +179,7 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
-        self.trino_coordinator._handle_coordinator(event)
+        self.trino_coordinator._handle_coordinator_relation_changed(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -205,6 +205,13 @@ class TrinoK8SCharm(CharmBase):
             check = container.get_check("up")
             if check.status != CheckStatus.UP:
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
+                return
+
+        if self.config["charm-function"] == "worker":
+            try:
+                self.trino_worker._validate_worker()
+            except ValueError as err:
+                self.unit.status = BlockedStatus(str(err))
                 return
 
         self.unit.status = ActiveStatus("Status check: UP")
@@ -386,7 +393,10 @@ class TrinoK8SCharm(CharmBase):
             raise ValueError("peer relation not ready")
 
         if self.config["charm-function"] == "worker":
-            self.trino_worker._validate()
+            self.trino_worker._validate_worker()
+
+        if self.config["charm-function"] == "coordinator":
+            self.trino_coordinator._validate_coordinator()
 
     def _create_environment(self):
         """Create application environment.

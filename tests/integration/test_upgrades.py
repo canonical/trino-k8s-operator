@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 async def deploy(ops_test: OpsTest):
     """Deploy the app."""
     # Deploy trino and nginx charms
-    trino_config = {"trino-password": SECURE_PWD}
+    trino_config = {
+        "trino-password": SECURE_PWD,
+        "charm-function": "all",
+    }
     await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config)
 
     async with ops_test.fast_forward():

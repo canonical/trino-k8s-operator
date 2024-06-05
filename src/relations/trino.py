@@ -19,6 +19,7 @@ class TrinoRelationHandler(Object):
     """Defines functionality for the relation between the Trino coordinator and worker.
 
     Hook events observed:
+        - relation-created
         - relation-updated
         - relation-broken
     """
@@ -35,7 +36,7 @@ class TrinoRelationHandler(Object):
         super().__init__(charm, self.relation_name)
         self.framework.observe(
             charm.on[self.relation_name].relation_created,
-            self._handle_coordinator,
+            self._handle_coordinator_relation_changed,
         )
         self.framework.observe(
             charm.on[self.relation_name].relation_changed,
@@ -54,10 +55,10 @@ class TrinoRelationHandler(Object):
         Args:
             event: relation changed event.
         """
-        self._handle_coordinator(event)
+        self._handle_coordinator_relation_changed(event)
         self._handle_worker_relation_changed(event)
 
-    def _handle_coordinator(self, event):
+    def _handle_coordinator_relation_changed(self, event):
         """Coordinator adds to relation databag.
 
         Args:
@@ -84,6 +85,7 @@ class TrinoRelationHandler(Object):
                     ),
                 }
             )
+        self.charm._update(event)
 
     def _handle_worker_relation_changed(self, event):
         """Worker updates `state` based on relation event data.
@@ -103,6 +105,26 @@ class TrinoRelationHandler(Object):
         self.charm._update(event)
 
     def _on_relation_broken(self, event):
+        """Handle Trino relation changed event.
+
+        Args:
+            event: relation changed event.
+        """
+        self._handle_coordinator_relation_broken(event)
+        self._handle_worker_relation_broken(event)
+
+    def _handle_coordinator_relation_broken(self, event):
+        """Coordinator updates and re-validates relations on relation broken.
+
+        Args:
+            event: the relation broken event.
+        """
+        if not self.charm.config["charm-function"] == "coordinator":
+            return
+
+        self.charm._update(event)
+
+    def _handle_worker_relation_broken(self, event):
         """Worker updates `state` following relation broken event.
 
         Args:
@@ -126,11 +148,20 @@ class TrinoRelationHandler(Object):
 
         self.charm._update(event)
 
-    def _validate(self):
-        """Check if the trino worker connection is available.
+    def _validate_worker(self):
+        """Check if the trino worker relation is available.
 
         Raises:
             ValueError: if the worker is not ready.
         """
         if self.charm.state.discovery_uri is None:
             raise ValueError("Missing Trino coordinator relation.")
+
+    def _validate_coordinator(self):
+        """Check if the trino coordinator relation is available.
+
+        Raises:
+            ValueError: if the coordinator is not ready.
+        """
+        if not self.model.relations["trino-coordinator"]:
+            raise ValueError("Missing Trino worker relation.")
