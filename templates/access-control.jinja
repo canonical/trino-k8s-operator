@@ -1,0 +1,9 @@
+{% if RANGER_RELATION == true %}
+access-control.name=ranger
+ranger.use_ugi=true
+
+{% else %}
+access-control.name=file
+security.config-file={{ TRINO_HOME }}/rules.json
+
+{% endif %}

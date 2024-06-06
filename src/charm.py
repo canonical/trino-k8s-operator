@@ -333,6 +333,18 @@ class TrinoK8SCharm(CharmBase):
             return
         self._add_certs(container, certs, truststore_pwd)
 
+    def _configure_trino(self, container, env):
+        """Add the files needed to configure Trino to the Trino home directory.
+
+        Args:
+            container: The Trino container.
+            env: Environment variables for Jija templating.
+        """
+        for template, file in CONFIG_FILES.items():
+            path = self.trino_abs_path.joinpath(file)
+            content = render(template, env)
+            container.push(path, content, make_dirs=True, permissions=0o644)
+
     def _validate_config_params(self):
         """Validate that configuration is valid.
 
@@ -340,6 +352,7 @@ class TrinoK8SCharm(CharmBase):
             ValueError: in case of invalid log configuration.
                         in case of invalid trino-password.
                         in case of web-proxy as empty string.
+                        in case of invalid acl-mode-default value.
             ScannerError: in case of incorrectly formatted catalog-config.
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
@@ -355,6 +368,12 @@ class TrinoK8SCharm(CharmBase):
         web_proxy = self.config.get("web-proxy")
         if web_proxy and not web_proxy.strip():
             raise ValueError("Web-proxy value cannot be an empty string")
+
+        acl_mode_default = self.config.get("acl-mode-default")
+        if acl_mode_default not in ["all", "none"]:
+            raise ValueError(
+                f"Invalid acl-mode-default value: {acl_mode_default!r}"
+            )
 
         catalogs = self.config.get("catalog-config")
         if catalogs:
@@ -387,6 +406,10 @@ class TrinoK8SCharm(CharmBase):
             "CATALOG_CONFIG": self.config.get("catalog-config"),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
+            "RANGER_RELATION": self.state.ranger_enabled or False,
+            "ACL_ACCESS_MODE": self.config["acl-mode-default"],
+            "ACL_USER_PATTERN": self.config["acl-user-pattern"],
+            "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
         }
         return env
 
@@ -418,10 +441,7 @@ class TrinoK8SCharm(CharmBase):
         self._enable_password_auth(container)
 
         env = self._create_environment()
-        for template, file in CONFIG_FILES.items():
-            path = self.trino_abs_path.joinpath(file)
-            content = render(template, env)
-            container.push(path, content, make_dirs=True, permissions=0o644)
+        self._configure_trino(container, env)
 
         logger.info("planning trino execution")
         pebble_layer = {
