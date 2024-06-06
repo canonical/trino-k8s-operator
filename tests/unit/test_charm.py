@@ -169,18 +169,17 @@ class TestCharm(TestCase):
             BlockedStatus("config: invalid log level 'all-logs'"),
         )
 
-    def test_no_coordinator_relation(self):
+    def test_incorrect_relation(self):
         """The charm blocks if the coordinator relation is not added.."""
         harness = self.harness
         simulate_lifecycle(harness)
 
-        # Update the config with an invalid value.
         self.harness.update_config({"charm-function": "worker"})
 
         # The BlockStatus is set with a message.
         self.assertEqual(
             harness.model.unit.status,
-            BlockedStatus("Missing Trino coordinator relation."),
+            BlockedStatus("Incorrect trino relation configuration."),
         )
 
     def test_config_changed(self):
@@ -326,9 +325,8 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, event = setup_trino_worker_relation(harness)
+        container, _ = simulate_lifecycle_worker(harness)
 
-        harness.charm.trino_worker._on_relation_changed(event)
         self.assertTrue(container.exists(TEST_CATALOG_PATH))
 
     def test_trino_worker_relation_broken(self):
@@ -337,16 +335,10 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event = setup_trino_worker_relation(harness)
-
-        harness.charm.trino_worker._on_relation_changed(event)
+        container, event = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
         self.assertFalse(container.exists(TEST_CATALOG_PATH))
-        self.assertEqual(
-            harness.model.unit.status,
-            BlockedStatus("Missing Trino coordinator relation."),
-        )
 
     def test_trino_single_node_deployment(self):
         """Test pebble plan is created with single node deployment."""
@@ -369,7 +361,7 @@ class TestCharm(TestCase):
         )
 
 
-def setup_trino_worker_relation(harness):
+def simulate_lifecycle_worker(harness):
     """Establish a relation between Trino worker and coordinator.
 
     Args:
@@ -379,20 +371,26 @@ def setup_trino_worker_relation(harness):
         container: the trino application container.
         event: the relation event.
     """
-    simulate_lifecycle(harness)
+    # Simulate peer relation readiness.
+    harness.add_relation("peer", "trino")
+
+    # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
+    harness.charm.on.trino_pebble_ready.emit(container)
+
     harness.update_config({"charm-function": "worker"})
 
     rel_id = harness.add_relation("trino-worker", "trino-k8s")
     harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
 
     data = {
-        "trino-k8s": {
+        "trino-worker": {
             "discovery-uri": "http://trino-k8s:8080",
             "catalog-config": TEST_CATALOG_CONFIG,
         }
     }
-    event = make_relation_event("trino-k8s", rel_id, data)
+    event = make_relation_event("trino-worker", rel_id, data)
+    harness.charm.trino_worker._on_relation_changed(event)
     return container, event
 
 

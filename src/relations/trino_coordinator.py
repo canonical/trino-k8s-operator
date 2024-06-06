@@ -51,27 +51,36 @@ class TrinoCoordinator(Object):
 
     @log_event_handler(logger)
     def _on_relation_changed(self, event):
-        """Coordinator adds to relation databag.
+        """Handle the relation changed event.
 
         Args:
             event: the relation changed or update config event.
         """
-        if not self.charm.unit.is_leader():
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
+        self._update_coordinator_relation_data(event)
+
+    def _update_coordinator_relation_data(self, event):
+        """Update the `trino-coordinator` relation databag.
+
+        Args:
+            event: the relation changed or config changed event.
+        """
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
+        if not self.charm.config["charm-function"] == "coordinator":
             return
 
         coordinator_relations = self.model.relations["trino-coordinator"]
-        if not coordinator_relations:
-            return
-
         for relation in coordinator_relations:
             relation.data[self.charm.app].update(
                 {
-                    "discovery-uri": self.charm.config.get(
-                        "discovery-uri", ""
-                    ),
-                    "catalog-config": self.charm.config.get(
-                        "catalog-config", ""
-                    ),
+                    "discovery-uri": self.charm.state.discovery_uri or "",
+                    "catalog-config": self.charm.state.catalog_config or "",
                 }
             )
         self.charm._update(event)
@@ -90,5 +99,8 @@ class TrinoCoordinator(Object):
         Raises:
             ValueError: if the coordinator is not ready.
         """
+        if self.model.relations["trino-worker"]:
+            raise ValueError("Incorrect trino relation configuration.")
+
         if not self.model.relations["trino-coordinator"]:
             raise ValueError("Missing Trino worker relation.")

@@ -116,6 +116,9 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
         self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(
+            self.on.peer_relation_changed, self._on_peer_relation_changed
+        )
 
         # Handle Ingress
         self._require_nginx_route()
@@ -168,6 +171,19 @@ class TrinoK8SCharm(CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
+    def _on_peer_relation_changed(self, event):
+        """Handle peer relation changes.
+
+        Args:
+            event: The event triggered when the peer relation changed.
+        """
+        if self.unit.is_leader():
+            return
+
+        self.unit.status = WaitingStatus("configuring trino")
+        self._update(event)
+
+    @log_event_handler(logger)
     def _on_config_changed(self, event: ConfigChangedEvent):
         """Handle changed configuration.
 
@@ -176,8 +192,7 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
-        if self.config["charm-function"] == "coordinator":
-            self.trino_coordinator._on_relation_changed(event)
+        self.trino_coordinator._update_coordinator_relation_data(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -327,9 +342,7 @@ class TrinoK8SCharm(CharmBase):
         """
         # Get dictionary of certs and catalogs.
         # Worker uses state, coordinator uses config.
-        catalog_config = self.state.catalog_config or self.config.get(
-            "catalog-config"
-        )
+        catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
         # Remove existing catalogs and certs.
@@ -441,6 +454,10 @@ class TrinoK8SCharm(CharmBase):
             return
 
         logger.info("configuring trino")
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            self.state.discovery_uri = self.config.get("discovery-uri", "")
+            self.state.catalog_config = self.config.get("catalog-config", "")
+
         self._configure_catalogs(container)
         self._enable_password_auth(container)
 

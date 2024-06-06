@@ -57,11 +57,17 @@ class TrinoWorker(Object):
         Args:
             event: the relation changed event.
         """
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
+        if not self.charm.unit.is_leader():
+            return
+
         event_data = event.relation.data[event.app]
 
-        if self.charm.unit.is_leader():
-            self.charm.state.discovery_uri = event_data.get("discovery-uri")
-            self.charm.state.catalog_config = event_data.get("catalog-config")
+        self.charm.state.discovery_uri = event_data.get("discovery-uri")
+        self.charm.state.catalog_config = event_data.get("catalog-config")
 
         self.charm._update(event)
 
@@ -71,6 +77,9 @@ class TrinoWorker(Object):
         Args:
             event: the relation broken event.
         """
+        if not self.charm.state.is_ready():
+            return
+
         container = self.charm.model.unit.get_container(self.charm.name)
         if not container.can_connect():
             event.defer()
@@ -80,9 +89,11 @@ class TrinoWorker(Object):
         if container.exists(catalog_path):
             container.remove_path(catalog_path, recursive=True)
 
-        if self.charm.unit.is_leader():
-            self.charm.state.discovery_uri = None
-            self.charm.state.catalog_config = None
+        if not self.charm.unit.is_leader():
+            return
+
+        self.charm.state.discovery_uri = ""
+        self.charm.state.catalog_config = ""
 
         self.charm._update(event)
 
@@ -90,7 +101,11 @@ class TrinoWorker(Object):
         """Check if the trino worker relation is available.
 
         Raises:
-            ValueError: if the worker is not ready.
+            ValueError: if the relation is incorrectly configured.
+                      : if there is no coordinator relation.
         """
-        if self.charm.state.discovery_uri is None:
+        if self.model.relations["trino-coordinator"]:
+            raise ValueError("Incorrect trino relation configuration.")
+
+        if not self.model.relations["trino-worker"]:
             raise ValueError("Missing Trino coordinator relation.")
