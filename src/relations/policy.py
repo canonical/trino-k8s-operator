@@ -150,7 +150,7 @@ class PolicyRelationHandler(framework.Object):
         except ExecError as err:
             raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
 
-        self.charm._restart_trino(container)
+        self.charm._update(event)
 
     @handle_exec_error
     def _configure_ranger_plugin(self, container):
@@ -199,6 +199,7 @@ class PolicyRelationHandler(framework.Object):
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
+            "RANGER_RELATION": True,
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
@@ -227,8 +228,3 @@ class PolicyRelationHandler(framework.Object):
             working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
-
-        container.remove_path(
-            self.charm.trino_abs_path.joinpath("access-control.properties"),
-            recursive=True,
-        )

@@ -103,6 +103,10 @@ class TestCharm(TestCase):
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
+                        "RANGER_RELATION": False,
+                        "ACL_ACCESS_MODE": "all",
+                        "ACL_CATALOG_PATTERN": ".*",
+                        "ACL_USER_PATTERN": ".*",
                     },
                 }
             },
@@ -221,6 +225,10 @@ class TestCharm(TestCase):
                         "JMX_PORT": 9081,
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
+                        "RANGER_RELATION": False,
+                        "ACL_ACCESS_MODE": "all",
+                        "ACL_CATALOG_PATTERN": ".*",
+                        "ACL_USER_PATTERN": ".*",
                     },
                 }
             },
