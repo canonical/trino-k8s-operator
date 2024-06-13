@@ -19,7 +19,21 @@ certs:
         CERTIFICATE CONTENT...
         -----END CERTIFICATE-----
 """
+UPDATED_CATALOG_CONFIG = """\
+catalogs:
+    updated-db: |
+        connector.name=postgresql
+        connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+        connection-user=testing
+        connection-password=pd3h@!}93*hdu
+certs:
+    updated-cert: |
+        -----BEGIN CERTIFICATE-----
+        CERTIFICATE CONTENT...
+        -----END CERTIFICATE-----
+"""
 TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
+UPDATED_CATALOG_PATH = "/usr/lib/trino/etc/catalog/updated-db.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 

@@ -340,8 +340,6 @@ class TrinoK8SCharm(CharmBase):
         Args:
             container: The application container.
         """
-        # Get dictionary of certs and catalogs.
-        # Worker uses state, coordinator uses config.
         catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
@@ -350,13 +348,13 @@ class TrinoK8SCharm(CharmBase):
             if container.exists(path):
                 container.remove_path(path, recursive=True)
 
-        # Add catalogs from config
+        # Add catalogs from state
         if not catalog_config:
             return
         certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
         self._add_catalogs(container, catalogs, truststore_pwd)
 
-        # Add certs from config
+        # Add certs from state
         if not certs:
             return
         self._add_certs(container, certs, truststore_pwd)

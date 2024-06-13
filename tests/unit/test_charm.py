@@ -12,10 +12,21 @@ import json
 import logging
 from unittest import TestCase, mock
 
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    MaintenanceStatus,
+    SecretNotFoundError,
+)
 from ops.pebble import CheckStatus
 from ops.testing import Harness
-from unit.helpers import SERVER_PORT, TEST_CATALOG_CONFIG, TEST_CATALOG_PATH
+from unit.helpers import (
+    SERVER_PORT,
+    TEST_CATALOG_CONFIG,
+    TEST_CATALOG_PATH,
+    UPDATED_CATALOG_CONFIG,
+    UPDATED_CATALOG_PATH,
+)
 
 from charm import TrinoK8SCharm
 from state import State
@@ -71,7 +82,7 @@ class TestCharm(TestCase):
     def test_ready(self):
         """The pebble plan is correctly generated when the charm is ready."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         # Asserts status is active
         self.assertEqual(
@@ -134,7 +145,7 @@ class TestCharm(TestCase):
         """
         harness = self.harness
 
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         nginx_route_relation_id = harness.add_relation(
             "nginx-route", "ingress"
@@ -155,7 +166,7 @@ class TestCharm(TestCase):
     def test_invalid_config_value(self):
         """The charm blocks if an invalid config value is provided."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         # Update the config with an invalid value.
         self.harness.update_config({"log-level": "all-logs"})
@@ -176,7 +187,7 @@ class TestCharm(TestCase):
     def test_incorrect_relation(self):
         """The charm blocks if the coordinator relation is not added.."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         self.harness.update_config({"charm-function": "worker"})
 
@@ -189,7 +200,7 @@ class TestCharm(TestCase):
     def test_config_changed(self):
         """The pebble plan changes according to config changes."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         # Update the config.
         self.harness.update_config(
@@ -245,7 +256,7 @@ class TestCharm(TestCase):
     def test_catalog_added(self):
         """The catalog directory is updated to add the new catalog."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         # Update the config.
         self.harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
@@ -257,7 +268,7 @@ class TestCharm(TestCase):
     def test_catalog_removed(self):
         """The catalog directory is updated to remove existing catalogs."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         # Update the config.
         self.harness.update_config({"catalog-config": ""})
@@ -270,7 +281,7 @@ class TestCharm(TestCase):
         """The charm updates the unit status to active based on UP status."""
         harness = self.harness
 
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         container = harness.model.unit.get_container("trino")
         container.get_check = mock.Mock(status="up")
@@ -285,7 +296,7 @@ class TestCharm(TestCase):
         """The charm updates the unit status to maintenance based on DOWN status."""
         harness = self.harness
 
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         container = harness.model.unit.get_container("trino")
         container.get_check = mock.Mock(status="up")
@@ -299,7 +310,7 @@ class TestCharm(TestCase):
     def test_incomplete_pebble_plan(self):
         """The charm re-applies the pebble plan if incomplete."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        simulate_lifecycle_coordinator(harness)
 
         container = harness.model.unit.get_container("trino")
         container.add_layer("trino", mock_incomplete_pebble_plan, combine=True)
@@ -318,14 +329,41 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
+        rel_id = simulate_lifecycle_coordinator(harness)
+        relation_data = harness.get_relation_data(rel_id, harness.charm.app)
+        secret = harness.model.get_secret(label="catalog-config")
+        content = secret.get_content()
 
-        simulate_lifecycle(harness)
-        self.harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
-        rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
-        assert harness.get_relation_data(rel_id, harness.charm.app) == {
-            "discovery-uri": "http://trino-k8s:8080",
-            "catalog-config": TEST_CATALOG_CONFIG,
-        }
+        assert relation_data["discovery-uri"] == "http://trino-k8s:8080"
+        assert "secret:" in relation_data["catalog-secret-id"]
+        assert content["catalogs"] == TEST_CATALOG_CONFIG
+
+    def test_trino_worker_secret_changed(self):
+        """Test the worker catalogs change when the secret content changes."""
+        harness = self.harness
+        container, _, secret_id = simulate_lifecycle_worker(harness)
+        secret = harness.model.get_secret(id=secret_id)
+        secret.set_content({"catalogs": UPDATED_CATALOG_CONFIG})
+        harness.charm.on.secret_changed.emit(
+            label="catalog-config", id=secret_id
+        )
+
+        self.assertTrue(container.exists(UPDATED_CATALOG_PATH))
+
+    def test_trino_coordinator_relation_broken(self):
+        """Test trino relation.
+
+        The coordinator and worker Trino charms relate correctly.
+        """
+        harness = self.harness
+
+        rel_id = simulate_lifecycle_coordinator(harness)
+
+        data = {"trino-coordinator": {}}
+        event = make_relation_event("trino-coordinator", rel_id, data)
+        with self.assertRaises(SecretNotFoundError):
+            harness.charm.trino_coordinator._on_relation_broken(event)
+            harness.model.get_secret(label="catalog-config")
 
     def test_trino_worker_relation_created(self):
         """Test trino relation creation.
@@ -333,7 +371,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, _ = simulate_lifecycle_worker(harness)
+        container, _, _ = simulate_lifecycle_worker(harness)
 
         self.assertTrue(container.exists(TEST_CATALOG_PATH))
 
@@ -343,7 +381,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event = simulate_lifecycle_worker(harness)
+        container, event, _ = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
         self.assertFalse(container.exists(TEST_CATALOG_PATH))
@@ -351,8 +389,10 @@ class TestCharm(TestCase):
     def test_trino_single_node_deployment(self):
         """Test pebble plan is created with single node deployment."""
         harness = self.harness
+        harness.add_relation("peer", "trino")
 
-        simulate_lifecycle(harness)
+        container = harness.model.unit.get_container("trino")
+        harness.charm.on.trino_pebble_ready.emit(container)
         harness.update_config({"charm-function": "all"})
 
         # There is a valid pebble plan.
@@ -387,26 +427,32 @@ def simulate_lifecycle_worker(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     harness.update_config({"charm-function": "worker"})
-
+    secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"catalogs": TEST_CATALOG_CONFIG},
+    )
     rel_id = harness.add_relation("trino-worker", "trino-k8s")
     harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
 
     data = {
         "trino-worker": {
             "discovery-uri": "http://trino-k8s:8080",
-            "catalog-config": TEST_CATALOG_CONFIG,
+            "catalog-secret-id": secret_id,
         }
     }
     event = make_relation_event("trino-worker", rel_id, data)
     harness.charm.trino_worker._on_relation_changed(event)
-    return container, event
+    return container, event, secret_id
 
 
-def simulate_lifecycle(harness):
+def simulate_lifecycle_coordinator(harness):
     """Simulate a healthy charm life-cycle.
 
     Args:
         harness: ops.testing.Harness object used to simulate charm lifecycle.
+
+    Returns:
+        rel_id: the relation ID of the trino coordinator:worker relation.
     """
     # Simulate peer relation readiness.
     harness.add_relation("peer", "trino")
@@ -417,7 +463,8 @@ def simulate_lifecycle(harness):
 
     # Add worker and coordinator relation
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
-    harness.add_relation("trino-coordinator", "trino-k8s-worker")
+    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
+    return rel_id
 
 
 def make_relation_event(app, rel_id, data):
