@@ -49,7 +49,8 @@ JAVA_ENV = {
     "JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64",
 }
 
-SECRET_LABEL = "catalog-config"
+SECRET_LABEL = "catalog-config"  # nosec
+
 # Connector literal
 CONNECTOR_FIELDS = {
     "elasticsearch": {
