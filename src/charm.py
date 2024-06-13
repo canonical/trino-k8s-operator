@@ -43,6 +43,8 @@ from literals import (
 )
 from log import log_event_handler
 from relations.policy import PolicyRelationHandler
+from relations.trino_coordinator import TrinoCoordinator
+from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
     add_cert_to_truststore,
@@ -103,6 +105,8 @@ class TrinoK8SCharm(CharmBase):
         self.name = "trino"
         self.state = State(self.app, lambda: self.model.get_relation("peer"))
         self.policy = PolicyRelationHandler(self)
+        self.trino_coordinator = TrinoCoordinator(self)
+        self.trino_worker = TrinoWorker(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -112,6 +116,9 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
         self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(
+            self.on.peer_relation_changed, self._on_peer_relation_changed
+        )
 
         # Handle Ingress
         self._require_nginx_route()
@@ -164,6 +171,19 @@ class TrinoK8SCharm(CharmBase):
         self._update(event)
 
     @log_event_handler(logger)
+    def _on_peer_relation_changed(self, event):
+        """Handle peer relation changes.
+
+        Args:
+            event: The event triggered when the peer relation changed.
+        """
+        if self.unit.is_leader():
+            return
+
+        self.unit.status = WaitingStatus("configuring trino")
+        self._update(event)
+
+    @log_event_handler(logger)
     def _on_config_changed(self, event: ConfigChangedEvent):
         """Handle changed configuration.
 
@@ -172,6 +192,7 @@ class TrinoK8SCharm(CharmBase):
         """
         self.unit.status = WaitingStatus("configuring trino")
         self._update(event)
+        self.trino_coordinator._update_coordinator_relation_data(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -191,6 +212,12 @@ class TrinoK8SCharm(CharmBase):
         valid_pebble_plan = self._validate_pebble_plan(container)
         if not valid_pebble_plan:
             self._update(event)
+            return
+
+        try:
+            self._validate_relations()
+        except ValueError as err:
+            self.unit.status = BlockedStatus(str(err))
             return
 
         if self.config["charm-function"] in ["coordinator", "all"]:
@@ -314,7 +341,8 @@ class TrinoK8SCharm(CharmBase):
             container: The application container.
         """
         # Get dictionary of certs and catalogs.
-        catalog_config = self.config.get("catalog-config")
+        # Worker uses state, coordinator uses config.
+        catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
         # Remove existing catalogs and certs.
@@ -384,6 +412,21 @@ class TrinoK8SCharm(CharmBase):
                     f"Incorrectly formatted catalog-config: {e}"
                 )
 
+    def _validate_relations(self):
+        """Validate that required relations are valid and ready.
+
+        Raises:
+            ValueError: in case of invalid configuration.
+        """
+        if not self.state.is_ready():
+            raise ValueError("peer relation not ready")
+
+        if self.config["charm-function"] == "worker":
+            self.trino_worker._validate()
+
+        if self.config["charm-function"] == "coordinator":
+            self.trino_coordinator._validate()
+
     def _create_environment(self):
         """Create application environment.
 
@@ -399,11 +442,13 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "CHARM_FUNCTION": self.config["charm-function"],
-            "DISCOVERY_URI": self.config["discovery-uri"],
+            "DISCOVERY_URI": self.state.discovery_uri
+            or self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
-            "CATALOG_CONFIG": self.config.get("catalog-config"),
+            "CATALOG_CONFIG": self.state.catalog_config
+            or self.config.get("catalog-config"),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
             "RANGER_RELATION": self.state.ranger_enabled or False,
@@ -424,20 +469,19 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        if not self.state.is_ready():
-            self.unit.status = WaitingStatus("Waiting for peer relation.")
-            event.defer()
-            return
-
         try:
             self._validate_config_params()
+            self._validate_relations()
         except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return
 
         logger.info("configuring trino")
-        if self.config.get("catalog-config"):
-            self._configure_catalogs(container)
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            self.state.discovery_uri = self.config.get("discovery-uri", "")
+            self.state.catalog_config = self.config.get("catalog-config", "")
+
+        self._configure_catalogs(container)
         self._enable_password_auth(container)
 
         env = self._create_environment()

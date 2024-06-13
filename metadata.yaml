@@ -40,12 +40,19 @@ requires:
     interface: loki_push_api
     optional: true
     limit: 1
+  trino-worker:
+    interface: trino_client
+    optional: true
+    limit: 1
 
 provides:
   metrics-endpoint:
     interface: prometheus_scrape
   grafana-dashboard:
     interface: grafana_dashboard
+  trino-coordinator:
+    interface: trino_client
+    optional: true
 
 peers:
   peer:

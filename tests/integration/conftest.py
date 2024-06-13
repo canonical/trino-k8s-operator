@@ -45,7 +45,7 @@ async def deploy(ops_test: OpsTest):
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME, WORKER_NAME],
-            status="active",
+            status="blocked",
             raise_on_blocked=False,
             timeout=600,
         )
@@ -56,10 +56,14 @@ async def deploy(ops_test: OpsTest):
             timeout=600,
         )
 
+        await ops_test.model.integrate(
+            f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker"
+        )
+
         await ops_test.model.integrate(APP_NAME, NGINX_NAME)
 
         await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
+            apps=[APP_NAME, WORKER_NAME],
             status="active",
             raise_on_blocked=False,
             timeout=300,

@@ -156,7 +156,9 @@ async def update_catalog_config(ops_test, catalog_config, user):
         {"catalog-config": catalog_config}
     )
     async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(status="active", timeout=600)
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME, WORKER_NAME], status="active", timeout=600
+        )
     catalogs = await get_catalogs(ops_test, user, APP_NAME)
     logging.info(f"Catalogs: {catalogs}")
     return catalogs
@@ -272,6 +274,16 @@ async def simulate_crash_and_restart(ops_test):
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=1000,
+        )
+
+        await ops_test.model.integrate(
+            f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker"
+        )
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME, WORKER_NAME],
             status="active",
             raise_on_blocked=False,
             timeout=1000,

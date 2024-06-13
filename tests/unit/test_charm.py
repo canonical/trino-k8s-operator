@@ -12,51 +12,15 @@ import json
 import logging
 from unittest import TestCase, mock
 
-from ops import testing
-from ops.model import (
-    ActiveStatus,
-    BlockedStatus,
-    MaintenanceStatus,
-    WaitingStatus,
-)
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus
 from ops.pebble import CheckStatus
 from ops.testing import Harness
+from unit.helpers import SERVER_PORT, TEST_CATALOG_CONFIG, TEST_CATALOG_PATH
 
 from charm import TrinoK8SCharm
 from state import State
 
-SERVER_PORT = "8080"
-TEST_CATALOG_CONFIG = """\
-catalogs:
-    example-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-        connection-user=testing
-        connection-password=pd3h@!}93*hdu
-certs:
-    example-cert: |
-        -----BEGIN CERTIFICATE-----
-        CERTIFICATE CONTENT...
-        -----END CERTIFICATE-----
-"""
-TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
-RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
-POLICY_MGR_URL = "http://ranger-k8s:6080"
-GROUP_MANAGEMENT = """\
-        users:
-          - name: user1
-            firstname: One
-            lastname: User
-            email: user1@canonical.com
-        memberships:
-          - groupname: commercial-systems
-            users: [user1]
-        groups:
-          - name: commercial-systems
-            description: commercial systems team
-"""
 mock_incomplete_pebble_plan = {"services": {"trino": {"override": "replace"}}}
-RANGER_LIB = "/usr/lib/ranger"
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +65,7 @@ class TestCharm(TestCase):
         # The BlockStatus is set with a message.
         self.assertEqual(
             harness.model.unit.status,
-            WaitingStatus("Waiting for peer relation."),
+            BlockedStatus("peer relation not ready"),
         )
 
     def test_ready(self):
@@ -125,7 +89,7 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
-                        "CATALOG_CONFIG": None,
+                        "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
@@ -209,6 +173,19 @@ class TestCharm(TestCase):
             BlockedStatus("config: invalid log level 'all-logs'"),
         )
 
+    def test_incorrect_relation(self):
+        """The charm blocks if the coordinator relation is not added.."""
+        harness = self.harness
+        simulate_lifecycle(harness)
+
+        self.harness.update_config({"charm-function": "worker"})
+
+        # The BlockStatus is set with a message.
+        self.assertEqual(
+            harness.model.unit.status,
+            BlockedStatus("Incorrect trino relation configuration."),
+        )
+
     def test_config_changed(self):
         """The pebble plan changes according to config changes."""
         harness = self.harness
@@ -220,7 +197,7 @@ class TestCharm(TestCase):
                 "google-client-id": "test-client-id",
                 "google-client-secret": "test-client-secret",
                 "web-proxy": "proxy:port",
-                "charm-function": "worker",
+                "charm-function": "all",
             }
         )
 
@@ -234,14 +211,14 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
-                        "CATALOG_CONFIG": None,
+                        "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
                         "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
                         "OAUTH_CLIENT_SECRET": "test-client-secret",
                         "WEB_PROXY": "proxy:port",
-                        "CHARM_FUNCTION": "worker",
+                        "CHARM_FUNCTION": "all",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
                         "APPLICATION_NAME": "trino-k8s",
                         "TRINO_HOME": "/usr/lib/trino/etc",
@@ -259,7 +236,7 @@ class TestCharm(TestCase):
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
         self.assertEqual(got_plan["services"], want_plan["services"])
 
-        # The ActiveStatus is set with no message.
+        # The MaintenanceStatus is set.
         self.assertEqual(
             harness.model.unit.status,
             MaintenanceStatus("replanning application"),
@@ -283,84 +260,11 @@ class TestCharm(TestCase):
         simulate_lifecycle(harness)
 
         # Update the config.
-        self.harness.update_config({"catalog-config": None})
+        self.harness.update_config({"catalog-config": ""})
 
         # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
         self.assertFalse(container.exists(TEST_CATALOG_PATH))
-
-    def test_policy_relation_created(self):
-        """Add policy relation."""
-        harness = self.harness
-        simulate_lifecycle(harness)
-
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-
-        data = {self.harness.charm.app: {}}
-        event = make_policy_relation_event(rel_id, data)
-        harness.charm.policy._on_relation_created(event)
-
-        relation_data = self.harness.get_relation_data(rel_id, "trino-k8s")
-        assert relation_data == {
-            "name": f"relation_{rel_id}",
-            "type": "trino",
-            "jdbc.driverClassName": "io.trino.jdbc.TrinoDriver",
-            "jdbc.url": "jdbc:trino://trino-k8s:8080",
-        }
-
-    def test_policy_relation_changed(self):
-        """Add policy_manager_url to the relation databag."""
-        harness = self.harness
-        simulate_lifecycle(harness)
-        container = harness.model.unit.get_container("trino")
-
-        # Create the relation
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-
-        harness.handle_exec("trino", ["bash"], result=0)
-
-        # Create and emit the policy `_on_relation_changed` event.
-        data = {
-            "ranger-k8s": {
-                "policy_manager_url": POLICY_MGR_URL,
-                "user-group-configuration": GROUP_MANAGEMENT,
-            },
-        }
-        event = make_policy_relation_event(rel_id, data)
-        harness.charm.policy._on_relation_changed(event)
-
-        self.assertTrue(
-            event.relation.data["ranger-k8s"]["user-group-configuration"]
-        )
-        self.assertTrue(container.exists(RANGER_PROPERTIES_PATH))
-
-    def test_policy_relation_broken(self):
-        """Add policy_manager_url to the relation databag."""
-        harness = self.harness
-        simulate_lifecycle(harness)
-
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-        harness.handle_exec("trino", ["bash"], result=0)
-
-        data = {"ranger-k8s": {}}
-        event = make_policy_relation_event(rel_id, data)
-        harness.charm.policy._on_relation_broken(event)
-
-        self.assertFalse(
-            event.relation.data["ranger-k8s"].get("user-group-configuration")
-        )
-
-    def test_restore_ranger_plugin(self):
-        """Restore plugin if lost."""
-        harness = self.harness
-        self.test_policy_relation_changed()
-        container = harness.model.unit.get_container("trino")
-        container.remove_path(RANGER_LIB, recursive=True)
-        harness.charm.on.trino_pebble_ready.emit(container)
-        assert container.exists(RANGER_LIB)
 
     def test_update_status_up(self):
         """The charm updates the unit status to active based on UP status."""
@@ -408,6 +312,95 @@ class TestCharm(TestCase):
         plan = harness.get_container_pebble_plan("trino").to_dict()
         assert plan != mock_incomplete_pebble_plan
 
+    def test_trino_coordinator_relation(self):
+        """Test trino relation.
+
+        The coordinator and worker Trino charms relate correctly.
+        """
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+        self.harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
+        rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
+        assert harness.get_relation_data(rel_id, harness.charm.app) == {
+            "discovery-uri": "http://trino-k8s:8080",
+            "catalog-config": TEST_CATALOG_CONFIG,
+        }
+
+    def test_trino_worker_relation_created(self):
+        """Test trino relation creation.
+
+        The coordinator and worker Trino charms relate correctly.
+        """
+        harness = self.harness
+        container, _ = simulate_lifecycle_worker(harness)
+
+        self.assertTrue(container.exists(TEST_CATALOG_PATH))
+
+    def test_trino_worker_relation_broken(self):
+        """Test trino relation broken.
+
+        The coordinator and worker Trino charms relation is broken.
+        """
+        harness = self.harness
+        container, event = simulate_lifecycle_worker(harness)
+
+        harness.charm.trino_worker._on_relation_broken(event)
+        self.assertFalse(container.exists(TEST_CATALOG_PATH))
+
+    def test_trino_single_node_deployment(self):
+        """Test pebble plan is created with single node deployment."""
+        harness = self.harness
+
+        simulate_lifecycle(harness)
+        harness.update_config({"charm-function": "all"})
+
+        # There is a valid pebble plan.
+        got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        assert (
+            got_plan["services"]["trino"]["environment"]["CHARM_FUNCTION"]
+            == "all"
+        )
+
+        # The MaintenanceStatus is set.
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("replanning application"),
+        )
+
+
+def simulate_lifecycle_worker(harness):
+    """Establish a relation between Trino worker and coordinator.
+
+    Args:
+        harness: ops.testing.Harness object used to simulate trino relation.
+
+    Returns:
+        container: the trino application container.
+        event: the relation event.
+    """
+    # Simulate peer relation readiness.
+    harness.add_relation("peer", "trino")
+
+    # Simulate pebble readiness.
+    container = harness.model.unit.get_container("trino")
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    harness.update_config({"charm-function": "worker"})
+
+    rel_id = harness.add_relation("trino-worker", "trino-k8s")
+    harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
+
+    data = {
+        "trino-worker": {
+            "discovery-uri": "http://trino-k8s:8080",
+            "catalog-config": TEST_CATALOG_CONFIG,
+        }
+    }
+    event = make_relation_event("trino-worker", rel_id, data)
+    harness.charm.trino_worker._on_relation_changed(event)
+    return container, event
+
 
 def simulate_lifecycle(harness):
     """Simulate a healthy charm life-cycle.
@@ -422,13 +415,18 @@ def simulate_lifecycle(harness):
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
 
+    # Add worker and coordinator relation
+    harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
+    harness.add_relation("trino-coordinator", "trino-k8s-worker")
 
-def make_policy_relation_event(rel_id, data):
+
+def make_relation_event(app, rel_id, data):
     """Create and return a mock policy created event.
 
         The event is generated by the relation with postgresql_db
 
     Args:
+        app: name of the application.
         rel_id: relation id.
         data: relation data.
 
@@ -439,7 +437,7 @@ def make_policy_relation_event(rel_id, data):
         "Event",
         (),
         {
-            "app": "ranger-k8s",
+            "app": app,
             "relation": type(
                 "Relation",
                 (),
@@ -450,24 +448,6 @@ def make_policy_relation_event(rel_id, data):
             ),
         },
     )
-
-
-def group_handler(args):
-    """Execution handler for getent command.
-
-    Args:
-        args: execution arguments.
-
-    Returns:
-        The execution result.
-    """
-    if args.command == ["getent", "passwd"]:
-        out = "user2:x:1002:1002:ranger:/home/user2:/bin/sh"
-    elif args.command == ["getent", "group"]:
-        out = "marketing:x:1004:user2"
-    else:
-        out = ""
-    return testing.ExecResult(stdout=out)
 
 
 class TestState(TestCase):
