@@ -4,9 +4,20 @@ The Charmed Trino K8s Operator delivers automated management on [Trino](https://
 ## Usage
 Note: This operator requires the use of juju >= 3.1. More information on setting up your environment can be found [here](CONTRIBUTING.md).
 
+### Single node deployment
+To deploy a single node of Trino which acts as both the coordinator and the worker run the below command.
 ```
 # deploy Trino operator:
-juju deploy trino-k8s
+juju deploy trino-k8s --config charm-function=all
+```
+### Scalable deployment
+To deploy Trino in a production environment you will need to deploy the coordinator and worker separately, and then relate them. The relation serves the purpose of communicating the `discovery-uri` and `catalog-config` from the coordinator to the worker.
+```
+juju deploy trino-k8s --channel=edge --config charm-function=coordinator
+juju deploy trino-k8s --channel=edge --config charm-function=worker trino-k8s-worker
+
+# Relate the two applications
+juju relate trino-k8s:trino-coordinator trino-k8s-worker:trino-worker
 ```
 
 ## HTTPS
