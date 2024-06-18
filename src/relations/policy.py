@@ -111,7 +111,8 @@ class PolicyRelationHandler(framework.Object):
         """
         host = self.charm.app.name
         port = TRINO_PORTS["HTTP"]
-        uri = f"{host}:{port}"
+        namespace = self.model.name
+        uri = f"{host}.{namespace}.svc.cluster.local:{port}"
 
         service_name = (
             self.charm.config.get("ranger-service-name")
