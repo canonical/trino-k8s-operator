@@ -60,7 +60,7 @@ class TestPolicy(TestCase):
             "name": f"relation_{rel_id}",
             "type": "trino",
             "jdbc.driverClassName": "io.trino.jdbc.TrinoDriver",
-            "jdbc.url": "jdbc:trino://trino-k8s:8080",
+            "jdbc.url": "jdbc:trino://trino-k8s.trino-model.svc.cluster.local:8080",
         }
 
     def test_policy_relation_changed(self):
