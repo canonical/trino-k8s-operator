@@ -82,12 +82,10 @@ class TrinoCoordinator(Object):
         relation_data = {"discovery-uri": self.charm.config["discovery-uri"]}
 
         for relation in coordinator_relations:
-            if not self.charm.config.get("catalog-config"):
-                relation.data[self.charm.app].update(relation_data)
-            else:
+            if self.charm.config.get("catalog-config"):
                 relation_data, secret = self._update_juju_secret(relation_data)
                 secret.grant(relation)
-                relation.data[self.charm.app].update(relation_data)
+            relation.data[self.charm.app].update(relation_data)
 
         self.charm._update(event)
 
