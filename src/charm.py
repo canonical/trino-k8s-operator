@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 
 import yaml
+from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
@@ -42,6 +43,7 @@ from literals import (
     TRINO_PORTS,
 )
 from log import log_event_handler
+from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
@@ -140,6 +142,14 @@ class TrinoK8SCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
+
+        self.opensearch_relation = OpenSearchRequires(
+            self,
+            relation_name="opensearch",
+            index="ranger_audits",
+            extra_user_roles="admin",
+        )
+        self.opensearch_relation_handler = OpensearchRelationHandler(self)
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
