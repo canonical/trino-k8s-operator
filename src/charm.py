@@ -295,9 +295,10 @@ class TrinoK8SCharm(CharmBase):
             event.fail("Failed to connect to the container")
             return
 
-        self.state.java_truststore_pwd = (
-            self.state.java_truststore_pwd or generate_password()
-        )
+        if self.unit.is_leader():
+            self.state.java_truststore_pwd = (
+                self.state.java_truststore_pwd or generate_password()
+            )
 
         command = [
             f"{JAVA_HOME}/bin/keytool",
