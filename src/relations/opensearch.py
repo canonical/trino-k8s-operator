@@ -101,8 +101,10 @@ class OpensearchRelationHandler(framework.Object):
         if not container.can_connect():
             return
 
+        if not self.charm.state.java_truststore_pwd:
+            return
+
         certificate = self.charm.state.opensearch_certificate
-        truststore_pwd = "changeit"
 
         if not relation_broken and certificate:
             container.push("/opensearch.crt", certificate)
@@ -116,7 +118,7 @@ class OpensearchRelationHandler(framework.Object):
                 "-alias",
                 self.CERTIFICATE_NAME,
                 "-storepass",
-                truststore_pwd,
+                self.charm.state.java_truststore_pwd,
                 "--no-prompt",
             ]
         else:
@@ -129,7 +131,7 @@ class OpensearchRelationHandler(framework.Object):
                 "-alias",
                 self.CERTIFICATE_NAME,
                 "-storepass",
-                truststore_pwd,
+                self.charm.state.java_truststore_pwd,
             ]
         try:
             container.exec(command).wait()

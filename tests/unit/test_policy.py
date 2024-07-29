@@ -14,6 +14,7 @@ from unittest import TestCase, mock
 from ops.model import MaintenanceStatus
 from ops.testing import Harness
 from unit.helpers import (
+    JAVA_HOME,
     POLICY_MGR_URL,
     RANGER_LIB,
     RANGER_PROPERTIES_PATH,
@@ -21,9 +22,6 @@ from unit.helpers import (
 )
 
 from charm import TrinoK8SCharm
-
-JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
-
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +213,7 @@ def simulate_lifecycle(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
+    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     harness.add_relation("trino-coordinator", "trino-k8s-worker")
 

@@ -27,6 +27,7 @@ CONFIG_FILES = {
     "password-authenticator.jinja": "password-authenticator.properties",
     "access-control.jinja": "access-control.properties",
     "rules.jinja": "rules.json",
+    "jvm.jinja": "jvm.config",
 }
 
 CONF_DIR = "conf"

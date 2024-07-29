@@ -38,3 +38,5 @@ RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 
 RANGER_LIB = "/usr/lib/ranger"
+
+JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"

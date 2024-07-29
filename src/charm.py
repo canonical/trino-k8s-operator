@@ -27,12 +27,13 @@ from ops.model import (
     MaintenanceStatus,
     WaitingStatus,
 )
-from ops.pebble import CheckStatus
+from ops.pebble import CheckStatus, ExecError
 
 from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    JAVA_HOME,
     JMX_PORT,
     LOG_FILES,
     METRICS_PORT,
@@ -283,6 +284,36 @@ class TrinoK8SCharm(CharmBase):
 
         event.set_results({"result": "trino successfully restarted"})
 
+    def set_java_truststore_password(self, event):
+        """Update the truststore password to the randomly generated one.
+
+        Args:
+            event: The event triggered on relation changed.
+        """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.fail("Failed to connect to the container")
+            return
+
+        self.state.java_truststore_pwd = (
+            self.state.java_truststore_pwd or generate_password()
+        )
+
+        command = [
+            f"{JAVA_HOME}/bin/keytool",
+            "-storepass",
+            "changeit",
+            "-storepasswd",
+            "-new",
+            self.state.java_truststore_pwd,
+            "-keystore",
+            f"{JAVA_HOME}/lib/security/cacerts",
+        ]
+        try:
+            container.exec(command).wait()
+        except ExecError as e:
+            logger.debug(f"Truststore password is already updated: {e.stderr}")
+
     def _enable_password_auth(self, container):
         """Create necessary properties and db files for authentication.
 
@@ -439,7 +470,7 @@ class TrinoK8SCharm(CharmBase):
         """Create application environment.
 
         Returns:
-            env: a dictionary of trino environment variables
+            env: a dictionary of trino environment variables.
         """
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
@@ -463,6 +494,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_ACCESS_MODE": self.config["acl-mode-default"],
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
+            "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
         }
         return env
 
@@ -492,6 +524,7 @@ class TrinoK8SCharm(CharmBase):
         self._configure_catalogs(container)
         self._enable_password_auth(container)
 
+        self.set_java_truststore_password(event)
         env = self._create_environment()
         self._configure_trino(container, env)
 
