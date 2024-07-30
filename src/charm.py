@@ -220,7 +220,6 @@ class TrinoK8SCharm(CharmBase):
             return
 
         if not container.can_connect():
-            event.fail("Failed to connect to the container")
             return
 
         valid_pebble_plan = self._validate_pebble_plan(container)
@@ -278,7 +277,6 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.fail("Failed to connect to the container")
             return
 
         self.unit.status = MaintenanceStatus("restarting trino")
@@ -295,7 +293,6 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.fail("Failed to connect to the container")
             return
 
         if self.unit.is_leader():
@@ -514,7 +511,7 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.fail("Failed to connect to the container")
+            event.defer()
             return
 
         try:
