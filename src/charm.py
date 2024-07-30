@@ -11,9 +11,11 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
+import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
+from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
@@ -26,12 +28,14 @@ from ops.model import (
     MaintenanceStatus,
     WaitingStatus,
 )
-from ops.pebble import CheckStatus
+from ops.pebble import CheckStatus, ExecError
 
 from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    INDEX_NAME,
+    JAVA_HOME,
     JMX_PORT,
     LOG_FILES,
     METRICS_PORT,
@@ -42,6 +46,7 @@ from literals import (
     TRINO_PORTS,
 )
 from log import log_event_handler
+from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
@@ -140,6 +145,14 @@ class TrinoK8SCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
+
+        self.opensearch_relation = OpenSearchRequires(
+            self,
+            relation_name="opensearch",
+            index=INDEX_NAME,
+            extra_user_roles="admin",
+        )
+        self.opensearch_relation_handler = OpensearchRelationHandler(self)
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
@@ -264,7 +277,6 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.defer()
             return
 
         self.unit.status = MaintenanceStatus("restarting trino")
@@ -272,6 +284,40 @@ class TrinoK8SCharm(CharmBase):
         self._enable_password_auth(container)
 
         event.set_results({"result": "trino successfully restarted"})
+
+    def set_java_truststore_password(self, event):
+        """Update the truststore password to the randomly generated one.
+
+        Args:
+            event: The event triggered on relation changed.
+        """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            return
+
+        if self.unit.is_leader():
+            self.state.java_truststore_pwd = (
+                self.state.java_truststore_pwd or generate_password()
+            )
+
+        command = [
+            f"{JAVA_HOME}/bin/keytool",
+            "-storepass",
+            "changeit",
+            "-storepasswd",
+            "-new",
+            self.state.java_truststore_pwd,
+            "-keystore",
+            f"{JAVA_HOME}/lib/security/cacerts",
+        ]
+        try:
+            container.exec(command).wait_output()
+        except (subprocess.CalledProcessError, ExecError) as e:
+            if e.stderr and "password was incorrect" in e.stderr:
+                return
+            if e.stderr and "Warning" in e.stderr:
+                return
+            logger.debug(f"Unable to update truststore password {e.stderr}")
 
     def _enable_password_auth(self, container):
         """Create necessary properties and db files for authentication.
@@ -429,7 +475,7 @@ class TrinoK8SCharm(CharmBase):
         """Create application environment.
 
         Returns:
-            env: a dictionary of trino environment variables
+            env: a dictionary of trino environment variables.
         """
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
@@ -453,6 +499,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_ACCESS_MODE": self.config["acl-mode-default"],
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
+            "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
         }
         return env
 
@@ -482,6 +529,7 @@ class TrinoK8SCharm(CharmBase):
         self._configure_catalogs(container)
         self._enable_password_auth(container)
 
+        self.set_java_truststore_password(event)
         env = self._create_environment()
         self._configure_trino(container, env)
 

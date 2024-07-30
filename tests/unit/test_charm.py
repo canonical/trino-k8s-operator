@@ -21,6 +21,7 @@ from ops.model import (
 from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
+    JAVA_HOME,
     SERVER_PORT,
     TEST_CATALOG_CONFIG,
     TEST_CATALOG_PATH,
@@ -118,11 +119,15 @@ class TestCharm(TestCase):
                         "ACL_ACCESS_MODE": "all",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
+                        "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        got_plan["services"]["trino"]["environment"][
+            "JAVA_TRUSTSTORE_PWD"
+        ] = "truststore_pwd"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
@@ -240,11 +245,15 @@ class TestCharm(TestCase):
                         "ACL_ACCESS_MODE": "all",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
+                        "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        got_plan["services"]["trino"]["environment"][
+            "JAVA_TRUSTSTORE_PWD"
+        ] = "truststore_pwd"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The MaintenanceStatus is set.
@@ -391,6 +400,7 @@ class TestCharm(TestCase):
         harness = self.harness
         harness.add_relation("peer", "trino")
 
+        harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
         container = harness.model.unit.get_container("trino")
         harness.charm.on.trino_pebble_ready.emit(container)
         harness.update_config({"charm-function": "all"})
@@ -423,6 +433,7 @@ def simulate_lifecycle_worker(harness):
     harness.add_relation("peer", "trino")
 
     # Simulate pebble readiness.
+    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
 
@@ -462,6 +473,7 @@ def simulate_lifecycle_coordinator(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
+    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
     return rel_id

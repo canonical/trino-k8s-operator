@@ -116,6 +116,23 @@ juju relate trino-k8s ranger-k8s
 ```
 By default Trino has an allow all access control policy. If you're using an alternative to Trino's built-in ACLs (ie Ranger) then you can configure the default Trino policy to default to `none`. This will deny all access in the case that Ranger is unavailable.
 
+### Charmed OpenSearch relation
+[Charmed OpenSearch](https://charmhub.io/opensearch) should be integrated with the Charmed Trino to enable auditing functionality for data access. 
+Pre-requisites:
+- A Charmed Ranger relation has been implemented
+- Charmed OpenSearch is deployed and scaled to at least 2 units.
+- The `opensearch_client` endpoint is offered and can be consumed by Charmed Trino.
+- Charmed Ranger is related to Charmed OpenSearch
+
+Instructions on implementing the above pre-requisites can be found [here](https://github.com/canonical/ranger-k8s-operator/blob/main/README.md). With additional details on the OpenSearch setup process can be found [here](https://charmhub.io/opensearch/docs/t-overview).
+
+# Consume opensearch offer
+juju consume lxd-controller:admin/opensearch.opensearch
+
+# Finally, relate the applications
+juju relate trino-k8s opensearch
+```
+
 ### Observability
 
 The Trino charm can be related to the

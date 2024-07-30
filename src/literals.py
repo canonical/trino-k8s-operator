@@ -27,6 +27,7 @@ CONFIG_FILES = {
     "password-authenticator.jinja": "password-authenticator.properties",
     "access-control.jinja": "access-control.properties",
     "rules.jinja": "rules.json",
+    "jvm.jinja": "jvm.config",
 }
 
 CONF_DIR = "conf"
@@ -103,3 +104,9 @@ CONNECTOR_FIELDS = {
         "optional": [],
     },
 }
+
+JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
+
+# OpenSearch literals
+INDEX_NAME = "ranger_audits"
+CERTIFICATE_NAME = "opensearch-ca"

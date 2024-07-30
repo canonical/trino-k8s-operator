@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from ops import framework
+from ops.model import MaintenanceStatus
 from ops.pebble import ExecError
 
 from literals import (
@@ -196,11 +197,22 @@ class PolicyRelationHandler(framework.Object):
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
         """
+        opensearch = self.charm.state.opensearch or {}
+        if opensearch.get("is_enabled") and not container.exists(
+            "/opensearch.crt"
+        ):
+            self.charm.opensearch_relation_handler.update_certificates()
         policy_context = {
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
             "RANGER_RELATION": True,
+            "OPENSEARCH_INDEX": opensearch.get("index"),
+            "OPENSEARCH_HOST": opensearch.get("host"),
+            "OPENSEARCH_PORT": opensearch.get("port"),
+            "OPENSEARCH_PWD": opensearch.get("password"),
+            "OPENSEARCH_USER": opensearch.get("username"),
+            "OPENSEARCH_ENABLED": opensearch.get("is_enabled"),
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
@@ -229,3 +241,18 @@ class PolicyRelationHandler(framework.Object):
             working_dir=str(self.ranger_abs_path),
             environment=JAVA_ENV,
         ).wait()
+
+    def restart_ranger_plugin(self, event):
+        """Restart Ranger plugin for Trino.
+
+        Args:
+            event: the relation changed event.
+        """
+        container = self.charm.model.unit.get_container(self.charm.name)
+        if not container.can_connect():
+            event.fail("Failed to connect to the container")
+            return
+
+        self.charm.unit.status = MaintenanceStatus("Restarting Ranger plugin")
+        self._disable_ranger_plugin(container)
+        self._configure_ranger_plugin(container)

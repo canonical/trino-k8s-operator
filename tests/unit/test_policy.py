@@ -9,10 +9,13 @@
 # pylint:disable=protected-access
 
 import logging
-from unittest import TestCase
+from unittest import TestCase, mock
 
+from ops.model import ActiveStatus, MaintenanceStatus
+from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
+    JAVA_HOME,
     POLICY_MGR_URL,
     RANGER_LIB,
     RANGER_PROPERTIES_PATH,
@@ -22,6 +25,25 @@ from unit.helpers import (
 from charm import TrinoK8SCharm
 
 logger = logging.getLogger(__name__)
+
+OPENSEARCH_RELATION_CHANGED_DATA = {
+    "opensearch": {
+        "secret-tls": "secretid2",
+        "secret-user": "secretid",
+        "endpoints": "opensearch-host:port",
+    }
+}
+OPENSEARCH_RELATION_BROKEN_DATA: dict = {"opensearch": {}}
+USER_SECRET_CONTENT = {
+    "username": "testuser",
+    "password": "testpassword",
+    "tls-ca": """-----BEGIN CERTIFICATE-----
+    MIIC+DCCAeCgAwIBAgIJAKJdWfG2zRAQMA0GCSqGSIb3DQEBCwUAMIGPMQswCQYD
+    -----END CERTIFICATE-----
+    -----BEGIN CERTIFICATE-----
+    AIBC+LCCAuCgAPIBAgIuAKJdWWG2zRAQMA0GFSqGSIP3DQEBCiUAMIGPMQswCQYC
+    -----END CERTIFICATE-----""",
+}
 
 
 class TestPolicy(TestCase):
@@ -46,14 +68,7 @@ class TestPolicy(TestCase):
     def test_policy_relation_created(self):
         """Add policy relation."""
         harness = self.harness
-        simulate_lifecycle(harness)
-
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-
-        data = {self.harness.charm.app: {}}
-        event = make_relation_event("ranger-k8s", rel_id, data)
-        harness.charm.policy._on_relation_created(event)
+        rel_id = simulate_lifecycle(harness)
 
         relation_data = self.harness.get_relation_data(rel_id, "trino-k8s")
         assert relation_data == {
@@ -66,13 +81,8 @@ class TestPolicy(TestCase):
     def test_policy_relation_changed(self):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
-        simulate_lifecycle(harness)
+        rel_id = simulate_lifecycle(harness)
         container = harness.model.unit.get_container("trino")
-
-        # Create the relation
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-        harness.handle_exec("trino", ["bash"], result=0)
 
         # Create and emit the policy `_on_relation_changed` event.
         data = {
@@ -88,11 +98,7 @@ class TestPolicy(TestCase):
     def test_policy_relation_broken(self):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness
-        simulate_lifecycle(harness)
-
-        rel_id = harness.add_relation("policy", "trino-k8s")
-        harness.add_relation_unit(rel_id, "trino-k8s/0")
-        harness.handle_exec("trino", ["bash"], result=0)
+        rel_id = simulate_lifecycle(harness)
 
         data = {"ranger-k8s": {}}
         event = make_relation_event("ranger-k8s", rel_id, data)
@@ -111,12 +117,107 @@ class TestPolicy(TestCase):
         harness.charm.on.trino_pebble_ready.emit(container)
         assert container.exists(RANGER_LIB)
 
+    @mock.patch("charm.OpensearchRelationHandler.get_secret_content")
+    def opensearch_setup(
+        self,
+        mock_get_secret_content,
+        harness,
+        data,
+    ):
+        """Common setup for Openseatch relation changed and broken tests.
+
+        Args:
+            mock_get_secret_content: the mocked method for accessing juju secrets.
+            harness: ops.testing.Harness object used to simulate charm lifecycle.
+            data: the opensearch relation data.
+
+        Returns:
+            rel_id: the opensearch relation id.
+        """
+        mock_get_secret_content.return_value = USER_SECRET_CONTENT
+
+        ranger_rel_id = simulate_lifecycle(harness)
+        data = {
+            "ranger-k8s": {
+                "policy_manager_url": POLICY_MGR_URL,
+            },
+        }
+        event = make_relation_event("ranger-k8s", ranger_rel_id, data)
+        harness.charm.policy._on_relation_changed(event)
+
+        rel_id = harness.add_relation("opensearch", "opensearch-app")
+        harness.add_relation_unit(rel_id, "opensearch-app/0")
+        harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+        event = make_relation_event(
+            "opensearch", rel_id, OPENSEARCH_RELATION_CHANGED_DATA
+        )
+        harness.charm.opensearch_relation_handler._on_index_created(event)
+        return rel_id
+
+    def test_on_opensearch_index_created(self):
+        """Test handling of opensearch relation changed events."""
+        harness = self.harness
+        self.opensearch_setup(
+            harness=harness, data=OPENSEARCH_RELATION_CHANGED_DATA
+        )
+
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("Restarting Ranger plugin"),
+        )
+        container = harness.model.unit.get_container("trino")
+        self.assertTrue(container.exists("/opensearch.crt"))
+        ranger_config = container.pull(
+            "/usr/lib/ranger/install.properties"
+        ).read()
+        self.assertTrue("XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config)
+
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
+        )
+
+    def test_on_opensearch_relation_broken(self):
+        """Test handling of broken relations with opensearch."""
+        harness = self.harness
+        rel_id = self.opensearch_setup(
+            harness=harness, data=OPENSEARCH_RELATION_CHANGED_DATA
+        )
+        data = OPENSEARCH_RELATION_BROKEN_DATA
+        event = make_relation_event("opensearch", rel_id, data)
+        self.harness.charm.opensearch_relation_handler._on_relation_broken(
+            event
+        )
+        self.assertEqual(
+            harness.model.unit.status,
+            MaintenanceStatus("Restarting Ranger plugin"),
+        )
+        container = harness.model.unit.get_container("trino")
+        self.assertFalse(container.exists("/opensearch.crt"))
+        ranger_config = container.pull(
+            "/usr/lib/ranger/install.properties"
+        ).read()
+        self.assertFalse(
+            "XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config
+        )
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
+        )
+
 
 def simulate_lifecycle(harness):
     """Simulate a healthy charm life-cycle.
 
     Args:
         harness: ops.testing.Harness object used to simulate charm lifecycle.
+
+    Returns:
+        rel_id: Ranger relation id.
     """
     # Simulate peer relation readiness.
     harness.add_relation("peer", "trino")
@@ -126,8 +227,18 @@ def simulate_lifecycle(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
+    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     harness.add_relation("trino-coordinator", "trino-k8s-worker")
+
+    rel_id = harness.add_relation("policy", "trino-k8s")
+    harness.add_relation_unit(rel_id, "trino-k8s/0")
+
+    data = {harness.charm.app: {}}
+    event = make_relation_event("ranger-k8s", rel_id, data)
+    harness.handle_exec("trino", ["bash"], result=0)
+    harness.charm.policy._on_relation_created(event)
+    return rel_id
 
 
 def make_relation_event(app, rel_id, data):
@@ -151,10 +262,7 @@ def make_relation_event(app, rel_id, data):
             "relation": type(
                 "Relation",
                 (),
-                {
-                    "data": data,
-                    "id": rel_id,
-                },
+                {"data": data, "id": rel_id},
             ),
         },
     )
