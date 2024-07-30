@@ -11,6 +11,7 @@ https://discourse.charmhub.io/t/4208
 """
 
 import logging
+import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
@@ -313,9 +314,13 @@ class TrinoK8SCharm(CharmBase):
             f"{JAVA_HOME}/lib/security/cacerts",
         ]
         try:
-            container.exec(command).wait()
-        except ExecError as e:
-            logger.debug(f"Truststore password is already updated: {e.stderr}")
+            container.exec(command).wait_output()
+        except (subprocess.CalledProcessError, ExecError) as e:
+            if e.stderr and "password was incorrect" in e.stderr:
+                return
+            if e.stderr and "Warning" in e.stderr:
+                return
+            logger.debug(f"Unable to update truststore password {e.stderr}")
 
     def _enable_password_auth(self, container):
         """Create necessary properties and db files for authentication.
