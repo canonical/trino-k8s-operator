@@ -121,7 +121,7 @@ By default Trino has an allow all access control policy. If you're using an alte
 Pre-requisites:
 - A Charmed Ranger relation has been implemented
 - Charmed OpenSearch is deployed and scaled to at least 2 units.
-- The opensearch_client endpoint is offered and can be consumed by Charmed Trino.
+- The `opensearch_client` endpoint is offered and can be consumed by Charmed Trino.
 - Charmed Ranger is related to Charmed OpenSearch
 
 Instructions on implementing the above pre-requisites can be found [here](https://github.com/canonical/ranger-k8s-operator/blob/main/README.md). With additional details on the OpenSearch setup process can be found [here](https://charmhub.io/opensearch/docs/t-overview).

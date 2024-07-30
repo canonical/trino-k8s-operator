@@ -11,7 +11,8 @@
 import logging
 from unittest import TestCase, mock
 
-from ops.model import MaintenanceStatus
+from ops.model import ActiveStatus, MaintenanceStatus
+from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
     JAVA_HOME,
@@ -171,6 +172,13 @@ class TestPolicy(TestCase):
         ).read()
         self.assertTrue("XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config)
 
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
+        )
+
     def test_on_opensearch_relation_broken(self):
         """Test handling of broken relations with opensearch."""
         harness = self.harness
@@ -193,6 +201,12 @@ class TestPolicy(TestCase):
         ).read()
         self.assertFalse(
             "XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config
+        )
+        container.get_check = mock.Mock(status="up")
+        container.get_check.return_value.status = CheckStatus.UP
+        harness.charm.on.update_status.emit()
+        self.assertEqual(
+            harness.model.unit.status, ActiveStatus("Status check: UP")
         )
 
 

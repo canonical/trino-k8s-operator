@@ -11,22 +11,14 @@ from ops import framework
 from ops.model import BlockedStatus, WaitingStatus
 from ops.pebble import ExecError
 
-from literals import JAVA_HOME
+from literals import CERTIFICATE_NAME, INDEX_NAME, JAVA_HOME
 from log import log_event_handler
 
 logger = logging.getLogger(__name__)
 
 
 class OpensearchRelationHandler(framework.Object):
-    """Client for ranger:postgresql relations.
-
-    Attributes:
-        INDEX_NAME: the opensearch index name.
-        CERTIFICATE_NAME: the name of the opensearch certificate
-    """
-
-    INDEX_NAME = "ranger_audits"
-    CERTIFICATE_NAME = "opensearch-ca"
+    """Client for ranger:postgresql relations."""
 
     def __init__(self, charm, relation_name="opensearch"):
         """Construct.
@@ -64,7 +56,7 @@ class OpensearchRelationHandler(framework.Object):
             )
             return
 
-        if not self.charm.config["charm-function"] == "coordinator":
+        if self.charm.config["charm-function"] != "coordinator":
             self.charm.unit.status = BlockedStatus(
                 "Only Trino coordinator can relate to Opensearch"
             )
@@ -82,7 +74,7 @@ class OpensearchRelationHandler(framework.Object):
         Args:
             event: The event triggered when the relation changed.
         """
-        if not self.charm.config["charm-function"] == "coordinator":
+        if self.charm.config["charm-function"] != "coordinator":
             return
 
         if not self.charm.state.ranger_enabled:
@@ -98,15 +90,13 @@ class OpensearchRelationHandler(framework.Object):
             relation_broken: If the event is a relation broken event.
         """
         container = self.charm.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            return
 
         if not self.charm.state.java_truststore_pwd:
             return
 
         certificate = self.charm.state.opensearch_certificate
 
-        if not relation_broken and certificate:
+        if certificate and not relation_broken:
             container.push("/opensearch.crt", certificate)
             command = [
                 f"{JAVA_HOME}/bin/keytool",
@@ -116,7 +106,7 @@ class OpensearchRelationHandler(framework.Object):
                 "-file",
                 "/opensearch.crt",
                 "-alias",
-                self.CERTIFICATE_NAME,
+                CERTIFICATE_NAME,
                 "-storepass",
                 self.charm.state.java_truststore_pwd,
                 "--no-prompt",
@@ -129,12 +119,12 @@ class OpensearchRelationHandler(framework.Object):
                 "-keystore",
                 f"{JAVA_HOME}/lib/security/cacerts",
                 "-alias",
-                self.CERTIFICATE_NAME,
+                CERTIFICATE_NAME,
                 "-storepass",
                 self.charm.state.java_truststore_pwd,
             ]
         try:
-            container.exec(command).wait()
+            container.exec(command).wait_output()
         except ExecError as e:
             if e.stdout and "already exists" in e.stdout:
                 return
@@ -182,7 +172,7 @@ class OpensearchRelationHandler(framework.Object):
 
         host, port = event_data.get("endpoints").split(",", 1)[0].split(":")
         return {
-            "index": OpensearchRelationHandler.INDEX_NAME,
+            "index": INDEX_NAME,
             "host": host,
             "port": port,
             "password": user_credentials["password"],

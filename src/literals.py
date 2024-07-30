@@ -106,3 +106,7 @@ CONNECTOR_FIELDS = {
 }
 
 JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
+
+# OpenSearch literals
+INDEX_NAME = "ranger_audits"
+CERTIFICATE_NAME = "opensearch-ca"

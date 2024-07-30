@@ -33,6 +33,7 @@ from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    INDEX_NAME,
     JAVA_HOME,
     JMX_PORT,
     LOG_FILES,
@@ -147,7 +148,7 @@ class TrinoK8SCharm(CharmBase):
         self.opensearch_relation = OpenSearchRequires(
             self,
             relation_name="opensearch",
-            index="ranger_audits",
+            index=INDEX_NAME,
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
@@ -218,6 +219,7 @@ class TrinoK8SCharm(CharmBase):
             return
 
         if not container.can_connect():
+            event.fail("Failed to connect to the container")
             return
 
         valid_pebble_plan = self._validate_pebble_plan(container)
@@ -275,7 +277,7 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.defer()
+            event.fail("Failed to connect to the container")
             return
 
         self.unit.status = MaintenanceStatus("restarting trino")
@@ -507,7 +509,7 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.defer()
+            event.fail("Failed to connect to the container")
             return
 
         try:
