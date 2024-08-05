@@ -23,12 +23,20 @@ issues: https://github.com/canonical/trino-k8s-operator/issues
 containers:
   trino:
     resource: trino-image
+    mounts:
+      - storage: policy
+        location: /etc/ranger
 
 resources:
   trino-image:
     type: oci-image
     description: OCI image for trino
     upstream-source: ghcr.io/canonical/charmed-trino-rock:418-22.04-edge
+
+storage:
+  policy:
+    type: filesystem
+    location: /etc/ranger
 
 requires:
   nginx-route:
