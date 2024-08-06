@@ -33,6 +33,12 @@ options:
     description: |
       The service name for Trino in Apache Ranger when related. Defaults to relation id.
     type: string
+  ranger-dns-override:
+    description: |
+      The DNS of Ranger admin to be used to override the address sent by the relation.
+      Required for cross-controller relations for disaster recovery.
+      eg. "https://ranger-admin.com"
+    type: string
   external-hostname:
     description: |
         The DNS listing used for external connections. 

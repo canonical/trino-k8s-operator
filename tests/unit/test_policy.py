@@ -95,6 +95,31 @@ class TestPolicy(TestCase):
 
         self.assertTrue(container.exists(RANGER_PROPERTIES_PATH))
 
+    def test_policy_relation_changed_with_override(self):
+        """Add ranger-dns-override value to ranger install.properties."""
+        harness = self.harness
+        rel_id = simulate_lifecycle(harness)
+        harness.update_config(
+            {"ranger-dns-override": "https://ranger-admin.com"}
+        )
+        container = harness.model.unit.get_container("trino")
+
+        data = {
+            "ranger-k8s": {
+                "policy_manager_url": POLICY_MGR_URL,
+            },
+        }
+        event = make_relation_event("ranger-k8s", rel_id, data)
+        harness.charm.policy._on_relation_changed(event)
+
+        self.assertTrue(container.exists(RANGER_PROPERTIES_PATH))
+        ranger_config = container.pull(
+            "/usr/lib/ranger/install.properties"
+        ).read()
+        self.assertTrue(
+            "POLICY_MGR_URL=https://ranger-admin.com" in ranger_config
+        )
+
     def test_policy_relation_broken(self):
         """Add policy_manager_url to the relation databag."""
         harness = self.harness

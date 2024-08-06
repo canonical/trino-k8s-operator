@@ -203,7 +203,8 @@ class PolicyRelationHandler(framework.Object):
         ):
             self.charm.opensearch_relation_handler.update_certificates()
         policy_context = {
-            "POLICY_MGR_URL": policy_manager_url,
+            "POLICY_MGR_URL": self.charm.config.get("ranger-dns-override")
+            or policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
             "RANGER_RELATION": True,
