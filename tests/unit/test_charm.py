@@ -102,7 +102,6 @@ class TestCharm(TestCase):
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
-                        "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
@@ -120,14 +119,16 @@ class TestCharm(TestCase):
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
+                        "USER_SECRET_ID": "secret:secret-id",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "JAVA_TRUSTSTORE_PWD"
-        ] = "truststore_pwd"  # nosec
+        environment = got_plan["services"]["trino"]["environment"]
+        environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
+        environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
+
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
@@ -228,7 +229,6 @@ class TestCharm(TestCase):
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
-                        "DEFAULT_PASSWORD": "ubuntu123",
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
@@ -246,14 +246,15 @@ class TestCharm(TestCase):
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
+                        "USER_SECRET_ID": "secret:secret-id",
                     },
                 }
             },
         }
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        got_plan["services"]["trino"]["environment"][
-            "JAVA_TRUSTSTORE_PWD"
-        ] = "truststore_pwd"  # nosec
+        environment = got_plan["services"]["trino"]["environment"]
+        environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
+        environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The MaintenanceStatus is set.
@@ -476,6 +477,12 @@ def simulate_lifecycle_coordinator(harness):
     harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
+    secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"trino": "ubuntu123"},
+    )
+    harness.handle_exec("trino", ["htpasswd"], result=0)
+    harness.update_config({"user-secret-id": secret_id})
     return rel_id
 
 

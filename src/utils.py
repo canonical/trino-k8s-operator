@@ -10,7 +10,6 @@ import re
 import secrets
 import string
 
-import bcrypt
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
@@ -119,22 +118,6 @@ def validate_jdbc_pattern(conn_input, conn_name):
     """
     if not re.match("jdbc:[a-z0-9]+:(?s:.*)$", conn_input["connection-url"]):
         raise ValueError(f"{conn_name!r} has an invalid jdbc format")
-
-
-def bcrypt_pwd(password):
-    """Bycrypts password.
-
-    Args:
-        password: plain text password
-
-    Return:
-        mod_password: encrypted password
-    """
-    bcrypt_password = bcrypt.hashpw(
-        password.encode("utf-8"), bcrypt.gensalt(rounds=10)
-    ).decode("utf-8")
-    mod_password = bcrypt_password.replace("$2b$", "$2y$")
-    return mod_password
 
 
 def handle_exec_error(func):

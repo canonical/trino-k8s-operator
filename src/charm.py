@@ -26,6 +26,7 @@ from ops.model import (
     ActiveStatus,
     BlockedStatus,
     MaintenanceStatus,
+    SecretNotFoundError,
     WaitingStatus,
 )
 from ops.pebble import CheckStatus, ExecError
@@ -53,7 +54,6 @@ from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
     add_cert_to_truststore,
-    bcrypt_pwd,
     create_cert_and_catalog_dicts,
     generate_password,
     render,
@@ -124,6 +124,7 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(
             self.on.peer_relation_changed, self._on_peer_relation_changed
         )
+        self.framework.observe(self.on.secret_changed, self._on_secret_changed)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -259,6 +260,15 @@ class TrinoK8SCharm(CharmBase):
         except ConnectionError:
             return False
 
+    @log_event_handler(logger)
+    def _on_secret_changed(self, event):
+        """Handle secret changed hook.
+
+        Args:
+            event: the secret changed event.
+        """
+        self._update(event)
+
     def _restart_trino(self, container):
         """Restart Trino.
 
@@ -320,16 +330,47 @@ class TrinoK8SCharm(CharmBase):
             logger.debug(f"Unable to update truststore password {e.stderr}")
 
     def _enable_password_auth(self, container):
-        """Create necessary properties and db files for authentication.
+        """Create necessary db file for authentication.
 
         Args:
             container: The application container
-        """
-        password = bcrypt_pwd(self.config["trino-password"])
-        path = self.trino_abs_path.joinpath(PASSWORD_DB)
-        db_content = f"trino:{password}"
 
-        container.push(path, db_content, make_dirs=True, permissions=0o644)
+        Raises:
+            ExecError: in case the container exec is unsuccessful.
+        """
+        secret_id = self.config.get("user-secret-id")
+
+        if not secret_id:
+            return
+
+        try:
+            secret = self.model.get_secret(id=secret_id)
+        except SecretNotFoundError:
+            logger.error(f"secret {secret_id!r} not found.")
+            raise
+
+        credentials = secret.get_content()
+
+        db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
+        for user, password in credentials.items():
+            command = [
+                "htpasswd",
+                "-b",
+                "-B",
+                "-C",
+                "10",
+                db_path,
+                user,
+                password,
+            ]
+            db_exists = container.exists(db_path)
+            if not db_exists:
+                command.insert(2, "-c")
+            try:
+                container.exec(command).wait_output()
+            except (subprocess.CalledProcessError, ExecError) as e:
+                logger.error(f"unable to add user credentials {e.stderr}")
+                raise
 
     def _add_catalogs(self, container, catalogs, truststore_pwd):
         """Add catalogs to Trino.
@@ -433,10 +474,6 @@ class TrinoK8SCharm(CharmBase):
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
 
-        trino_password = self.model.config["trino-password"]
-        if not trino_password.strip():
-            raise ValueError(f"conf: invalid password {trino_password!r}")
-
         web_proxy = self.config.get("web-proxy")
         if web_proxy and not web_proxy.strip():
             raise ValueError("Web-proxy value cannot be an empty string")
@@ -480,7 +517,6 @@ class TrinoK8SCharm(CharmBase):
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
             "LOG_LEVEL": self.config["log-level"],
-            "DEFAULT_PASSWORD": self.config["trino-password"],
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
@@ -500,6 +536,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
+            "USER_SECRET_ID": self.config.get("user-secret-id"),
         }
         return env
 

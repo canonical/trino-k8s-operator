@@ -44,11 +44,6 @@ options:
         Name of the k8s secret which contains the TLS certificate to be used by ingress.
     default: "trino-tls"
     type: string
-  trino-password:
-    description: |
-        Password to be used for default trino user created on startup.
-    default: ubuntu123
-    type: string
   charm-function:
     description: |
       One of `coordinator`, `worker` or `all` to determine the function of the application.
@@ -90,3 +85,7 @@ options:
       The default value `.*` applies to all catalogs.
     type: string
     default: .*
+  user-secret-id:
+    description: |
+      The Juju secret id for the Trino user credentials.
+    type: string
