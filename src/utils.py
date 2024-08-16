@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import string
+import subprocess  # nosec B404
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -211,3 +212,38 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
             return
         logger.error(e.stdout)
         raise
+
+
+def add_users_to_password_db(container, credentials, db_path):
+    """Create necessary db users for authentication.
+
+    Args:
+        container: The trino container.
+        credentials: A dictionary of user/password.
+        db_path: The path to the `password.db`.
+
+    Raises:
+        ExecError: in case the container exec is unsuccessful.
+    """
+    if container.exists(db_path):
+        container.remove_path(db_path)
+
+    for user, password in credentials.items():
+        command = [
+            "htpasswd",
+            "-b",
+            "-B",
+            "-C",
+            "10",
+            db_path,
+            user,
+            password,
+        ]
+        db_exists = container.exists(db_path)
+        if not db_exists:
+            command.insert(2, "-c")
+        try:
+            container.exec(command).wait_output()
+        except (subprocess.CalledProcessError, ExecError) as e:
+            logger.error(f"unable to add user credentials {e.stderr}")
+            raise

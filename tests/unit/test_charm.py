@@ -68,6 +68,7 @@ class TestCharm(TestCase):
 
         # Simulate pebble readiness.
         container = harness.model.unit.get_container("trino")
+        harness.handle_exec("trino", ["htpasswd"], result=0)
         harness.charm.on.trino_pebble_ready.emit(container)
 
         # No plans are set yet.
@@ -403,6 +404,7 @@ class TestCharm(TestCase):
 
         harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
         container = harness.model.unit.get_container("trino")
+        harness.handle_exec("trino", ["htpasswd"], result=0)
         harness.charm.on.trino_pebble_ready.emit(container)
         harness.update_config({"charm-function": "all"})
 
@@ -435,10 +437,11 @@ def simulate_lifecycle_worker(harness):
 
     # Simulate pebble readiness.
     harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+    harness.update_config({"charm-function": "worker"})
+
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
 
-    harness.update_config({"charm-function": "worker"})
     secret_id = harness.add_model_secret(
         "trino-k8s",
         {"catalogs": TEST_CATALOG_CONFIG},
@@ -471,6 +474,7 @@ def simulate_lifecycle_coordinator(harness):
 
     # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
+    harness.handle_exec("trino", ["htpasswd"], result=0)
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
@@ -481,7 +485,7 @@ def simulate_lifecycle_coordinator(harness):
         "trino-k8s",
         {"trino": "ubuntu123"},
     )
-    harness.handle_exec("trino", ["htpasswd"], result=0)
+
     harness.update_config({"user-secret-id": secret_id})
     return rel_id
 

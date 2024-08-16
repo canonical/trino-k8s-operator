@@ -99,7 +99,7 @@ class PolicyRelationHandler(framework.Object):
         self.charm.state.policy_relation = f"relation_{event.relation.id}"
         self._configure_ranger_plugin(container)
 
-        self.charm._restart_trino(container)
+        self.charm._restart_trino()
 
     def _prepare_service(self, event):
         """Prepare service to be created in Ranger.
