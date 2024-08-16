@@ -355,9 +355,6 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The pebble ready or config changed event.
         """
-        if not self.unit.is_leader():
-            return
-
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()

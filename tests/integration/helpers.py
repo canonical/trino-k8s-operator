@@ -89,9 +89,6 @@ DEV_USER = {
 # Scaling literals
 WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 
-# Upgrades secure password
-SECURE_PWD = "Xh0DAbGvxLI3NY!"  # nosec
-
 WORKER_CONFIG = {"charm-function": "worker"}
 COORDINATOR_CONFIG = {
     "charm-function": "coordinator",
