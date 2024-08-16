@@ -437,6 +437,7 @@ def simulate_lifecycle_worker(harness):
 
     # Simulate pebble readiness.
     harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+    harness.handle_exec("trino", ["htpasswd"], result=0)
     harness.update_config({"charm-function": "worker"})
 
     container = harness.model.unit.get_container("trino")

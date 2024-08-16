@@ -115,10 +115,17 @@ Additionally user/password authentication can be enabled via a Juju secret.
 # Create the secret and grant access to Trino.
 juju add-secret trino-user-management --file /path/to/user-secrets.yaml
 juju grant-secret trino-user-management trino-k8s
+juju grant-secret trino-user-management trino-k8s-worker
 
 # Get the secret id and pass this to the charm via the config.
 juju show-secret trino-user-management
 juju config trino-k8s user-secret-id=<juju-secret-id>
+```
+
+Where the `user-secrets.yaml` has the below format:
+```
+<user>:<password>
+<another-user>:<another-password>
 ```
 
 ## Policy

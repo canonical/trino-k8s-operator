@@ -184,7 +184,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        self._enable_password_auth(event)
+        self._update_password_db(event)
         self._update(event)
 
     @log_event_handler(logger)
@@ -208,7 +208,7 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
-        self._enable_password_auth(event)
+        self._update_password_db(event)
         self._update(event)
         self.trino_coordinator._update_coordinator_relation_data(event)
 
@@ -271,7 +271,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
-        self._enable_password_auth(event)
+        self._update_password_db(event)
         self._restart_trino()
 
     def _restart_trino(self):
@@ -349,7 +349,7 @@ class TrinoK8SCharm(CharmBase):
             raise
         return content
 
-    def _enable_password_auth(self, event):
+    def _update_password_db(self, event):
         """Create necessary db file for authentication.
 
         Args:
@@ -361,9 +361,6 @@ class TrinoK8SCharm(CharmBase):
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             event.defer()
-            return
-
-        if self.config["charm-function"] == "worker":
             return
 
         secret_id = self.config.get("user-secret-id")
