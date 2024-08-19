@@ -98,7 +98,7 @@ salesforce #read-write endpoint
 salesforce_ro #read-only endpoint
 ```
 ## User management
-By default authentication is not enabled for Trino. Trino supports multiple forms of authentication mechanisms to be implements at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
+By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
 
 ### Google Oauth
 Configure Google Oauth by adding the following config values to the coordinator charm:

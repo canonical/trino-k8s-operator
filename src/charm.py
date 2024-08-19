@@ -241,6 +241,7 @@ class TrinoK8SCharm(CharmBase):
         if self.config["charm-function"] in ["coordinator", "all"]:
             check = container.get_check("up")
             if check.status != CheckStatus.UP:
+                self._restart_trino()
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
                 return
 
