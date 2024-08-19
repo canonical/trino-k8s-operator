@@ -228,6 +228,7 @@ def add_users_to_password_db(container, credentials, db_path):
     if container.exists(db_path):
         container.remove_path(db_path)
 
+    db_exists = False
     for user, password in credentials.items():
         command = [
             "htpasswd",
@@ -239,11 +240,11 @@ def add_users_to_password_db(container, credentials, db_path):
             user,
             password,
         ]
-        db_exists = container.exists(db_path)
         if not db_exists:
             command.insert(2, "-c")
         try:
             container.exec(command).wait_output()
+            db_exists = True
         except (subprocess.CalledProcessError, ExecError) as e:
             logger.error(f"unable to add user credentials {e.stderr}")
             raise
