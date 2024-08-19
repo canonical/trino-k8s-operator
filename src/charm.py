@@ -26,6 +26,7 @@ from ops.model import (
     ActiveStatus,
     BlockedStatus,
     MaintenanceStatus,
+    SecretNotFoundError,
     WaitingStatus,
 )
 from ops.pebble import CheckStatus, ExecError
@@ -34,6 +35,7 @@ from literals import (
     CATALOG_DIR,
     CONF_DIR,
     CONFIG_FILES,
+    DEFAULT_CREDENTIALS,
     INDEX_NAME,
     JAVA_HOME,
     JMX_PORT,
@@ -53,7 +55,7 @@ from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
     add_cert_to_truststore,
-    bcrypt_pwd,
+    add_users_to_password_db,
     create_cert_and_catalog_dicts,
     generate_password,
     render,
@@ -124,6 +126,7 @@ class TrinoK8SCharm(CharmBase):
         self.framework.observe(
             self.on.peer_relation_changed, self._on_peer_relation_changed
         )
+        self.framework.observe(self.on.secret_changed, self._on_secret_changed)
 
         # Handle Ingress
         self._require_nginx_route()
@@ -181,6 +184,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
+        self._update_password_db(event)
         self._update(event)
 
     @log_event_handler(logger)
@@ -204,6 +208,7 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
+        self._update_password_db(event)
         self._update(event)
         self.trino_coordinator._update_coordinator_relation_data(event)
 
@@ -237,6 +242,7 @@ class TrinoK8SCharm(CharmBase):
             check = container.get_check("up")
             if check.status != CheckStatus.UP:
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
+                self._restart_trino()
                 return
 
         self.unit.status = ActiveStatus("Status check: UP")
@@ -259,13 +265,22 @@ class TrinoK8SCharm(CharmBase):
         except ConnectionError:
             return False
 
-    def _restart_trino(self, container):
-        """Restart Trino.
+    @log_event_handler(logger)
+    def _on_secret_changed(self, event):
+        """Handle secret changed hook.
 
         Args:
-            container: Trino container
+            event: the secret changed event.
         """
-        self.unit.status = MaintenanceStatus("restarting trino")
+        self._update_password_db(event)
+        self._restart_trino()
+
+    def _restart_trino(self):
+        """Restart Trino."""
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            return
+
         container.restart(self.name)
 
     @log_event_handler(logger)
@@ -275,13 +290,8 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event:The event triggered by the restart action
         """
-        container = self.unit.get_container(self.name)
-        if not container.can_connect():
-            return
-
         self.unit.status = MaintenanceStatus("restarting trino")
-        self._restart_trino(container)
-        self._enable_password_auth(container)
+        self._restart_trino()
 
         event.set_results({"result": "trino successfully restarted"})
 
@@ -319,17 +329,47 @@ class TrinoK8SCharm(CharmBase):
                 return
             logger.debug(f"Unable to update truststore password {e.stderr}")
 
-    def _enable_password_auth(self, container):
-        """Create necessary properties and db files for authentication.
+    def _get_secret_content(self, secret_id):
+        """Get the content of a Juju secret.
 
         Args:
-            container: The application container
-        """
-        password = bcrypt_pwd(self.config["trino-password"])
-        path = self.trino_abs_path.joinpath(PASSWORD_DB)
-        db_content = f"trino:{password}"
+            secret_id: the juju secret id.
 
-        container.push(path, db_content, make_dirs=True, permissions=0o644)
+        Returns:
+            content: the content of the secret.
+
+        Raises:
+            SecretNotFoundError: in case the secret cannot be found.
+        """
+        try:
+            secret = self.model.get_secret(id=secret_id)
+            content = secret.get_content(refresh=True)
+        except SecretNotFoundError:
+            logger.error(f"secret {secret_id!r} not found.")
+            raise
+        return content
+
+    def _update_password_db(self, event):
+        """Create necessary db file for authentication.
+
+        Args:
+            event: The pebble ready or config changed event.
+        """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
+        secret_id = self.config.get("user-secret-id")
+        db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
+
+        credentials = (
+            self._get_secret_content(secret_id)
+            if secret_id
+            else DEFAULT_CREDENTIALS
+        )
+
+        add_users_to_password_db(container, credentials, db_path)
 
     def _add_catalogs(self, container, catalogs, truststore_pwd):
         """Add catalogs to Trino.
@@ -422,7 +462,6 @@ class TrinoK8SCharm(CharmBase):
 
         Raises:
             ValueError: in case of invalid log configuration.
-                        in case of invalid trino-password.
                         in case of web-proxy as empty string.
                         in case of invalid acl-mode-default value.
             ScannerError: in case of incorrectly formatted catalog-config.
@@ -432,10 +471,6 @@ class TrinoK8SCharm(CharmBase):
         log_level = self.model.config["log-level"].lower()
         if log_level not in valid_log_levels:
             raise ValueError(f"config: invalid log level {log_level!r}")
-
-        trino_password = self.model.config["trino-password"]
-        if not trino_password.strip():
-            raise ValueError(f"conf: invalid password {trino_password!r}")
 
         web_proxy = self.config.get("web-proxy")
         if web_proxy and not web_proxy.strip():
@@ -480,7 +515,6 @@ class TrinoK8SCharm(CharmBase):
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         env = {
             "LOG_LEVEL": self.config["log-level"],
-            "DEFAULT_PASSWORD": self.config["trino-password"],
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
             "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
@@ -500,6 +534,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
+            "USER_SECRET_ID": self.config.get("user-secret-id"),
         }
         return env
 
@@ -527,7 +562,6 @@ class TrinoK8SCharm(CharmBase):
             self.state.catalog_config = self.config.get("catalog-config", "")
 
         self._configure_catalogs(container)
-        self._enable_password_auth(container)
 
         self.set_java_truststore_password(event)
         env = self._create_environment()

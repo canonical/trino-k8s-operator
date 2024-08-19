@@ -2,7 +2,7 @@
 The Charmed Trino K8s Operator delivers automated management on [Trino](https://trino.io/) data virtualization software on top of a Kubernetes cluster. Trino is a distributed SQL query engine designed to query large data sets distributed over one or more heterogeneous data sources.
 
 ## Usage
-Note: This operator requires the use of juju >= 3.1. More information on setting up your environment can be found [here](CONTRIBUTING.md).
+Note: This operator requires the use of juju >= 3.3. More information on setting up your environment can be found [here](CONTRIBUTING.md).
 
 ### Single node deployment
 To deploy a single node of Trino which acts as both the coordinator and the worker run the below command.
@@ -97,6 +97,37 @@ In order to connect clustered database systems to Trino please connect the read-
 salesforce #read-write endpoint
 salesforce_ro #read-only endpoint
 ```
+## User management
+By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
+
+### Google Oauth
+Configure Google Oauth by adding the following config values to the coordinator charm:
+```
+juju config trino-k8s google-client-id=<id>
+juju config trino-k8s google-client-secret=<secret>
+
+```
+
+### User/password
+Additionally user/password authentication can be enabled via a Juju secret.
+
+```
+# Create the secret and grant access to Trino.
+juju add-secret trino-user-management --file /path/to/user-secrets.yaml
+juju grant-secret trino-user-management trino-k8s
+juju grant-secret trino-user-management trino-k8s-worker
+
+# Get the secret id and pass this to the charm via the config.
+juju show-secret trino-user-management
+juju config trino-k8s user-secret-id=<juju-secret-id>
+```
+
+Where the `user-secrets.yaml` has the below format:
+```
+<user>:<password>
+<another-user>:<another-password>
+```
+
 ## Policy
 ### Ranger
 Ranger acts as a fine-grained authorization manager for the Trino charm. It is an optional relation in order to provide access control on the data connected to Trino.

@@ -9,8 +9,8 @@ import os
 import re
 import secrets
 import string
+import subprocess  # nosec B404
 
-import bcrypt
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
@@ -121,22 +121,6 @@ def validate_jdbc_pattern(conn_input, conn_name):
         raise ValueError(f"{conn_name!r} has an invalid jdbc format")
 
 
-def bcrypt_pwd(password):
-    """Bycrypts password.
-
-    Args:
-        password: plain text password
-
-    Return:
-        mod_password: encrypted password
-    """
-    bcrypt_password = bcrypt.hashpw(
-        password.encode("utf-8"), bcrypt.gensalt(rounds=10)
-    ).decode("utf-8")
-    mod_password = bcrypt_password.replace("$2b$", "$2y$")
-    return mod_password
-
-
 def handle_exec_error(func):
     """Handle ExecError while executing command on application container.
 
@@ -228,3 +212,39 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
             return
         logger.error(e.stdout)
         raise
+
+
+def add_users_to_password_db(container, credentials, db_path):
+    """Create necessary db users for authentication.
+
+    Args:
+        container: The trino container.
+        credentials: A dictionary of user/password.
+        db_path: The path to the `password.db`.
+
+    Raises:
+        ExecError: in case the container exec is unsuccessful.
+    """
+    if container.exists(db_path):
+        container.remove_path(db_path)
+
+    db_exists = False
+    for user, password in credentials.items():
+        command = [
+            "htpasswd",
+            "-b",
+            "-B",
+            "-C",
+            "10",
+            db_path,
+            user,
+            password,
+        ]
+        if not db_exists:
+            command.insert(2, "-c")
+        try:
+            container.exec(command).wait_output()
+            db_exists = True
+        except (subprocess.CalledProcessError, ExecError) as e:
+            logger.error(f"unable to add user credentials {e.stderr}")
+            raise

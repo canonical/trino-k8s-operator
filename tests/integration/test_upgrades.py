@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 import requests
 import yaml
-from helpers import APP_NAME, BASE_DIR, SECURE_PWD, TRINO_IMAGE, get_unit_url
+from helpers import APP_NAME, BASE_DIR, TRINO_IMAGE, get_unit_url
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ async def deploy(ops_test: OpsTest):
     """Deploy the app."""
     # Deploy trino and nginx charms
     trino_config = {
-        "trino-password": SECURE_PWD,
+        "acl-mode-default": "none",
         "charm-function": "all",
     }
     await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config)
@@ -81,5 +81,5 @@ class TestUpgrade:
         if stderr:
             logger.error(f"{returncode}: {stderr}")
         config = yaml.safe_load(stdout)
-        password = config["settings"]["trino-password"]["value"]
-        assert password == SECURE_PWD
+        acl_mode_default = config["settings"]["acl-mode-default"]["value"]
+        assert acl_mode_default == "none"
