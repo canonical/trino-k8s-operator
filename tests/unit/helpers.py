@@ -40,3 +40,7 @@ POLICY_MGR_URL = "http://ranger-k8s:6080"
 RANGER_LIB = "/usr/lib/ranger"
 
 JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
+TEST_USERS = """\
+    example_user: ubuntu123
+    another_user: ubuntu345
+"""
