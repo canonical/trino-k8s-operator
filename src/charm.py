@@ -354,6 +354,9 @@ class TrinoK8SCharm(CharmBase):
 
         Args:
             event: The pebble ready or config changed event.
+
+        Raises:
+            ScannerError: In case the secret is incorrectly formatted.
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
