@@ -354,6 +354,9 @@ class TrinoK8SCharm(CharmBase):
 
         Args:
             event: The pebble ready or config changed event.
+
+        Raises:
+            ScannerError: In case the secret is incorrectly formatted.
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
@@ -363,11 +366,17 @@ class TrinoK8SCharm(CharmBase):
         secret_id = self.config.get("user-secret-id")
         db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
 
-        credentials = (
-            self._get_secret_content(secret_id)
-            if secret_id
-            else DEFAULT_CREDENTIALS
-        )
+        if secret_id:
+            try:
+                credentials = yaml.safe_load(
+                    self._get_secret_content(secret_id)["users"]
+                )
+            except yaml.ScannerError as e:
+                raise yaml.ScannerError(
+                    f"Incorrectly formatted user secret: {e}"
+                )
+        else:
+            credentials = DEFAULT_CREDENTIALS
 
         add_users_to_password_db(container, credentials, db_path)
 

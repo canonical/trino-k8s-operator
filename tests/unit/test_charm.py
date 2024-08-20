@@ -25,6 +25,7 @@ from unit.helpers import (
     SERVER_PORT,
     TEST_CATALOG_CONFIG,
     TEST_CATALOG_PATH,
+    TEST_USERS,
     UPDATED_CATALOG_CONFIG,
     UPDATED_CATALOG_PATH,
 )
@@ -484,7 +485,7 @@ def simulate_lifecycle_coordinator(harness):
     rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
     secret_id = harness.add_model_secret(
         "trino-k8s",
-        {"trino": "ubuntu123"},
+        {"users": TEST_USERS},
     )
 
     harness.update_config({"user-secret-id": secret_id})

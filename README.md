@@ -113,7 +113,7 @@ Additionally user/password authentication can be enabled via a Juju secret.
 
 ```
 # Create the secret and grant access to Trino.
-juju add-secret trino-user-management --file /path/to/user-secrets.yaml
+juju add-secret trino-user-management users#file=/path/to/user-secrets.yaml
 juju grant-secret trino-user-management trino-k8s
 juju grant-secret trino-user-management trino-k8s-worker
 
