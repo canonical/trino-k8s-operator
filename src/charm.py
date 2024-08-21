@@ -369,13 +369,16 @@ class TrinoK8SCharm(CharmBase):
 
         if secret_id:
             try:
-                credentials = yaml.safe_load(
-                    self._get_secret_content(secret_id)["users"]
+                secret = self._get_secret_content(secret_id)
+                credentials = yaml.safe_load(secret["users"])
+            except SecretNotFoundError as err:
+                logger.error(
+                    f"secret {secret_id!r} not found, check permissions."
                 )
-            except yaml.ScannerError as e:
-                raise yaml.ScannerError(
-                    f"Incorrectly formatted user secret: {e}"
-                )
+                self.unit.status = BlockedStatus(str(err))
+            except Exception as e:
+                logger.error(f"Incorrectly formatted user secret: {e}")
+                raise
         else:
             credentials = DEFAULT_CREDENTIALS
 
