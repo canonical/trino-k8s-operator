@@ -55,7 +55,6 @@ DEFAULT_JVM_OPTIONS = [
     "-Djdk.attach.allowAttachSelf=true",
     "-Djdk.nio.maxCachedBufferSize=2000000",
     "-Dfile.encoding=UTF-8",
-    "-XX:+UnlockDiagnosticVMOptions",
     "-XX:+EnableDynamicAgentLoading",
 ]
 

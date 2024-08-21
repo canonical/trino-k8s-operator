@@ -132,6 +132,5 @@ options:
         -Djdk.attach.allowAttachSelf=true
         -Djdk.nio.maxCachedBufferSize=2000000
         -Dfile.encoding=UTF-8
-        -XX:+UnlockDiagnosticVMOptions
         -XX:+EnableDynamicAgentLoading
     type: string
