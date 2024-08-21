@@ -356,7 +356,7 @@ class TrinoK8SCharm(CharmBase):
             event: The pebble ready or config changed event.
 
         Raises:
-            In case the secret is incorrectly formatted.
+            Exception: In case the secret is incorrectly formatted.
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
@@ -374,7 +374,9 @@ class TrinoK8SCharm(CharmBase):
                 logger.error(
                     f"secret {secret_id!r} not found, check permissions."
                 )
-                self.unit.status = BlockedStatus(str(err))
+                self.unit.status = BlockedStatus("Secret not found, check permissions.")
+                event.defer()
+                return
             except Exception as e:
                 logger.error(f"Incorrectly formatted user secret: {e}")
                 raise
