@@ -36,6 +36,7 @@ from literals import (
     CONF_DIR,
     CONFIG_FILES,
     DEFAULT_CREDENTIALS,
+    DEFAULT_JVM_OPTIONS,
     INDEX_NAME,
     JAVA_HOME,
     JMX_PORT,
@@ -522,6 +523,7 @@ class TrinoK8SCharm(CharmBase):
             env: a dictionary of trino environment variables.
         """
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
+        default_jvm_options = " ".join(DEFAULT_JVM_OPTIONS)
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
@@ -544,6 +546,18 @@ class TrinoK8SCharm(CharmBase):
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
             "USER_SECRET_ID": self.config.get("user-secret-id"),
+            "XMX_SIZE": self.config.get("xmx-size"),
+            "INITIAL_RAM_PERCENTAGE": self.config.get(
+                "initial-ram-percentage"
+            ),
+            "MAX_RAM_PERCENTAGE": self.config.get("max-ram-percentage"),
+            "HEAP_REGION_SIZE": self.config.get("heap-region-size"),
+            "RESERVED_CACHE_SIZE": self.config.get("reserved-cache-size"),
+            "RETRY_ALLOCATION_COUNT": self.config.get(
+                "retry-allocation-count"
+            ),
+            "ADDITIONAL_JVM_OPTIONS": self.config.get("additional-jvm-options")
+            or default_jvm_options,
         }
         return env
 

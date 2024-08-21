@@ -21,6 +21,8 @@ from ops.model import (
 from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
+    CUSTOMIZED_JVM_STRING,
+    DEFAULT_JVM_STRING,
     JAVA_HOME,
     SERVER_PORT,
     TEST_CATALOG_CONFIG,
@@ -122,6 +124,13 @@ class TestCharm(TestCase):
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                         "USER_SECRET_ID": "secret:secret-id",
+                        "XMX_SIZE": "2G",
+                        "INITIAL_RAM_PERCENTAGE": 80,
+                        "MAX_RAM_PERCENTAGE": 80,
+                        "HEAP_REGION_SIZE": "32M",
+                        "RESERVED_CACHE_SIZE": "512M",
+                        "RETRY_ALLOCATION_COUNT": 32,
+                        "ADDITIONAL_JVM_OPTIONS": DEFAULT_JVM_STRING,
                     },
                 }
             },
@@ -217,6 +226,7 @@ class TestCharm(TestCase):
                 "google-client-secret": "test-client-secret",
                 "web-proxy": "proxy:port",
                 "charm-function": "all",
+                "additional-jvm-options": CUSTOMIZED_JVM_STRING,
             }
         )
 
@@ -249,6 +259,13 @@ class TestCharm(TestCase):
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                         "USER_SECRET_ID": "secret:secret-id",
+                        "XMX_SIZE": "2G",
+                        "INITIAL_RAM_PERCENTAGE": 80,
+                        "MAX_RAM_PERCENTAGE": 80,
+                        "HEAP_REGION_SIZE": "32M",
+                        "RESERVED_CACHE_SIZE": "512M",
+                        "RETRY_ALLOCATION_COUNT": 32,
+                        "ADDITIONAL_JVM_OPTIONS": CUSTOMIZED_JVM_STRING,
                     },
                 }
             },

@@ -44,3 +44,23 @@ TEST_USERS = """\
     example_user: ubuntu123
     another_user: ubuntu345
 """
+
+DEFAULT_JVM_OPTIONS = [
+    "-XX:+ExplicitGCInvokesConcurrent",
+    "-XX:+ExitOnOutOfMemoryError",
+    "-XX:+HeapDumpOnOutOfMemoryError",
+    "-XX:-OmitStackTraceInFastThrow",
+    "-XX:PerMethodRecompilationCutoff=10000",
+    "-XX:PerBytecodeRecompilationCutoff=10000",
+    "-Djdk.attach.allowAttachSelf=true",
+    "-Djdk.nio.maxCachedBufferSize=2000000",
+    "-Dfile.encoding=UTF-8",
+    "-XX:+UnlockDiagnosticVMOptions",
+    "-XX:+EnableDynamicAgentLoading",
+]
+
+DEFAULT_JVM_STRING = " ".join(DEFAULT_JVM_OPTIONS)
+
+CUSTOMIZED_JVM_STRING = (
+    "-XX:+ExplicitGCInvokesConcurrent -XX:+ExitOnOutOfMemoryError"
+)

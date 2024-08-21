@@ -89,3 +89,49 @@ options:
     description: |
       The Juju secret id for the Trino user credentials.
     type: string
+  xmx-size:
+    description: |
+      Maximum heap size for the JVM.
+    type: string
+    default: '2G'
+  initial-ram-percentage:
+    description: |
+      Percentage of total RAM to be allocated as initial heap size.
+    type: int
+    default: 80
+  max-ram-percentage:
+    description: |
+      Maximum percentage of total RAM to be used by the JVM.
+    type: int
+    default: 80
+  heap-region-size:
+    description: |
+      Size of each heap region for the JVM's garbage collector.
+    type: string
+    default: '32M'
+  reserved-cache-size:
+    description: |
+      Amount of memory reserved for the JVM's code cache.
+    type: string
+    default: '512M'
+  retry-allocation-count:
+    description: |
+      Number of times to retry memory allocation during GC.
+    type: int
+    default: 32
+  additional-jvm-options:
+    description: |
+      Space separated string of JVM options to be added to the config file.
+      If no value if provided then the following are included by default:
+        -XX:+ExplicitGCInvokesConcurrent
+        -XX:+ExitOnOutOfMemoryError
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:-OmitStackTraceInFastThrow
+        -XX:PerMethodRecompilationCutoff=10000
+        -XX:PerBytecodeRecompilationCutoff=10000
+        -Djdk.attach.allowAttachSelf=true
+        -Djdk.nio.maxCachedBufferSize=2000000
+        -Dfile.encoding=UTF-8
+        -XX:+UnlockDiagnosticVMOptions
+        -XX:+EnableDynamicAgentLoading
+    type: string

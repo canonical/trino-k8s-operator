@@ -112,3 +112,17 @@ INDEX_NAME = "ranger_audits"
 CERTIFICATE_NAME = "opensearch-ca"
 
 DEFAULT_CREDENTIALS = {"trino": "trinoR0cks!"}
+
+DEFAULT_JVM_OPTIONS = [
+    "-XX:+ExplicitGCInvokesConcurrent",
+    "-XX:+ExitOnOutOfMemoryError",
+    "-XX:+HeapDumpOnOutOfMemoryError",
+    "-XX:-OmitStackTraceInFastThrow",
+    "-XX:PerMethodRecompilationCutoff=10000",
+    "-XX:PerBytecodeRecompilationCutoff=10000",
+    "-Djdk.attach.allowAttachSelf=true",
+    "-Djdk.nio.maxCachedBufferSize=2000000",
+    "-Dfile.encoding=UTF-8",
+    "-XX:+UnlockDiagnosticVMOptions",
+    "-XX:+EnableDynamicAgentLoading",
+]
