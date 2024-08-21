@@ -1,14 +1,8 @@
 -server
 -XX:+UnlockDiagnosticVMOptions
--Xmx{{ XMX_SIZE }}
--XX:InitialRAMPercentage={{ INITIAL_RAM_PERCENTAGE }}
--XX:MaxRAMPercentage={{ MAX_RAM_PERCENTAGE }}
--XX:G1HeapRegionSize={{ HEAP_REGION_SIZE }}
--XX:ReservedCodeCacheSize={{ RESERVED_CACHE_SIZE }}
--XX:GCLockerRetryAllocationCount={{ RETRY_ALLOCATION_COUNT }}
-# Additional JVM options
-{%- if ADDITIONAL_JVM_OPTIONS -%}
-{% set jvm_options = ADDITIONAL_JVM_OPTIONS.split(" ") %}
+# JVM options
+{%- if JVM_OPTIONS -%}
+{% set jvm_options = JVM_OPTIONS.split(" ") %}
 {% for option in jvm_options -%}
 {{ option }}
 {% endfor -%}

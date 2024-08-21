@@ -60,6 +60,7 @@ from utils import (
     create_cert_and_catalog_dicts,
     generate_password,
     render,
+    update_opts,
 )
 
 # Log messages can be retrieved using juju debug-log
@@ -523,7 +524,13 @@ class TrinoK8SCharm(CharmBase):
             env: a dictionary of trino environment variables.
         """
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
-        default_jvm_options = " ".join(DEFAULT_JVM_OPTIONS)
+        default_opts = " ".join(DEFAULT_JVM_OPTIONS)
+        user_opts = self.config.get("additional-jvm-options")
+
+        jvm_opts = (
+            update_opts(default_opts, user_opts) if user_opts else default_opts
+        )
+
         env = {
             "LOG_LEVEL": self.config["log-level"],
             "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
@@ -546,18 +553,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
             "USER_SECRET_ID": self.config.get("user-secret-id"),
-            "XMX_SIZE": self.config.get("xmx-size"),
-            "INITIAL_RAM_PERCENTAGE": self.config.get(
-                "initial-ram-percentage"
-            ),
-            "MAX_RAM_PERCENTAGE": self.config.get("max-ram-percentage"),
-            "HEAP_REGION_SIZE": self.config.get("heap-region-size"),
-            "RESERVED_CACHE_SIZE": self.config.get("reserved-cache-size"),
-            "RETRY_ALLOCATION_COUNT": self.config.get(
-                "retry-allocation-count"
-            ),
-            "ADDITIONAL_JVM_OPTIONS": self.config.get("additional-jvm-options")
-            or default_jvm_options,
+            "JVM_OPTIONS": jvm_opts,
         }
         return env
 
