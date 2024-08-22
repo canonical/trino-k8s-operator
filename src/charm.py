@@ -272,12 +272,11 @@ class TrinoK8SCharm(CharmBase):
         """
         try:
             self._update_password_db(event)
+            self._restart_trino()
         except Exception:
             self.unit.status = BlockedStatus(
                 "Secret cannot be found or is incorrectly formatted."
             )
-            return
-        self._restart_trino()
 
     def _restart_trino(self):
         """Restart Trino."""
