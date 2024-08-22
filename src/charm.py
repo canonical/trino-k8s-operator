@@ -184,7 +184,6 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        self._update_password_db(event)
         self._update(event)
 
     @log_event_handler(logger)
@@ -208,7 +207,6 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
-        self._update_password_db(event)
         self._update(event)
         self.trino_coordinator._update_coordinator_relation_data(event)
 
@@ -272,7 +270,13 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
-        self._update_password_db(event)
+        try:
+            self._update_password_db(event)
+        except Exception:
+            self.unit.status = BlockedStatus(
+                "Secret cannot be found or is incorrectly formatted."
+            )
+            return
         self._restart_trino()
 
     def _restart_trino(self):
@@ -371,10 +375,9 @@ class TrinoK8SCharm(CharmBase):
                 credentials = yaml.safe_load(
                     self._get_secret_content(secret_id)["users"]
                 )
-            except yaml.ScannerError as e:
-                raise yaml.ScannerError(
-                    f"Incorrectly formatted user secret: {e}"
-                )
+            except Exception as e:
+                logger.error(f"Error reading secret {secret_id!r}: {e}")
+                raise
         else:
             credentials = DEFAULT_CREDENTIALS
 
@@ -575,6 +578,15 @@ class TrinoK8SCharm(CharmBase):
         self.set_java_truststore_password(event)
         env = self._create_environment()
         self._configure_trino(container, env)
+
+        try:
+            self._update_password_db(event)
+        except Exception as err:
+            logger.error(err)
+            self.unit.status = BlockedStatus(
+                "Secret cannot be found or is incorrectly formatted."
+            )
+            return
 
         logger.info("planning trino execution")
         pebble_layer = {
