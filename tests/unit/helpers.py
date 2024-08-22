@@ -44,3 +44,27 @@ TEST_USERS = """\
     example_user: ubuntu123
     another_user: ubuntu345
 """
+
+DEFAULT_JVM_STRING = " ".join(
+    [
+        "-Xmx2G",
+        "-XX:InitialRAMPercentage=80",
+        "-XX:+ExplicitGCInvokesConcurrent",
+        "-XX:-OmitStackTraceInFastThrow",
+        "-Djdk.attach.allowAttachSelf=true",
+        "-Dfile.encoding=UTF-8",
+    ]
+)
+
+USER_JVM_STRING = "-Xmx4G -XX:InitialRAMPercentage=50 -Xxs10G"
+UPDATED_JVM_OPTIONS = " ".join(
+    [
+        "-Xmx4G",
+        "-XX:InitialRAMPercentage=50",
+        "-XX:+ExplicitGCInvokesConcurrent",
+        "-XX:-OmitStackTraceInFastThrow",
+        "-Djdk.attach.allowAttachSelf=true",
+        "-Dfile.encoding=UTF-8",
+        "-Xxs10G",
+    ]
+)

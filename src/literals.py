@@ -112,3 +112,12 @@ INDEX_NAME = "ranger_audits"
 CERTIFICATE_NAME = "opensearch-ca"
 
 DEFAULT_CREDENTIALS = {"trino": "trinoR0cks!"}
+
+DEFAULT_JVM_OPTIONS = [
+    "-Xmx2G",
+    "-XX:InitialRAMPercentage=80",
+    "-XX:+ExplicitGCInvokesConcurrent",
+    "-XX:-OmitStackTraceInFastThrow",
+    "-Djdk.attach.allowAttachSelf=true",
+    "-Dfile.encoding=UTF-8",
+]

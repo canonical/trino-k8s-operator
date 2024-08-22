@@ -89,3 +89,16 @@ options:
     description: |
       The Juju secret id for the Trino user credentials.
     type: string
+  additional-jvm-options:
+    description: |
+      Space-separated string of JVM options to be added to the config file.
+      By default the following options are included. 
+      The value of the option can be overwritten by providing the option 
+      with the updated value via this config parameter.
+        "-Xmx2G"
+        "-XX:InitialRAMPercentage=80"
+        "-XX:+ExplicitGCInvokesConcurrent"
+        "-XX:-OmitStackTraceInFastThrow"
+        "-Djdk.attach.allowAttachSelf=true"
+        "-Dfile.encoding=UTF-8"
+    type: string
