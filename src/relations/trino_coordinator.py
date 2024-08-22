@@ -79,8 +79,10 @@ class TrinoCoordinator(Object):
 
         coordinator_relations = self.model.relations["trino-coordinator"]
 
-        relation_data = {"discovery-uri": self.charm.config["discovery-uri"],
-        "user-secret-id": self.charm.config.get("user-secret-id", "")}
+        relation_data = {
+            "discovery-uri": self.charm.config["discovery-uri"],
+            "user-secret-id": self.charm.config.get("user-secret-id", ""),
+        }
 
         for relation in coordinator_relations:
             if self.charm.config.get("catalog-config"):
