@@ -250,28 +250,6 @@ def add_users_to_password_db(container, credentials, db_path):
             raise
 
 
-def get_opt_name(opt: str):
-    """Extract the name or key from a given option string.
-
-    Args:
-        opt: The option string from which to extract the key or name.
-
-    Returns:
-        opt: The extracted key or name if a match is found, otherwise the
-        original option string.
-    """
-    patterns_index = [
-        (r"^-X[a-z]+", 0),
-        (r"^-XX:[+-](\w+)", 1),
-        (r"^(.*?)=", 1),
-    ]
-    for pi in patterns_index:
-        match = re.match(pi[0], opt)
-        if match:
-            return match.group(pi[1])
-    return opt
-
-
 def update_opts(default_opts, user_opts):
     """Update the default options with user-provided options.
 
@@ -282,6 +260,28 @@ def update_opts(default_opts, user_opts):
     Returns:
         Combined options, with user options overriding any matching default options.
     """
+
+    def get_opt_name(opt: str):
+        """Extract the name or key from a given option string.
+
+        Args:
+            opt: The option string from which to extract the key or name.
+
+        Returns:
+            opt: The extracted key or name if a match is found, otherwise the
+            original option string.
+        """
+        patterns_index = [
+            (r"^-X[a-z]+", 0),
+            (r"^-XX:[+-](\w+)", 1),
+            (r"^(.*?)=", 1),
+        ]
+        for pi in patterns_index:
+            match = re.match(pi[0], opt)
+            if match:
+                return match.group(pi[1])
+        return opt
+
     def_dict = {get_opt_name(opt): opt for opt in default_opts.split()}
     user_dict = {get_opt_name(opt): opt for opt in user_opts.split()}
     def_dict.update(user_dict)
