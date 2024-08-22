@@ -367,7 +367,7 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        secret_id = self.config.get("user-secret-id")
+        secret_id = self.state.user_secret_id
         db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
 
         if secret_id:
@@ -572,6 +572,7 @@ class TrinoK8SCharm(CharmBase):
         if self.config["charm-function"] in ["coordinator", "all"]:
             self.state.discovery_uri = self.config.get("discovery-uri", "")
             self.state.catalog_config = self.config.get("catalog-config", "")
+            self.state.user_secret_id = self.config.get("user-secret-id", "")
 
         self._configure_catalogs(container)
 

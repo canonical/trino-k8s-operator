@@ -70,6 +70,7 @@ class TrinoWorker(Object):
 
         event_data = event.relation.data[event.app]
         self.charm.state.discovery_uri = event_data.get("discovery-uri")
+        self.charm.state.user_secret_id = event_data.get("user-secret-id")
 
         secret_id = event_data.get("catalog-secret-id")
         if not secret_id:
