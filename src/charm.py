@@ -186,7 +186,6 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
-        self._update_password_db(event)
         self._update(event)
 
     @log_event_handler(logger)
@@ -210,7 +209,6 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
-        self._update_password_db(event)
         self._update(event)
         self.trino_coordinator._update_coordinator_relation_data(event)
 
@@ -274,8 +272,13 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
-        self._update_password_db(event)
-        self._restart_trino()
+        try:
+            self._update_password_db(event)
+            self._restart_trino()
+        except Exception:
+            self.unit.status = BlockedStatus(
+                "Secret cannot be found or is incorrectly formatted."
+            )
 
     def _restart_trino(self):
         """Restart Trino."""
@@ -365,7 +368,7 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        secret_id = self.config.get("user-secret-id")
+        secret_id = self.state.user_secret_id
         db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
 
         if secret_id:
@@ -373,10 +376,9 @@ class TrinoK8SCharm(CharmBase):
                 credentials = yaml.safe_load(
                     self._get_secret_content(secret_id)["users"]
                 )
-            except yaml.ScannerError as e:
-                raise yaml.ScannerError(
-                    f"Incorrectly formatted user secret: {e}"
-                )
+            except Exception as e:
+                logger.error(f"Error reading secret {secret_id!r}: {e}")
+                raise
         else:
             credentials = DEFAULT_CREDENTIALS
 
@@ -579,12 +581,22 @@ class TrinoK8SCharm(CharmBase):
         if self.config["charm-function"] in ["coordinator", "all"]:
             self.state.discovery_uri = self.config.get("discovery-uri", "")
             self.state.catalog_config = self.config.get("catalog-config", "")
+            self.state.user_secret_id = self.config.get("user-secret-id", "")
 
         self._configure_catalogs(container)
 
         self.set_java_truststore_password(event)
         env = self._create_environment()
         self._configure_trino(container, env)
+
+        try:
+            self._update_password_db(event)
+        except Exception as err:
+            logger.error(err)
+            self.unit.status = BlockedStatus(
+                "Secret cannot be found or is incorrectly formatted."
+            )
+            return
 
         logger.info("planning trino execution")
         pebble_layer = {
