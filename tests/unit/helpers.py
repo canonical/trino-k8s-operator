@@ -11,6 +11,9 @@ catalogs:
   example:
     backend: dwh
     database: example
+  updated-db:
+    backend: dwh
+    database: updated-db
 backends:
   dwh:
     connector: postgresql

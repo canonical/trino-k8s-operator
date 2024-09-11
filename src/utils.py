@@ -204,7 +204,10 @@ def get_catalog_files(catalog_def, backends):
     for cat_name, cat_info in catalog_def.items():
         backend = backends[cat_info["backend"]]
         if backend["connector"] == "postgresql":
-            catalogs = create_postgresql_catalogs(cat_name, cat_info, backend)
+            pg_catalogs = create_postgresql_catalogs(
+                cat_name, cat_info, backend
+            )
+            catalogs.update(pg_catalogs)
     return catalogs
 
 
