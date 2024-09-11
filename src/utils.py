@@ -173,10 +173,14 @@ def create_postgresql_catalogs(cat_name, cat_info, backend):
         suffix = replica_info.get("suffix", "")
         catalog_name = f"{cat_name}{suffix}"
 
+        url = f"{backend['url']}/{cat_info['database']}"
+        if backend.get("params"):
+            url = f"{url}?{backend['params']}"
+
         catalog_content = textwrap.dedent(
             f"""\
             connector.name={backend['connector']}
-            connection-url={backend['url']}/{cat_info['database']}?{backend['params']}
+            connection-url={url}
             connection-user={user_name}
             connection-password={user_pwd}
         """
