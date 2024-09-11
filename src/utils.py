@@ -10,6 +10,7 @@ import re
 import secrets
 import string
 import subprocess  # nosec B404
+import textwrap
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -154,6 +155,55 @@ def handle_exec_error(func):
     return wrapper
 
 
+def create_postgresql_catalogs(cat_name, cat_info, backend):
+    """Create the postgresql connector catalog files.
+
+    Args:
+        cat_name: catalog name.
+        cat_info: the templated configuration values.
+        backend: the db configuration values.
+
+    Returns:
+        catalogs: the PostgreSQL catalogs.
+    """
+    catalogs = {}
+    for replica_info in backend["replicas"].values():
+        user_name = replica_info.get("user")
+        user_pwd = replica_info.get("password")
+        suffix = replica_info.get("suffix", "")
+        catalog_name = f"{cat_name}{suffix}"
+
+        catalog_content = textwrap.dedent(
+            f"""\
+            connector.name={backend['connector']}
+            connection-url={backend['url']}/{cat_info['database']}?{backend['params']}
+            connection-user={user_name}
+            connection-password={user_pwd}
+        """
+        )
+        catalog_content += backend.get("config", "")
+        catalogs[catalog_name] = catalog_content
+    return catalogs
+
+
+def get_catalog_files(catalog_def, backends):
+    """Prepare the catalog files for all connectors.
+
+    Args:
+        catalog_def: the catalog definition.
+        backends: the templated backednds.
+
+    Returns:
+        catalogs: dictionary of all catalog files.
+    """
+    catalogs = {}
+    for cat_name, cat_info in catalog_def.items():
+        backend = backends[cat_info["backend"]]
+        if backend["connector"] == "postgresql":
+            catalogs = create_postgresql_catalogs(cat_name, cat_info, backend)
+    return catalogs
+
+
 def create_cert_and_catalog_dicts(config):
     """Identify certs and connection values from config.
 
@@ -165,7 +215,9 @@ def create_cert_and_catalog_dicts(config):
         catalogs: dictionary of catalog values.
     """
     catalogs_with_certs = yaml.safe_load(config)
-    catalogs = catalogs_with_certs.get("catalogs")
+    catalog_def = catalogs_with_certs.get("catalogs")
+    backends = catalogs = catalogs_with_certs.get("backends")
+    catalogs = get_catalog_files(catalog_def, backends)
     certs = catalogs_with_certs.get("certs")
     return certs, catalogs
 

@@ -8,11 +8,26 @@
 SERVER_PORT = "8080"
 TEST_CATALOG_CONFIG = """\
 catalogs:
-    example-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-        connection-user=testing
-        connection-password=pd3h@!}93*hdu
+  example:
+    backend: dwh
+    database: example
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://example.com:5432
+    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    replicas:
+      rw:
+        user: trino
+        password: pwd1
+        suffix: _developer
+      ro:
+        user: trino_ro
+        password: pwd2
+    config: |
+      case-insensitive-name-matching=true
+      decimal-mapping=allow_overflow
+      decimal-rounding-mode=HALF_UP
 certs:
     example-cert: |
         -----BEGIN CERTIFICATE-----
@@ -21,19 +36,34 @@ certs:
 """
 UPDATED_CATALOG_CONFIG = """\
 catalogs:
-    updated-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/database?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-        connection-user=testing
-        connection-password=pd3h@!}93*hdu
+  updated:
+    backend: dwh
+    database: updated-db
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://updated.com:5432
+    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    replicas:
+      rw:
+        user: trino
+        password: pwd1
+        suffix: _developer
+      ro:
+        user: trino_ro
+        password: pwd2
+    config: |
+      case-insensitive-name-matching=true
+      decimal-mapping=allow_overflow
+      decimal-rounding-mode=HALF_UP
 certs:
-    updated-cert: |
+    example-cert: |
         -----BEGIN CERTIFICATE-----
         CERTIFICATE CONTENT...
         -----END CERTIFICATE-----
 """
-TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example-db.properties"
-UPDATED_CATALOG_PATH = "/usr/lib/trino/etc/catalog/updated-db.properties"
+TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example.properties"
+UPDATED_CATALOG_PATH = "/usr/lib/trino/etc/catalog/updated.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 
