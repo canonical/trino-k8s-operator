@@ -11,7 +11,7 @@ from ops import framework
 from ops.model import BlockedStatus, WaitingStatus
 from ops.pebble import ExecError
 
-from literals import CERTIFICATE_NAME, INDEX_NAME, JAVA_HOME
+from literals import CERTIFICATE_NAME, INDEX_NAME
 from log import log_event_handler
 
 logger = logging.getLogger(__name__)
@@ -99,10 +99,10 @@ class OpensearchRelationHandler(framework.Object):
         if certificate and not relation_broken:
             container.push("/opensearch.crt", certificate)
             command = [
-                f"{JAVA_HOME}/bin/keytool",
+                "keytool",
                 "-importcert",
                 "-keystore",
-                f"{JAVA_HOME}/lib/security/cacerts",
+                "$JAVA_HOME/lib/security/cacerts",
                 "-file",
                 "/opensearch.crt",
                 "-alias",
@@ -114,10 +114,10 @@ class OpensearchRelationHandler(framework.Object):
         else:
             container.remove_path("/opensearch.crt")
             command = [
-                f"{JAVA_HOME}/bin/keytool",
+                "keytool",
                 "-delete",
                 "-keystore",
-                f"{JAVA_HOME}/lib/security/cacerts",
+                "$JAVA_HOME/lib/security/cacerts",
                 "-alias",
                 CERTIFICATE_NAME,
                 "-storepass",

@@ -46,10 +46,6 @@ RANGER_PLUGIN_FILES = {
     "access-control.jinja": "access-control.properties",
 }
 
-JAVA_ENV = {
-    "JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64",
-}
-
 SECRET_LABEL = "catalog-config"  # nosec
 
 # Connector literal
@@ -105,7 +101,6 @@ CONNECTOR_FIELDS = {
     },
 }
 
-JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
 
 # OpenSearch literals
 INDEX_NAME = "ranger_audits"

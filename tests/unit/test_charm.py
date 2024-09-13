@@ -23,7 +23,6 @@ from ops.testing import Harness
 from unit.helpers import (
     DEFAULT_JVM_STRING,
     INCORRECT_CATALOG_CONFIG,
-    JAVA_HOME,
     SERVER_PORT,
     TEST_CATALOG_CONFIG,
     TEST_CATALOG_PATH,
@@ -424,7 +423,7 @@ class TestCharm(TestCase):
         harness = self.harness
         harness.add_relation("peer", "trino")
 
-        harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+        harness.handle_exec("trino", ["keytool"], result=0)
         container = harness.model.unit.get_container("trino")
         harness.handle_exec("trino", ["htpasswd"], result=0)
         harness.charm.on.trino_pebble_ready.emit(container)
@@ -458,7 +457,7 @@ def simulate_lifecycle_worker(harness):
     harness.add_relation("peer", "trino")
 
     # Simulate pebble readiness.
-    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+    harness.handle_exec("trino", ["keytool"], result=0)
     harness.handle_exec("trino", ["htpasswd"], result=0)
     harness.update_config({"charm-function": "worker"})
 
@@ -501,7 +500,7 @@ def simulate_lifecycle_coordinator(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
-    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+    harness.handle_exec("trino", ["keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
     secret_id = harness.add_model_secret(
