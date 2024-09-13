@@ -276,9 +276,7 @@ class TrinoK8SCharm(CharmBase):
             self._update_password_db(event)
             self._restart_trino()
         except Exception:
-            self.unit.status = BlockedStatus(
-                "Secret cannot be found or is incorrectly formatted."
-            )
+            logger.debug("Secret cannot be found or is incorrectly formatted.")
 
     def _restart_trino(self):
         """Restart Trino."""
@@ -438,6 +436,9 @@ class TrinoK8SCharm(CharmBase):
 
         Args:
             container: The application container.
+
+        Raises:
+            Exception: in case unable to parse catalog config.
         """
         catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
@@ -450,7 +451,13 @@ class TrinoK8SCharm(CharmBase):
         # Add catalogs from state
         if not catalog_config:
             return
-        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+
+        try:
+            certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+        except Exception as e:
+            logger.debug(f"Unable to create catalogs: {e}.")
+            raise
+
         self._add_catalogs(container, catalogs, truststore_pwd)
 
         # Add certs from state
@@ -583,7 +590,11 @@ class TrinoK8SCharm(CharmBase):
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
 
-        self._configure_catalogs(container)
+        try:
+            self._configure_catalogs(container)
+        except Exception:
+            self.unit.status = BlockedStatus("Unable to configure catalogs.")
+            return
 
         self.set_java_truststore_password(event)
         env = self._create_environment()

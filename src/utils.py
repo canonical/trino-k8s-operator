@@ -199,6 +199,9 @@ def get_catalog_files(catalog_def, backends):
 
     Returns:
         catalogs: dictionary of all catalog files.
+
+    Raises:
+        ValueError: in case connector type is not supported.
     """
     catalogs = {}
     for cat_name, cat_info in catalog_def.items():
@@ -208,6 +211,8 @@ def get_catalog_files(catalog_def, backends):
                 cat_name, cat_info, backend
             )
             catalogs.update(pg_catalogs)
+        else:
+            raise ValueError("Invalid connector type.")
     return catalogs
 
 
@@ -223,7 +228,7 @@ def create_cert_and_catalog_dicts(config):
     """
     catalogs_with_certs = yaml.safe_load(config)
     catalog_def = catalogs_with_certs.get("catalogs")
-    backends = catalogs = catalogs_with_certs.get("backends")
+    backends = catalogs_with_certs.get("backends")
     catalogs = get_catalog_files(catalog_def, backends)
     certs = catalogs_with_certs.get("certs")
     return certs, catalogs
