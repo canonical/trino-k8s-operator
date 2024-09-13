@@ -11,7 +11,6 @@ from ops.model import MaintenanceStatus
 from ops.pebble import ExecError
 
 from literals import (
-    JAVA_ENV,
     RANGER_PLUGIN_FILES,
     RANGER_PLUGIN_HOME,
     TRINO_PLUGIN_DIR,
@@ -184,7 +183,6 @@ class PolicyRelationHandler(framework.Object):
         container.exec(
             command,
             working_dir=str(self.ranger_abs_path),
-            environment=JAVA_ENV,
         ).wait()
 
     def _push_plugin_files(
@@ -239,7 +237,6 @@ class PolicyRelationHandler(framework.Object):
         container.exec(
             command,
             working_dir=str(self.ranger_abs_path),
-            environment=JAVA_ENV,
         ).wait()
 
     def restart_ranger_plugin(self, event):

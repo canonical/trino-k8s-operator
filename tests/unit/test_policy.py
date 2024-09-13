@@ -15,7 +15,6 @@ from ops.model import ActiveStatus, MaintenanceStatus
 from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
-    JAVA_HOME,
     POLICY_MGR_URL,
     RANGER_LIB,
     RANGER_PROPERTIES_PATH,
@@ -147,7 +146,7 @@ class TestPolicy(TestCase):
 
         rel_id = harness.add_relation("opensearch", "opensearch-app")
         harness.add_relation_unit(rel_id, "opensearch-app/0")
-        harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+        harness.handle_exec("trino", ["keytool"], result=0)
         event = make_relation_event(
             "opensearch", rel_id, OPENSEARCH_RELATION_CHANGED_DATA
         )
@@ -228,7 +227,7 @@ def simulate_lifecycle(harness):
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
-    harness.handle_exec("trino", [f"{JAVA_HOME}/bin/keytool"], result=0)
+    harness.handle_exec("trino", ["keytool"], result=0)
     harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     harness.add_relation("trino-coordinator", "trino-k8s-worker")
 

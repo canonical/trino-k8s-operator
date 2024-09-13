@@ -19,7 +19,6 @@ from ops.pebble import ExecError
 
 from literals import (
     CATALOG_SCHEMA,
-    JAVA_ENV,
     POSTGRESQL_BACKEND_SCHEMA,
     REPLICA_SCHEMA,
 )
@@ -271,9 +270,8 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
     Raises:
         ExecError: In case of error during keytool certificate import
     """
-    java_home = JAVA_ENV["JAVA_HOME"]
     command = [
-        f"{java_home}/bin/keytool",
+        "keytool",
         "-import",
         "-v",
         "-alias",

@@ -38,7 +38,6 @@ from literals import (
     DEFAULT_CREDENTIALS,
     DEFAULT_JVM_OPTIONS,
     INDEX_NAME,
-    JAVA_HOME,
     JMX_PORT,
     LOG_FILES,
     METRICS_PORT,
@@ -320,14 +319,14 @@ class TrinoK8SCharm(CharmBase):
             )
 
         command = [
-            f"{JAVA_HOME}/bin/keytool",
+            "keytool",
             "-storepass",
             "changeit",
             "-storepasswd",
             "-new",
             self.state.java_truststore_pwd,
             "-keystore",
-            f"{JAVA_HOME}/lib/security/cacerts",
+            "$JAVA_HOME/lib/security/cacerts",
         ]
         try:
             container.exec(command).wait_output()
