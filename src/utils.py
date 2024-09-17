@@ -13,10 +13,16 @@ import subprocess  # nosec B404
 import textwrap
 
 import yaml
+from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
 
-from literals import JAVA_ENV
+from literals import (
+    CATALOG_SCHEMA,
+    JAVA_ENV,
+    POSTGRESQL_BACKEND_SCHEMA,
+    REPLICA_SCHEMA,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +161,21 @@ def handle_exec_error(func):
     return wrapper
 
 
+def validate_keys(data, schema):
+    """Validate the catalog schema.
+
+    Args:
+        data: the provided catalog data
+        schema: the expected schema
+
+    Raise:
+        ValueError: if the catalog does not match the schema.
+    """
+    v = Validator(schema)
+    if not v.validate(data):
+        raise ValueError(f"Data does not conform to schema: {schema}")
+
+
 def create_postgresql_catalogs(cat_name, cat_info, backend):
     """Create the postgresql connector catalog files.
 
@@ -166,8 +187,10 @@ def create_postgresql_catalogs(cat_name, cat_info, backend):
     Returns:
         catalogs: the PostgreSQL catalogs.
     """
+    validate_keys(backend, POSTGRESQL_BACKEND_SCHEMA)
     catalogs = {}
     for replica_info in backend["replicas"].values():
+        validate_keys(replica_info, REPLICA_SCHEMA)
         user_name = replica_info.get("user")
         user_pwd = replica_info.get("password")
         suffix = replica_info.get("suffix", "")
@@ -205,6 +228,7 @@ def get_catalog_files(catalog_def, backends):
     """
     catalogs = {}
     for cat_name, cat_info in catalog_def.items():
+        validate_keys(cat_info, CATALOG_SCHEMA)
         backend = backends[cat_info["backend"]]
         if backend["connector"] == "postgresql":
             pg_catalogs = create_postgresql_catalogs(

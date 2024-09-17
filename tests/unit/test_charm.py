@@ -22,6 +22,7 @@ from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
     DEFAULT_JVM_STRING,
+    INCORRECT_CATALOG_CONFIG,
     JAVA_HOME,
     SERVER_PORT,
     TEST_CATALOG_CONFIG,
@@ -282,6 +283,20 @@ class TestCharm(TestCase):
         # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
         self.assertTrue(container.exists(TEST_CATALOG_PATH))
+
+    def test_catalog_invalid_config(self):
+        """The catalog directory is updated to add the new catalog."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        self.harness.update_config(
+            {"catalog-config": INCORRECT_CATALOG_CONFIG}
+        )
+
+        self.assertEqual(
+            harness.model.unit.status,
+            BlockedStatus("Invalid catalog-config schema"),
+        )
 
     def test_catalog_removed(self):
         """The catalog directory is updated to remove existing catalogs."""

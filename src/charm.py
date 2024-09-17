@@ -47,6 +47,7 @@ from literals import (
     TRINO_HOME,
     TRINO_PLUGIN_DIR,
     TRINO_PORTS,
+    USER_SECRET_LABEL,
 )
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
@@ -272,11 +273,16 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
+        if not event.secret.label == USER_SECRET_LABEL:
+            return
+
         try:
             self._update_password_db(event)
             self._restart_trino()
         except Exception:
-            logger.debug("Secret cannot be found or is incorrectly formatted.")
+            self.unit.status = BlockedStatus(
+                "Secret cannot be found or is incorrectly formatted."
+            )
 
     def _restart_trino(self):
         """Restart Trino."""
@@ -593,7 +599,7 @@ class TrinoK8SCharm(CharmBase):
         try:
             self._configure_catalogs(container)
         except Exception:
-            self.unit.status = BlockedStatus("Unable to configure catalogs.")
+            self.unit.status = BlockedStatus("Invalid catalog-config schema")
             return
 
         self.set_java_truststore_password(event)

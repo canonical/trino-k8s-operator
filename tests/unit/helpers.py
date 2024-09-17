@@ -37,6 +37,37 @@ certs:
         CERTIFICATE CONTENT...
         -----END CERTIFICATE-----
 """
+INCORRECT_CATALOG_CONFIG = """\
+catalogs:
+  example:
+    database: example
+  updated-db:
+    backend: dwh
+    database: updated-db
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://example.com:5432
+    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    replicas:
+      rw:
+        user: trino
+        password: pwd1
+        suffix: _developer
+      ro:
+        user: trino_ro
+        password: pwd2
+    config: |
+      case-insensitive-name-matching=true
+      decimal-mapping=allow_overflow
+      decimal-rounding-mode=HALF_UP
+certs:
+    example-cert: |
+        -----BEGIN CERTIFICATE-----
+        CERTIFICATE CONTENT...
+        -----END CERTIFICATE-----
+"""
+
 UPDATED_CATALOG_CONFIG = """\
 catalogs:
   updated:
