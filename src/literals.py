@@ -121,3 +121,44 @@ DEFAULT_JVM_OPTIONS = [
     "-Djdk.attach.allowAttachSelf=true",
     "-Dfile.encoding=UTF-8",
 ]
+USER_SECRET_LABEL = "trino-user-management"  # nosec
+CATALOG_SCHEMA = {
+    "backend": {"type": "string"},
+    "database": {"type": "string"},
+}
+
+POSTGRESQL_BACKEND_SCHEMA = {
+    "connector": {"type": "string"},
+    "url": {"type": "string"},
+    "params": {"type": "string"},
+    "replicas": {
+        "type": "dict",
+        "schema": {
+            "rw": {
+                "type": "dict",
+                "schema": {
+                    "user": {"type": "string"},
+                    "password": {"type": "string"},
+                    "suffix": {"type": "string", "nullable": True},
+                },
+                "required": False,
+            },
+            "ro": {
+                "type": "dict",
+                "schema": {
+                    "user": {"type": "string"},
+                    "password": {"type": "string"},
+                    "suffix": {"type": "string", "nullable": True},
+                },
+                "required": False,
+            },
+        },
+    },
+    "config": {"type": "string", "nullable": True},
+}
+
+REPLICA_SCHEMA = {
+    "user": {"type": "string"},
+    "password": {"type": "string"},
+    "suffix": {"type": "string", "nullable": True},
+}

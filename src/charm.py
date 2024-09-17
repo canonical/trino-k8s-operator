@@ -47,6 +47,7 @@ from literals import (
     TRINO_HOME,
     TRINO_PLUGIN_DIR,
     TRINO_PORTS,
+    USER_SECRET_LABEL,
 )
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
@@ -272,6 +273,9 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
+        if not event.secret.label == USER_SECRET_LABEL:
+            return
+
         try:
             self._update_password_db(event)
             self._restart_trino()
@@ -438,6 +442,9 @@ class TrinoK8SCharm(CharmBase):
 
         Args:
             container: The application container.
+
+        Raises:
+            Exception: in case unable to parse catalog config.
         """
         catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
@@ -450,7 +457,13 @@ class TrinoK8SCharm(CharmBase):
         # Add catalogs from state
         if not catalog_config:
             return
-        certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+
+        try:
+            certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
+        except Exception as e:
+            logger.debug(f"Unable to create catalogs: {e}.")
+            raise
+
         self._add_catalogs(container, catalogs, truststore_pwd)
 
         # Add certs from state
@@ -583,7 +596,11 @@ class TrinoK8SCharm(CharmBase):
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
 
-        self._configure_catalogs(container)
+        try:
+            self._configure_catalogs(container)
+        except Exception:
+            self.unit.status = BlockedStatus("Invalid catalog-config schema")
+            return
 
         self.set_java_truststore_password(event)
         env = self._create_environment()

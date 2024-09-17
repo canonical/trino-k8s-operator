@@ -62,16 +62,31 @@ The below is an example of the `catalog_config.yaml`, which connects 1 postgresq
 ### The config file
 ```
 catalogs:
-  production_db: |
-    connector.name=postgresql
-    connection-url=jdbc:postgresql://host:port/db?ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-    connection-user=user
-    connection-password=password
-  staging_db: |
-    connector.name=postgresql
-    connection-url=jdbc:postgresql://host:port/staging_db
-    connection-user=user
-    connection-password=password
+  example: 
+    backend: dwh
+    database: example  
+  another-example:
+    backend: dwh
+    database: another-db
+
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://host.example.com:5432
+    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    replicas:
+      rw: 
+        user: trino
+        password: pwd1
+        suffix: _developer
+      ro:
+        user: trino_ro
+        password: pwd2
+    config: |
+      case-insensitive-name-matching=true
+      decimal-mapping=allow_overflow
+      decimal-rounding-mode=HALF_UP
+
 certs:
   production_cert: |
     -----BEGIN CERTIFICATE-----

@@ -43,24 +43,37 @@ EXAMPLE_CATALOG_NAME = "example-db"
 TEMP_CATALOG_NAME = "temp-db"
 TEMP_CATALOG_CONFIG = """\
 catalogs:
-    temp-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/temp-db
-        connection-user=testing
-        connection-password=test
+  temp-db:
+    backend: dwh
+    database: temp-db
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://host.com:5432
+    replicas:
+      ro:
+        user: testing
+        password: test
 """
+
+
 CATALOG_CONFIG = """\
 catalogs:
-    example-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/database
-        connection-user=testing
-        connection-password=test
-    temp-db: |
-        connector.name=postgresql
-        connection-url=jdbc:postgresql://host.com:5432/temp-db
-        connection-user=testing
-        connection-password=test
+  example-db:
+    backend: dwh
+    database: example-db
+  temp-db:
+    backend: dwh
+    database: temp-db
+
+backends:
+  dwh:
+    connector: postgresql
+    url: jdbc:postgresql://host.com:5432
+    replicas:
+      ro:
+        user: testing
+        password: test
 """
 
 CATALOG_QUERY = "SHOW CATALOGS"
