@@ -121,8 +121,7 @@ DEFAULT_JVM_OPTIONS = [
     "-Djdk.attach.allowAttachSelf=true",
     "-Dfile.encoding=UTF-8",
 ]
-USER_SECRET_LABEL = "trino-user-management"
-
+USER_SECRET_LABEL = "trino-user-management"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string"},
