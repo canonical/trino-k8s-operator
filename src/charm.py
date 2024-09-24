@@ -318,6 +318,10 @@ class TrinoK8SCharm(CharmBase):
                 self.state.java_truststore_pwd or generate_password()
             )
 
+        out, _ = container.exec(
+            ["/bin/sh", "-c", "echo $JAVA_HOME"]
+        ).wait_output()
+        java_home = out.strip()
         command = [
             "keytool",
             "-storepass",
@@ -326,7 +330,7 @@ class TrinoK8SCharm(CharmBase):
             "-new",
             self.state.java_truststore_pwd,
             "-keystore",
-            "$JAVA_HOME/lib/security/cacerts",
+            f"{java_home}/lib/security/cacerts",
         ]
         try:
             container.exec(command).wait_output()
@@ -459,8 +463,8 @@ class TrinoK8SCharm(CharmBase):
 
         try:
             certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
-        except Exception as e:
-            logger.debug(f"Unable to create catalogs: {e}.")
+        except Exception:
+            logger.debug("Unable to create catalogs.")
             raise
 
         self._add_catalogs(container, catalogs, truststore_pwd)
