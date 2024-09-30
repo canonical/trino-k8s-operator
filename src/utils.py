@@ -17,11 +17,7 @@ from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
 
-from literals import (
-    CATALOG_SCHEMA,
-    POSTGRESQL_BACKEND_SCHEMA,
-    REPLICA_SCHEMA,
-)
+from literals import CATALOG_SCHEMA, POSTGRESQL_BACKEND_SCHEMA, REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
