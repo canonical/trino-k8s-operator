@@ -94,7 +94,6 @@ WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 WORKER_CONFIG = {"charm-function": "worker"}
 COORDINATOR_CONFIG = {
     "charm-function": "coordinator",
-    "catalog-config": TEMP_CATALOG_CONFIG,
 }
 
 
