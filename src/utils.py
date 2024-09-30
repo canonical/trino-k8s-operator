@@ -12,16 +12,11 @@ import string
 import subprocess  # nosec B404
 import textwrap
 
-import yaml
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
 
-from literals import (
-    BIGQUERY_BACKEND_SCHEMA,
-    POSTGRESQL_BACKEND_SCHEMA,
-    REPLICA_SCHEMA,
-)
+from literals import REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -175,23 +170,19 @@ def validate_keys(data, schema):
         raise ValueError(f"Data does not conform to schema: {schema}")
 
 
-def create_postgresql_catalog(name, info, backend, secret):
+def create_postgresql_properties(name, info, backend, replicas):
     """Create the postgresql connector catalog files.
 
     Args:
         name: the catalog name.
         info: the templated configuration values.
         backend: the db configuration values.
-        secret: the juju secret content.
+        replicas: the ro and rw replicas.
 
     Returns:
         catalogs: the PostgreSQL catalogs.
     """
-    validate_keys(backend, POSTGRESQL_BACKEND_SCHEMA)
-    replicas = yaml.safe_load(secret["replicas"])
-    cert = yaml.safe_load(secret["cert"])
     catalogs = {}
-
     for replica in replicas.values():
         validate_keys(replica, REPLICA_SCHEMA)
         user_name = replica["user"]
@@ -213,36 +204,33 @@ def create_postgresql_catalog(name, info, backend, secret):
         )
         catalog_content += backend.get("config", "")
         catalogs[file_name] = catalog_content
-    return catalogs, cert
+    return catalogs
 
 
-def create_bigquery_catalog(name, info, backend, secret):
+def create_bigquery_properties(name, info, backend, sa_creds_path):
     """Create the bigquery connector catalog files.
 
     Args:
         name: the catalog name.
         info: the templated configuration values.
         backend: the db configuration values.
-        secret: service account credentials.
+        sa_creds_path: the path of the service account credentials.
 
     Returns:
-        catalogs: the bigquery catalogs.
+        catalog: the bigquery catalogs.
     """
-    validate_keys(backend, BIGQUERY_BACKEND_SCHEMA)
     catalog = {}
 
-    service_accounts = yaml.safe_load(secret["service-accounts"])
-    sa_creds = service_accounts[info["project"]]
     catalog_content = textwrap.dedent(
         f"""\
-        connector.name={backend['connector']}
-        bigquery.project-id={info['project']}
-        bigquery.credentials-key={sa_creds}
-        """
+    connector.name={backend['connector']}
+    bigquery.project-id={info['project']}
+    bigquery.credentials-file={sa_creds_path}
+    """
     )
     catalog_content += backend.get("config", "")
     catalog[name] = catalog_content
-    return catalog, None
+    return catalog
 
 
 def add_cert_to_truststore(container, name, cert, storepass, conf_path):

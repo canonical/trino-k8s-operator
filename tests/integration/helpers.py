@@ -39,42 +39,31 @@ POSTGRES_NAME = "postgresql-k8s"
 NGINX_NAME = "nginx-ingress-integrator"
 
 # Database configuration literals
-EXAMPLE_CATALOG_NAME = "example-db"
-TEMP_CATALOG_NAME = "temp-db"
-TEMP_CATALOG_CONFIG = """\
-catalogs:
-  temp-db:
-    backend: dwh
-    database: temp-db
-backends:
-  dwh:
-    connector: postgresql
-    url: jdbc:postgresql://host.com:5432
-    replicas:
-      ro:
-        user: testing
-        password: test
-"""
-
-
-CATALOG_CONFIG = """\
-catalogs:
-  example-db:
-    backend: dwh
-    database: example-db
-  temp-db:
-    backend: dwh
-    database: temp-db
-
-backends:
-  dwh:
-    connector: postgresql
-    url: jdbc:postgresql://host.com:5432
-    replicas:
-      ro:
-        user: testing
-        password: test
-"""
+BIGQUERY_SECRET = """\
+project-12345: |
+    {
+  "type": "service_account",
+  "project_id": "example-project",
+  "private_key_id": "key123",
+  "private_key": "-----BEGIN PRIVATE KEY-----dhQfcPA9zu\n-----END PRIVATE KEY-----\n",
+  "client_email": "test-380@example-project.iam.gserviceaccount.com",
+  "client_id": "12345",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+"""  #nosec
+POSTGRESQL_REPLICA_SECRET = """\
+rw:
+  user: trino
+  password: pwd1
+  suffix: _developer
+ro:
+  user: trino_ro
+  password: pwd2
+"""  #nosec
 
 CATALOG_QUERY = "SHOW CATALOGS"
 TRINO_USER = "trino"
@@ -314,3 +303,103 @@ async def curl_unit_ip(ops_test):
 
     response = requests.get(url, timeout=300, verify=False)  # nosec
     return response
+
+
+async def add_postgresql_juju_secret(ops_test: OpsTest):
+    """Add Juju user secret to model.
+
+    Args:
+        ops_test: PyTest object.
+
+    Returns:
+        secret ID of created secret.
+    """
+    juju_secret = await ops_test.model.add_secret(
+        name="postgresql-secret",
+        data_args=[f"replicas={POSTGRESQL_REPLICA_SECRET}"],
+    )
+
+    secret_id = juju_secret.split(":")[-1]
+    return secret_id
+
+
+async def add_bigquery_juju_secret(ops_test: OpsTest):
+    """Add Juju user secret to model.
+
+    Args:
+        ops_test: PyTest object.
+
+    Returns:
+        secret ID of created secret.
+    """
+    juju_secret = await ops_test.model.add_secret(
+        name="bigquery-secret",
+        data_args=[f"service-accounts={BIGQUERY_SECRET}"],
+    )
+
+    secret_id = juju_secret.split(":")[-1]
+    return secret_id
+
+
+def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
+    """Create and return catalog-config value.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        bigquery_secret_id: the juju secret id for bigquery
+
+    Returns:
+        the catalog configuration.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        bigquery:
+            backend: bigquery
+            project: project-12345
+            secret-id: {bigquery_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        bigquery:
+            connector: bigquery
+            config: |
+                bigquery.case-insensitive-name-matching=true
+    """
+
+
+def create_reduced_catalog_config(postgresql_secret_id, bigquery_secret_id):
+    """Create and return catalog-config value.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        bigquery_secret_id: the juju secret id for bigquery
+
+    Returns:
+        the catalog configuration.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+    """
