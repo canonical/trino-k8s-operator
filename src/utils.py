@@ -18,7 +18,7 @@ from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
 
 from literals import (
-    CATALOG_SCHEMA,
+    BIGQUERY_BACKEND_SCHEMA,
     POSTGRESQL_BACKEND_SCHEMA,
     REPLICA_SCHEMA,
 )
@@ -175,27 +175,31 @@ def validate_keys(data, schema):
         raise ValueError(f"Data does not conform to schema: {schema}")
 
 
-def create_postgresql_catalogs(cat_name, cat_info, backend):
+def create_postgresql_catalog(name, info, backend, secret):
     """Create the postgresql connector catalog files.
 
     Args:
-        cat_name: catalog name.
-        cat_info: the templated configuration values.
+        name: the catalog name.
+        info: the templated configuration values.
         backend: the db configuration values.
+        secret: the juju secret content.
 
     Returns:
         catalogs: the PostgreSQL catalogs.
     """
     validate_keys(backend, POSTGRESQL_BACKEND_SCHEMA)
+    replicas = yaml.safe_load(secret["replicas"])
+    cert = yaml.safe_load(secret["cert"])
     catalogs = {}
-    for replica_info in backend["replicas"].values():
-        validate_keys(replica_info, REPLICA_SCHEMA)
-        user_name = replica_info.get("user")
-        user_pwd = replica_info.get("password")
-        suffix = replica_info.get("suffix", "")
-        catalog_name = f"{cat_name}{suffix}"
 
-        url = f"{backend['url']}/{cat_info['database']}"
+    for replica in replicas.values():
+        validate_keys(replica, REPLICA_SCHEMA)
+        user_name = replica["user"]
+        user_pwd = replica["password"]
+        suffix = replica.get("suffix", "")
+
+        file_name = f"{name}{suffix}"
+        url = f"{backend['url']}/{info['database']}"
         if backend.get("params"):
             url = f"{url}?{backend['params']}"
 
@@ -208,53 +212,37 @@ def create_postgresql_catalogs(cat_name, cat_info, backend):
         """
         )
         catalog_content += backend.get("config", "")
-        catalogs[catalog_name] = catalog_content
-    return catalogs
+        catalogs[file_name] = catalog_content
+    return catalogs, cert
 
 
-def get_catalog_files(catalog_def, backends):
-    """Prepare the catalog files for all connectors.
-
-    Args:
-        catalog_def: the catalog definition.
-        backends: the templated backednds.
-
-    Returns:
-        catalogs: dictionary of all catalog files.
-
-    Raises:
-        ValueError: in case connector type is not supported.
-    """
-    catalogs = {}
-    for cat_name, cat_info in catalog_def.items():
-        validate_keys(cat_info, CATALOG_SCHEMA)
-        backend = backends[cat_info["backend"]]
-        if backend["connector"] == "postgresql":
-            pg_catalogs = create_postgresql_catalogs(
-                cat_name, cat_info, backend
-            )
-            catalogs.update(pg_catalogs)
-        else:
-            raise ValueError("Invalid connector type.")
-    return catalogs
-
-
-def create_cert_and_catalog_dicts(config):
-    """Identify certs and connection values from config.
+def create_bigquery_catalog(name, info, backend, secret):
+    """Create the bigquery connector catalog files.
 
     Args:
-        config: the catalog-config file content.
+        name: the catalog name.
+        info: the templated configuration values.
+        backend: the db configuration values.
+        secret: service account credentials.
 
     Returns:
-        certs: dictionary of certificates.
-        catalogs: dictionary of catalog values.
+        catalogs: the bigquery catalogs.
     """
-    catalogs_with_certs = yaml.safe_load(config)
-    catalog_def = catalogs_with_certs.get("catalogs")
-    backends = catalogs_with_certs.get("backends")
-    catalogs = get_catalog_files(catalog_def, backends)
-    certs = catalogs_with_certs.get("certs")
-    return certs, catalogs
+    validate_keys(backend, BIGQUERY_BACKEND_SCHEMA)
+    catalog = {}
+
+    service_accounts = yaml.safe_load(secret["service-accounts"])
+    sa_creds = service_accounts[info["project"]]
+    catalog_content = textwrap.dedent(
+        f"""\
+        connector.name={backend['connector']}
+        bigquery.project-id={info['project']}
+        bigquery.credentials-key={sa_creds}
+        """
+    )
+    catalog_content += backend.get("config", "")
+    catalog[name] = catalog_content
+    return catalog, None
 
 
 def add_cert_to_truststore(container, name, cert, storepass, conf_path):

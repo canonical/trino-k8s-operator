@@ -4,106 +4,40 @@
 
 """Literals used by the Trino K8s charm unit tests."""
 
-
 SERVER_PORT = "8080"
-TEST_CATALOG_CONFIG = """\
-catalogs:
-  example:
-    backend: dwh
-    database: example
-  updated-db:
-    backend: dwh
-    database: updated-db
-backends:
-  dwh:
-    connector: postgresql
-    url: jdbc:postgresql://example.com:5432
-    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-    replicas:
-      rw:
-        user: trino
-        password: pwd1
-        suffix: _developer
-      ro:
-        user: trino_ro
-        password: pwd2
-    config: |
-      case-insensitive-name-matching=true
-      decimal-mapping=allow_overflow
-      decimal-rounding-mode=HALF_UP
-certs:
-    example-cert: |
-        -----BEGIN CERTIFICATE-----
-        CERTIFICATE CONTENT...
-        -----END CERTIFICATE-----
+
+BIGQUERY_SECRET = """\
+project-12345: |
+  base64encodedserviceaccountcredentials
 """
-INCORRECT_CATALOG_CONFIG = """\
-catalogs:
-  example:
-    database: example
-  updated-db:
-    backend: dwh
-    database: updated-db
-backends:
-  dwh:
-    connector: postgresql
-    url: jdbc:postgresql://example.com:5432
-    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-    replicas:
-      rw:
-        user: trino
-        password: pwd1
-        suffix: _developer
-      ro:
-        user: trino_ro
-        password: pwd2
-    config: |
-      case-insensitive-name-matching=true
-      decimal-mapping=allow_overflow
-      decimal-rounding-mode=HALF_UP
-certs:
-    example-cert: |
-        -----BEGIN CERTIFICATE-----
-        CERTIFICATE CONTENT...
-        -----END CERTIFICATE-----
+POSTGRESQL_REPLICA_SECRET = """\
+rw:
+  user: trino
+  password: pwd1
+  suffix: _developer
+ro:
+  user: trino_ro
+  password: pwd2
+"""
+POSTGRESQL_REPLICA_CERT = """\
+cert: |
+  -----BEGIN CERTIFICATE-----
+      CERTIFICATE CONTENT...
+  -----END CERTIFICATE-----
 """
 
-UPDATED_CATALOG_CONFIG = """\
-catalogs:
-  updated:
-    backend: dwh
-    database: updated-db
-backends:
-  dwh:
-    connector: postgresql
-    url: jdbc:postgresql://updated.com:5432
-    params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-    replicas:
-      rw:
-        user: trino
-        password: pwd1
-        suffix: _developer
-      ro:
-        user: trino_ro
-        password: pwd2
-    config: |
-      case-insensitive-name-matching=true
-      decimal-mapping=allow_overflow
-      decimal-rounding-mode=HALF_UP
-certs:
-    example-cert: |
-        -----BEGIN CERTIFICATE-----
-        CERTIFICATE CONTENT...
-        -----END CERTIFICATE-----
-"""
-TEST_CATALOG_PATH = "/usr/lib/trino/etc/catalog/example.properties"
-UPDATED_CATALOG_PATH = "/usr/lib/trino/etc/catalog/updated.properties"
+POSTGRESQL_1_CATALOG_PATH = (
+    "/usr/lib/trino/etc/catalog/postgresql-1.properties"
+)
+POSTGRESQL_2_CATALOG_PATH = (
+    "/usr/lib/trino/etc/catalog/postgresql-2.properties"
+)
+BIGQUERY_CATALOG_PATH = "/usr/lib/trino/etc/catalog/bigquery.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 
 RANGER_LIB = "/usr/lib/ranger"
 
-JAVA_HOME = "/usr/lib/jvm/java-21-openjdk-amd64"
 TEST_USERS = """\
     example_user: ubuntu123
     another_user: ubuntu345
