@@ -574,6 +574,12 @@ def simulate_lifecycle_coordinator(harness):
     harness.handle_exec(
         "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
     )
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    # Add worker and coordinator relation
+    harness.handle_exec("trino", ["keytool"], result=0)
+    harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
+    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
     secret_id = harness.add_model_secret(
         "trino-k8s",
         {"users": TEST_USERS},

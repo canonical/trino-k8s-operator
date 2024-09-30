@@ -219,6 +219,9 @@ def simulate_lifecycle(harness):
     # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
     harness.handle_exec("trino", ["htpasswd"], result=0)
+    harness.handle_exec(
+        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+    )
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
