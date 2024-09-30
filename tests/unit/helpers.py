@@ -9,18 +9,18 @@ SERVER_PORT = "8080"
 BIGQUERY_SECRET = """\
 project-12345: |
     {
-  "type": "service_account",
-  "project_id": "example-project",
-  "private_key_id": "key123",
-  "private_key": "-----BEGIN PRIVATE KEY-----dhQfcPA9zu\n-----END PRIVATE KEY-----\n",
-  "client_email": "test-380@example-project.iam.gserviceaccount.com",
-  "client_id": "12345",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-}
+      "type": "service_account",
+      "project_id": "example-project",
+      "private_key_id": "key123",
+      "private_key": "-----BEGIN PRIVATE KEY-----\\ndhQfcPA9zu\\n-----END PRIVATE KEY-----\\n",
+      "client_email": "test-380@example-project.iam.gserviceaccount.com",
+      "client_id": "12345",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
+      "universe_domain": "googleapis.com"
+    }
 """  #nosec
 POSTGRESQL_REPLICA_SECRET = """\
 rw:
