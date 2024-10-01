@@ -317,7 +317,7 @@ class TestCharm(TestCase):
 
         self.assertEqual(
             harness.model.unit.status,
-            BlockedStatus("Invalid catalog-config schema"),
+            BlockedStatus("Unable to configure catalogs."),
         )
 
     def test_catalog_removed(self):

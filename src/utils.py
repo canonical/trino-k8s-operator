@@ -170,12 +170,12 @@ def validate_keys(data, schema):
         raise ValueError(f"Data does not conform to schema: {schema}")
 
 
-def create_postgresql_properties(name, info, backend, replicas):
+def create_postgresql_properties(cat_name, cat_info, backend, replicas):
     """Create the postgresql connector catalog files.
 
     Args:
-        name: the catalog name.
-        info: the templated configuration values.
+        cat_name: catalog name.
+        cat_info: the templated configuration values.
         backend: the db configuration values.
         replicas: the ro and rw replicas.
 
@@ -183,14 +183,14 @@ def create_postgresql_properties(name, info, backend, replicas):
         catalogs: the PostgreSQL catalogs.
     """
     catalogs = {}
-    for replica in replicas.values():
-        validate_keys(replica, REPLICA_SCHEMA)
-        user_name = replica["user"]
-        user_pwd = replica["password"]
-        suffix = replica.get("suffix", "")
+    for replica_info in replicas.values():
+        validate_keys(replica_info, REPLICA_SCHEMA)
+        user_name = replica_info.get("user")
+        user_pwd = replica_info.get("password")
+        suffix = replica_info.get("suffix", "")
 
-        file_name = f"{name}{suffix}"
-        url = f"{backend['url']}/{info['database']}"
+        catalog_name = f"{cat_name}{suffix}"
+        url = f"{backend['url']}/{cat_info['database']}"
         if backend.get("params"):
             url = f"{url}?{backend['params']}"
 
@@ -203,7 +203,7 @@ def create_postgresql_properties(name, info, backend, replicas):
         """
         )
         catalog_content += backend.get("config", "")
-        catalogs[file_name] = catalog_content
+        catalogs[catalog_name] = catalog_content
     return catalogs
 
 

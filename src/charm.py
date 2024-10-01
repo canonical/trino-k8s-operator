@@ -420,7 +420,7 @@ class TrinoK8SCharm(CharmBase):
                 make_dirs=True,
             )
 
-    def _add_cert(self, truststore_pwd, certs):
+    def _add_certs(self, truststore_pwd, certs):
         """Prepare and add certificates to Trino truststore.
 
         Args:
@@ -485,7 +485,7 @@ class TrinoK8SCharm(CharmBase):
         certs = yaml.safe_load(secret.get("cert", ""))
 
         # Add certs to truststore
-        self._add_cert(truststore_pwd, certs)
+        self._add_certs(truststore_pwd, certs)
 
         # Create and add catalog
         catalogs = create_postgresql_properties(name, info, backend, replicas)
@@ -711,9 +711,8 @@ class TrinoK8SCharm(CharmBase):
 
         try:
             self._configure_catalogs(event)
-        except Exception as e:
-            logger.debug(f"Unable to configure catalogs: {e}")
-            self.unit.status = BlockedStatus("Invalid catalog-config schema")
+        except Exception:
+            self.unit.status = BlockedStatus("Unable to configure catalogs.")
             return
 
         self.set_java_truststore_password(event)
