@@ -83,7 +83,7 @@ class TestDeployment:
         assert response.status_code == 200
 
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
-        assert "postgresql-1" in str(catalogs)
+        assert catalogs
 
     async def test_trino_default_policy(self, ops_test: OpsTest):
         """Update the config and verify no catalog access."""

@@ -506,8 +506,9 @@ class TrinoK8SCharm(CharmBase):
 
         # Load secret content
         secret = self._get_secret_content(info["secret-id"])
-        service_accounts = yaml.safe_load(secret["service-accounts"])
-        sa_string = service_accounts[info["project"]]
+        service_accounts = secret["service-accounts"]
+        sa_dict = yaml.safe_load(service_accounts)
+        sa_string = sa_dict[info["project"]]
 
         # Add service-account
         sa_creds_path = self.conf_abs_path.joinpath(f"{name}.json")
@@ -548,6 +549,9 @@ class TrinoK8SCharm(CharmBase):
 
         Args:
             event: The juju event.
+
+        Raises:
+            Exception: in case of error adding catalog.
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
@@ -575,7 +579,11 @@ class TrinoK8SCharm(CharmBase):
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
             catalog_creator = self._map_connectors(backend)
-            catalog_creator(truststore_pwd, name, info, backend)
+            try:
+                catalog_creator(truststore_pwd, name, info, backend)
+            except Exception as e:
+                logger.error(f"Unable to add catalog {name!r}: {e}")
+                raise
 
     def _configure_trino(self, container, env):
         """Add the files needed to configure Trino to the Trino home directory.
