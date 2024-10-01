@@ -341,7 +341,7 @@ async def add_bigquery_juju_secret(ops_test: OpsTest):
     return secret_id
 
 
-def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
+async def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
     """Create and return catalog-config value.
 
     Args:
@@ -377,7 +377,7 @@ def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
     """
 
 
-def create_reduced_catalog_config(postgresql_secret_id, bigquery_secret_id):
+async def create_reduced_catalog_config(postgresql_secret_id, bigquery_secret_id):
     """Create and return catalog-config value.
 
     Args:
