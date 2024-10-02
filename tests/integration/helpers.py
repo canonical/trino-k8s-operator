@@ -305,12 +305,12 @@ async def curl_unit_ip(ops_test):
     return response
 
 
-async def add_juju_secret(ops_test: OpsTest, secret_type: str):
+async def add_juju_secret(ops_test: OpsTest, connector_type: str):
     """Add Juju user secret to model.
 
     Args:
         ops_test: PyTest object.
-        secret_type: Type of secret to add ('postgresql' or 'bigquery').
+        connector_type: Type of secret to add ('postgresql' or 'bigquery').
 
     Returns:
         secret ID of created secret.
@@ -318,15 +318,15 @@ async def add_juju_secret(ops_test: OpsTest, secret_type: str):
     Raises:
         ValueError: in case connector is not supported.
     """
-    if secret_type == "postgresql":
-        data_args = [f"replicas={POSTGRESQL_REPLICA_SECRET}"]
-    elif secret_type == "bigquery":
-        data_args = [f"service-accounts={BIGQUERY_SECRET}"]
+    if connector_type == "postgresql":
+        data_args = [f"replicas={POSTGRESQL_REPLICA_SECRET}"]  # nosec
+    elif connector_type == "bigquery":
+        data_args = [f"service-accounts={BIGQUERY_SECRET}"]  # nosec
     else:
-        raise ValueError(f"Unsupported secret type: {secret_type}")
+        raise ValueError(f"Unsupported secret type: {connector_type}")
 
     juju_secret = await ops_test.model.add_secret(
-        name=f"{secret_type}-secret", data_args=data_args
+        name=f"{connector_type}-secret", data_args=data_args
     )
 
     secret_id = juju_secret.split(":")[-1]
