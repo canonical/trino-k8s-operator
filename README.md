@@ -110,7 +110,7 @@ juju grant-secret <secret-id> trino-k8s-worker
 
 ### The config file
 To add or remove catalogs the configuration parameter `catalog-config` should be updated.
-The below is an example of the `catalog_config.yaml`. It lists the catalogs to add, and points to a juju secret in which the credntials are stored. Any commonality is included as part of the `backend` these configuration properties will be applied to all catalogs with the same backend.
+The below is an example of the `catalog_config.yaml`. It lists the catalogs to add, and points to a juju secret in which the credentials are stored. Any commonality is included as part of the `backend` these configuration properties will be applied to all catalogs with the same backend.
 ```
 catalogs:
   example: 

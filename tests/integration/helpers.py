@@ -305,67 +305,69 @@ async def curl_unit_ip(ops_test):
     return response
 
 
-async def add_postgresql_juju_secret(ops_test: OpsTest):
+async def add_juju_secret(ops_test: OpsTest, secret_type: str):
     """Add Juju user secret to model.
 
     Args:
         ops_test: PyTest object.
+        secret_type: Type of secret to add ('postgresql' or 'bigquery').
 
     Returns:
         secret ID of created secret.
+
+    Raises:
+        ValueError: in case connector is not supported.
     """
+    if secret_type == "postgresql":
+        data_args = [f"replicas={POSTGRESQL_REPLICA_SECRET}"]
+    elif secret_type == "bigquery":
+        data_args = [f"service-accounts={BIGQUERY_SECRET}"]
+    else:
+        raise ValueError(f"Unsupported secret type: {secret_type}")
+
     juju_secret = await ops_test.model.add_secret(
-        name="postgresql-secret",
-        data_args=[f"replicas={POSTGRESQL_REPLICA_SECRET}"],
+        name=f"{secret_type}-secret", data_args=data_args
     )
 
     secret_id = juju_secret.split(":")[-1]
     return secret_id
 
 
-async def add_bigquery_juju_secret(ops_test: OpsTest):
-    """Add Juju user secret to model.
-
-    Args:
-        ops_test: PyTest object.
-
-    Returns:
-        secret ID of created secret.
-    """
-    juju_secret = await ops_test.model.add_secret(
-        name="bigquery-secret",
-        data_args=[f"service-accounts={BIGQUERY_SECRET}"],
-    )
-
-    secret_id = juju_secret.split(":")[-1]
-    return secret_id
-
-
-async def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
+async def create_catalog_config(
+    postgresql_secret_id, bigquery_secret_id, include_bigquery=True
+):
     """Create and return catalog-config value.
 
     Args:
         postgresql_secret_id: the juju secret id for postgresql
         bigquery_secret_id: the juju secret id for bigquery
+        include_bigquery: flag to indicate if bigquery configuration should be included.
 
     Returns:
         the catalog configuration.
     """
-    return f"""\
+    catalog_config = f"""\
     catalogs:
         postgresql-1:
             backend: dwh
             database: example
             secret-id: {postgresql_secret_id}
+    """
+
+    if include_bigquery:
+        catalog_config += f"""\
         bigquery:
             backend: bigquery
             project: project-12345
             secret-id: {bigquery_secret_id}
+    """
+
+    backend_config = """\
     backends:
         dwh:
             connector: postgresql
             url: jdbc:postgresql://example.com:5432
-            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
             config: |
                 case-insensitive-name-matching=true
                 decimal-mapping=allow_overflow
@@ -375,33 +377,4 @@ async def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
             config: |
                 bigquery.case-insensitive-name-matching=true
     """
-
-
-async def create_reduced_catalog_config(
-    postgresql_secret_id, bigquery_secret_id
-):
-    """Create and return catalog-config value.
-
-    Args:
-        postgresql_secret_id: the juju secret id for postgresql
-        bigquery_secret_id: the juju secret id for bigquery
-
-    Returns:
-        the catalog configuration.
-    """
-    return f"""\
-    catalogs:
-        postgresql-1:
-            backend: dwh
-            database: example
-            secret-id: {postgresql_secret_id}
-    backends:
-        dwh:
-            connector: postgresql
-            url: jdbc:postgresql://example.com:5432
-            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
-            config: |
-                case-insensitive-name-matching=true
-                decimal-mapping=allow_overflow
-                decimal-rounding-mode=HALF_UP
-    """
+    return catalog_config + backend_config

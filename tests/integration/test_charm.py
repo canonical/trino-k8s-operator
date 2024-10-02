@@ -11,10 +11,8 @@ from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
     TRINO_USER,
-    add_bigquery_juju_secret,
-    add_postgresql_juju_secret,
+    add_juju_secret,
     create_catalog_config,
-    create_reduced_catalog_config,
     curl_unit_ip,
     get_catalogs,
     simulate_crash_and_restart,
@@ -43,15 +41,15 @@ class TestDeployment:
 
     async def test_catalog_config(self, ops_test: OpsTest):
         """Adds a PostgreSQL and BigQuery connector and asserts catalogs added."""
-        postgresql_secret_id = await add_postgresql_juju_secret(ops_test)
-        bigquery_secret_id = await add_bigquery_juju_secret(ops_test)
+        postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
+        bigquery_secret_id = await add_juju_secret(ops_test, "bigquery")
 
         for app in ["trino-k8s", "trino-k8s-worker"]:
             await ops_test.model.grant_secret("postgresql-secret", app)
             await ops_test.model.grant_secret("bigquery-secret", app)
 
         catalog_config = await create_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, True
         )
         catalogs = await update_catalog_config(
             ops_test, catalog_config, TRINO_USER
@@ -61,9 +59,10 @@ class TestDeployment:
         assert "postgresql-1" in str(catalogs)
         assert "bigquery" in str(catalogs)
 
-        updated_catalog_config = await create_reduced_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+        updated_catalog_config = await create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id, False
         )
+
         catalogs = await update_catalog_config(
             ops_test, updated_catalog_config, TRINO_USER
         )

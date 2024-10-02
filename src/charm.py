@@ -31,8 +31,8 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError
 
+from catalog_manager import BigqueryCatalog, PostgresqlCatalog
 from literals import (
-    BIGQUERY_BACKEND_SCHEMA,
     CATALOG_DIR,
     CATALOG_SCHEMA,
     CONF_DIR,
@@ -44,7 +44,6 @@ from literals import (
     LOG_FILES,
     METRICS_PORT,
     PASSWORD_DB,
-    POSTGRESQL_BACKEND_SCHEMA,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
     TRINO_PLUGIN_DIR,
@@ -58,10 +57,7 @@ from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
-    add_cert_to_truststore,
     add_users_to_password_db,
-    create_bigquery_properties,
-    create_postgresql_properties,
     generate_password,
     render,
     update_opts,
@@ -398,160 +394,11 @@ class TrinoK8SCharm(CharmBase):
 
         add_users_to_password_db(container, credentials, db_path)
 
-    def _add_catalog(self, truststore_pwd, catalogs):
-        """Add catalogs to Trino.
-
-        Args:
-            catalogs: Dictionary of catalog configurations.
-            truststore_pwd: The truststore password.
-        """
-        container = self.unit.get_container(self.name)
-
-        # Inject truststore path and password.
-        for key, value in catalogs.items():
-            config = value.replace(
-                "{SSL_PATH}", str(self.truststore_abs_path)
-            ).replace("{SSL_PWD}", truststore_pwd)
-
-            # Add catalog.
-            container.push(
-                self.catalog_abs_path.joinpath(f"{key}.properties"),
-                config,
-                make_dirs=True,
-            )
-
-    def _add_certs(self, truststore_pwd, certs):
-        """Prepare and add certificates to Trino truststore.
-
-        Args:
-            truststore_pwd: The truststore password.
-            certs: Dictionary of certificate configurations.
-        """
-        if not certs:
-            return
-
-        container = self.unit.get_container(self.name)
-
-        for name, cert in certs.items():
-            container.push(
-                self.conf_abs_path.joinpath(f"{name}.crt"),
-                cert,
-                make_dirs=True,
-            )
-            try:
-                add_cert_to_truststore(
-                    container,
-                    name,
-                    cert,
-                    truststore_pwd,
-                    str(self.conf_abs_path),
-                )
-                container.remove_path(
-                    self.conf_abs_path.joinpath(f"{name}.crt")
-                )
-            except Exception as e:
-                logger.error(f"Failed to add {name} cert: {e}")
-
-    def _add_service_account(self, sa_string, sa_creds_path):
-        """Add service account credentials.
-
-        Args:
-            sa_string: service account string.
-            sa_creds_path: the path of the service account credential file.
-        """
-        container = self.unit.get_container(self.name)
-        container.push(
-            sa_creds_path,
-            sa_string,
-            make_dirs=True,
-        )
-
-    def _handle_postgresql_connector(
-        self, truststore_pwd, name, info, backend
-    ):
-        """Handle catalog configuration specific to the postgresql connector.
-
-        Args:
-            truststore_pwd: the truststore password.
-            name: the catalog name.
-            info: catalog configuration information.
-            backend: the template configuration for the catalog.
-        """
-        validate_keys(backend, POSTGRESQL_BACKEND_SCHEMA)
-
-        # Load secret content
-        secret = self._get_secret_content(info["secret-id"])
-        replicas = yaml.safe_load(secret["replicas"])
-        certs = yaml.safe_load(secret.get("cert", ""))
-
-        # Add certs to truststore
-        self._add_certs(truststore_pwd, certs)
-
-        # Create and add catalog
-        catalogs = create_postgresql_properties(name, info, backend, replicas)
-        self._add_catalog(truststore_pwd, catalogs)
-
-        logger.info(f"catalog {name!r} added successfully")
-
-    def _handle_bigquery_connector(self, truststore_pwd, name, info, backend):
-        """Handle catalog configuration specific to the biquery connector.
-
-        Args:
-            truststore_pwd: the truststore password.
-            name: the catalog name.
-            info: catalog configuration information.
-            backend: the template configuration for the catalog.
-        """
-        validate_keys(backend, BIGQUERY_BACKEND_SCHEMA)
-
-        # Load secret content
-        secret = self._get_secret_content(info["secret-id"])
-        service_accounts = secret["service-accounts"]
-        sa_dict = yaml.safe_load(service_accounts)
-        sa_string = sa_dict[info["project"]]
-
-        # Add service-account
-        sa_creds_path = self.conf_abs_path.joinpath(f"{name}.json")
-        self._add_service_account(sa_string, sa_creds_path)
-
-        # Create and add catalog
-        catalogs = create_bigquery_properties(
-            name, info, backend, sa_creds_path
-        )
-        self._add_catalog(truststore_pwd, catalogs)
-        logger.info(f"catalog {name!r} added successfully")
-
-    def _map_connectors(self, backend):
-        """Create the catalog configuration based on connector type.
-
-        Args:
-            backend: the connector configuration values.
-
-        Raises:
-            ValueError: in case the connector is not supported.
-
-        Returns:
-            catalog_creator: the method for creating the connector catalog.
-        """
-        connector_mapping = {
-            "bigquery": self._handle_bigquery_connector,
-            "postgresql": self._handle_postgresql_connector,
-        }
-
-        catalog_creator = connector_mapping.get(backend["connector"])
-        if not catalog_creator:
-            raise ValueError("Invalid connector type.")
-
-        return catalog_creator
-
     def _configure_catalogs(self, event):
         """Manage catalog properties files.
 
         Args:
             event: The juju event.
-
-        Raises:
-            Exception: in case of error adding catalog.
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
@@ -578,12 +425,32 @@ class TrinoK8SCharm(CharmBase):
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
-            catalog_creator = self._map_connectors(backend)
-            try:
-                catalog_creator(truststore_pwd, name, info, backend)
-            except Exception as e:
-                logger.error(f"Unable to add catalog {name!r}: {e}")
-                raise
+            catalog_instance = self._create_catalog_instance(
+                truststore_pwd, name, info, backend
+            )
+            catalog_instance._configure_catalogs()
+
+    def _create_catalog_instance(self, truststore_pwd, name, info, backend):
+        """Create catalog instances based on connector type.
+
+        Args:
+            truststore_pwd: the truststore password.
+            name: the catalog name.
+            info: the catalog specific information.
+            backend: the backend template for configuration.
+
+        Returns:
+            the appropriate connector class.
+
+        Raises:
+            ValueError: in case the backend type is not supported.
+        """
+        if backend["connector"] == "postgresql":
+            return PostgresqlCatalog(self, truststore_pwd, name, info, backend)
+        if backend["connector"] == "bigquery":
+            return BigqueryCatalog(self, truststore_pwd, name, info, backend)
+
+        raise ValueError(f"Unsupported backend: {backend}")
 
     def _configure_trino(self, container, env):
         """Add the files needed to configure Trino to the Trino home directory.
