@@ -346,35 +346,46 @@ async def create_catalog_config(
     Returns:
         the catalog configuration.
     """
-    catalog_config = f"""\
-    catalogs:
-        postgresql-1:
-            backend: dwh
-            database: example
-            secret-id: {postgresql_secret_id}
-    """
-
     if include_bigquery:
-        catalog_config += f"""\
-        bigquery:
-            backend: bigquery
-            project: project-12345
-            secret-id: {bigquery_secret_id}
-    """
-
-    backend_config = """\
-    backends:
-        dwh:
-            connector: postgresql
-            url: jdbc:postgresql://example.com:5432
-            params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-            config: |
-                case-insensitive-name-matching=true
-                decimal-mapping=allow_overflow
-                decimal-rounding-mode=HALF_UP
-        bigquery:
-            connector: bigquery
-            config: |
-                bigquery.case-insensitive-name-matching=true
-    """
-    return catalog_config + backend_config
+        catalog_config = f"""\
+        catalogs:
+            postgresql-1:
+                backend: dwh
+                database: example
+                secret-id: {postgresql_secret_id}
+            bigquery:
+                backend: bigquery
+                project: project-12345
+                secret-id: {bigquery_secret_id}
+        backends:
+            dwh:
+                connector: postgresql
+                url: jdbc:postgresql://example.com:5432
+                params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+                config: |
+                    case-insensitive-name-matching=true
+                    decimal-mapping=allow_overflow
+                    decimal-rounding-mode=HALF_UP
+            bigquery:
+                connector: bigquery
+                config: |
+                    bigquery.case-insensitive-name-matching=true
+        """
+    else:
+        catalog_config = f"""\
+        catalogs:
+            postgresql-1:
+                backend: dwh
+                database: example
+                secret-id: {postgresql_secret_id}
+        backends:
+            dwh:
+                connector: postgresql
+                url: jdbc:postgresql://example.com:5432
+                params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+                config: |
+                    case-insensitive-name-matching=true
+                    decimal-mapping=allow_overflow
+                    decimal-rounding-mode=HALF_UP
+        """
+    return catalog_config

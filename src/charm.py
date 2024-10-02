@@ -576,11 +576,7 @@ class TrinoK8SCharm(CharmBase):
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
 
-        try:
-            self._configure_catalogs(event)
-        except Exception:
-            self.unit.status = BlockedStatus("Unable to configure catalogs.")
-            return
+        self._configure_catalogs(event)
 
         self.set_java_truststore_password(event)
         env = self._create_environment()

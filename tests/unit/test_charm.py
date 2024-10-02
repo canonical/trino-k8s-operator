@@ -313,12 +313,10 @@ class TestCharm(TestCase):
         harness = self.harness
         simulate_lifecycle_coordinator(harness)
 
-        self.harness.update_config({"catalog-config": "catalog: incorrect"})
-
-        self.assertEqual(
-            harness.model.unit.status,
-            BlockedStatus("Unable to configure catalogs."),
-        )
+        with self.assertRaises(KeyError):
+            self.harness.update_config(
+                {"catalog-config": "catalog: incorrect"}
+            )
 
     def test_catalog_removed(self):
         """The catalog directory is updated to remove existing catalogs."""
