@@ -55,63 +55,98 @@ juju relate trino-k8s nginx-ingress-integrator
 
 Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
 
-## Trino connectors
-Adding or removing a connector from Trino is done using the `juju config` parameter `catalog-config`, as there are likely to be a number of catalogs to connect this is recommended to be done through a `catalog_config.yaml` file.
-The below is an example of the `catalog_config.yaml`, which connects 1 postgresql database without TLS and 1 with TLS.
+## Trino catalogs
+Adding a catalog to Trino requires user or service account credentiials. For this we use Juju secrets.
+
+### Juju secrets
+Juju secrets are used to manage connector credentials. The format of these differ by connector type. Note: the same secret can be shared by multiple trino catalogs.
+
+For PostgreSQL (`postgresql-user-creds.yaml`):
+```
+rw: 
+  user: trino
+  password: "pwd1" 
+  suffix: _developer
+ro:
+  user: trino_ro
+  password: "pwd2"
+```
+
+For PostgreSQL certificates (`certificates.yaml`):
+```
+postgresql-cert: |
+  -----BEGIN CERTIFICATE-----
+  YOUR CERTIFICATE CONTENT
+  -----END CERTIFICATE-----
+```
+
+For BigQuery (`bigquery-service-accounts.yaml`):
+```
+<your-project-id>: |
+    {
+      "type": "service_account",
+      "project_id": "example-project",
+      "private_key_id": "key123",
+      "private_key": "-----BEGIN PRIVATE KEY-----\YOUR PRIVATE KEY\n-----END PRIVATE KEY-----",
+      "client_email": "test-380@example-project.iam.gserviceaccount.com",
+      "client_id": "12345",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
+      "universe_domain": "googleapis.com"
+    }
+```
+These secrets can be created by running the following:
+```
+juju add-secret postgresql-credentials replicas#file=postgresql-user-creds.yaml cert#file=certificates.yaml
+juju add-secret bigquery-service-accounts service-accounts#file=bigquery-service-accounts.yaml
+```
+And access granted to trino coordinator and worker with the following:
+```
+juju grant-secret <secret-id> trino-k8s-coodinator
+juju grant-secret <secret-id> trino-k8s-worker
+```
 
 ### The config file
+To add or remove catalogs the configuration parameter `catalog-config` should be updated.
+The below is an example of the `catalog_config.yaml`. It lists the catalogs to add, and points to a juju secret in which the credentials are stored. Any commonality is included as part of the `backend` these configuration properties will be applied to all catalogs with the same backend.
 ```
 catalogs:
   example: 
     backend: dwh
     database: example  
-  another-example:
-    backend: dwh
-    database: another-db
+    secret-id: crt7gpnmp25c760ji150
+  ge_bigquery:
+    backend: bigquery
+    project: <project-id>
+    secret-id: crt7d1vmp25c760ji14g
 
-backends:
+backends: 
   dwh:
     connector: postgresql
-    url: jdbc:postgresql://host.example.com:5432
+    url: jdbc:postgresql://<database-host>:5432
     params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
-    replicas:
-      rw: 
-        user: trino
-        password: pwd1
-        suffix: _developer
-      ro:
-        user: trino_ro
-        password: pwd2
     config: |
       case-insensitive-name-matching=true
       decimal-mapping=allow_overflow
       decimal-rounding-mode=HALF_UP
-
-certs:
-  production_cert: |
-    -----BEGIN CERTIFICATE-----
-    Certificate values...
-    -----END CERTIFICATE-----
+  bigquery:
+    connector: bigquery
+    config: |
+      bigquery.case-insensitive-name-matching=true
 ```
-Note: the required fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html). Currently only Elasticsearch, PostgreSQL, Google sheets, MySQL, Prometheus and Redis connectors are supported by the charm. 
 
-The user provided should have the maximum permissions you would want any user to have. Restictions to access can be made on this user but no further permissions can be granted.
+Note: the allowed fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html).
 
-`{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore path and password by the charm, as long as the certificte has been added to the `certs` key this will be added to the trustore automatically.
+The `{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore path and password by the charm.
 
-### Adding or removing a catalog
-Once you have your `catalog_config.yaml` file you can configure the Trino charm with the below:
-```
-juju config trino-k8s catalog-config=@/path/to/file/trino_catalogs.yaml
-```
-To add or remove a connector simply update the file and run the above again.
+The catalog-config can be applied with the following:
 
-### Connecting database clusters
-In order to connect clustered database systems to Trino please connect the read-only and read-write endpoints with 2 separate `juju actions`. The read-only database should be appended with `_ro` to distinguish between the two. 
 ```
-salesforce #read-write endpoint
-salesforce_ro #read-only endpoint
+juju run trino-k8s catalog-config=@catalog-config.yaml
 ```
+
 ## User management
 By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
 

@@ -12,12 +12,11 @@ import string
 import subprocess  # nosec B404
 import textwrap
 
-import yaml
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import ExecError
 
-from literals import CATALOG_SCHEMA, POSTGRESQL_BACKEND_SCHEMA, REPLICA_SCHEMA
+from literals import REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -171,26 +170,26 @@ def validate_keys(data, schema):
         raise ValueError(f"Data does not conform to schema: {schema}")
 
 
-def create_postgresql_catalogs(cat_name, cat_info, backend):
+def create_postgresql_properties(cat_name, cat_info, backend, replicas):
     """Create the postgresql connector catalog files.
 
     Args:
         cat_name: catalog name.
         cat_info: the templated configuration values.
         backend: the db configuration values.
+        replicas: the ro and rw replicas.
 
     Returns:
         catalogs: the PostgreSQL catalogs.
     """
-    validate_keys(backend, POSTGRESQL_BACKEND_SCHEMA)
     catalogs = {}
-    for replica_info in backend["replicas"].values():
+    for replica_info in replicas.values():
         validate_keys(replica_info, REPLICA_SCHEMA)
         user_name = replica_info.get("user")
         user_pwd = replica_info.get("password")
         suffix = replica_info.get("suffix", "")
-        catalog_name = f"{cat_name}{suffix}"
 
+        catalog_name = f"{cat_name}{suffix}"
         url = f"{backend['url']}/{cat_info['database']}"
         if backend.get("params"):
             url = f"{url}?{backend['params']}"
@@ -208,49 +207,30 @@ def create_postgresql_catalogs(cat_name, cat_info, backend):
     return catalogs
 
 
-def get_catalog_files(catalog_def, backends):
-    """Prepare the catalog files for all connectors.
+def create_bigquery_properties(name, info, backend, sa_creds_path):
+    """Create the bigquery connector catalog files.
 
     Args:
-        catalog_def: the catalog definition.
-        backends: the templated backednds.
+        name: the catalog name.
+        info: the templated configuration values.
+        backend: the db configuration values.
+        sa_creds_path: the path of the service account credentials.
 
     Returns:
-        catalogs: dictionary of all catalog files.
-
-    Raises:
-        ValueError: in case connector type is not supported.
+        catalog: the bigquery catalogs.
     """
-    catalogs = {}
-    for cat_name, cat_info in catalog_def.items():
-        validate_keys(cat_info, CATALOG_SCHEMA)
-        backend = backends[cat_info["backend"]]
-        if backend["connector"] == "postgresql":
-            pg_catalogs = create_postgresql_catalogs(
-                cat_name, cat_info, backend
-            )
-            catalogs.update(pg_catalogs)
-        else:
-            raise ValueError("Invalid connector type.")
-    return catalogs
+    catalog = {}
 
-
-def create_cert_and_catalog_dicts(config):
-    """Identify certs and connection values from config.
-
-    Args:
-        config: the catalog-config file content.
-
-    Returns:
-        certs: dictionary of certificates.
-        catalogs: dictionary of catalog values.
+    catalog_content = textwrap.dedent(
+        f"""\
+    connector.name={backend['connector']}
+    bigquery.project-id={info['project']}
+    bigquery.credentials-file={sa_creds_path}
     """
-    catalogs_with_certs = yaml.safe_load(config)
-    catalog_def = catalogs_with_certs.get("catalogs")
-    backends = catalogs_with_certs.get("backends")
-    catalogs = get_catalog_files(catalog_def, backends)
-    certs = catalogs_with_certs.get("certs")
-    return certs, catalogs
+    )
+    catalog_content += backend.get("config", "")
+    catalog[name] = catalog_content
+    return catalog
 
 
 def add_cert_to_truststore(container, name, cert, storepass, conf_path):

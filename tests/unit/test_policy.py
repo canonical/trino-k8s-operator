@@ -14,12 +14,7 @@ from unittest import TestCase, mock
 from ops.model import ActiveStatus, MaintenanceStatus
 from ops.pebble import CheckStatus
 from ops.testing import Harness
-from unit.helpers import (
-    POLICY_MGR_URL,
-    RANGER_LIB,
-    RANGER_PROPERTIES_PATH,
-    TEST_CATALOG_CONFIG,
-)
+from unit.helpers import POLICY_MGR_URL, RANGER_LIB, RANGER_PROPERTIES_PATH
 
 from charm import TrinoK8SCharm
 
@@ -231,7 +226,6 @@ def simulate_lifecycle(harness):
 
     # Add worker and coordinator relation
     harness.handle_exec("trino", ["keytool"], result=0)
-    harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
     harness.add_relation("trino-coordinator", "trino-k8s-worker")
 
     rel_id = harness.add_relation("policy", "trino-k8s")

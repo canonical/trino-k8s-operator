@@ -21,14 +21,15 @@ from ops.model import (
 from ops.pebble import CheckStatus
 from ops.testing import Harness
 from unit.helpers import (
+    BIGQUERY_CATALOG_PATH,
+    BIGQUERY_SECRET,
     DEFAULT_JVM_STRING,
-    INCORRECT_CATALOG_CONFIG,
+    POSTGRESQL_1_CATALOG_PATH,
+    POSTGRESQL_2_CATALOG_PATH,
+    POSTGRESQL_REPLICA_CERT,
+    POSTGRESQL_REPLICA_SECRET,
     SERVER_PORT,
-    TEST_CATALOG_CONFIG,
-    TEST_CATALOG_PATH,
     TEST_USERS,
-    UPDATED_CATALOG_CONFIG,
-    UPDATED_CATALOG_PATH,
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
 )
@@ -88,7 +89,14 @@ class TestCharm(TestCase):
     def test_ready(self):
         """The pebble plan is correctly generated when the charm is ready."""
         harness = self.harness
-        simulate_lifecycle_coordinator(harness)
+        (
+            _,
+            postgresql_secret_id,
+            bigquery_secret_id,
+        ) = simulate_lifecycle_coordinator(harness)
+        catalog_config = create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id
+        )
 
         # Asserts status is active
         self.assertEqual(
@@ -106,7 +114,7 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
-                        "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
+                        "CATALOG_CONFIG": catalog_config,
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
@@ -212,7 +220,15 @@ class TestCharm(TestCase):
     def test_config_changed(self):
         """The pebble plan changes according to config changes."""
         harness = self.harness
-        simulate_lifecycle_coordinator(harness)
+        (
+            _,
+            postgresql_secret_id,
+            bigquery_secret_id,
+        ) = simulate_lifecycle_coordinator(harness)
+
+        catalog_config = create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id
+        )
 
         # Update the config.
         self.harness.update_config(
@@ -235,7 +251,7 @@ class TestCharm(TestCase):
                     "startup": "enabled",
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
-                        "CATALOG_CONFIG": TEST_CATALOG_CONFIG,
+                        "CATALOG_CONFIG": catalog_config,
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
@@ -274,28 +290,33 @@ class TestCharm(TestCase):
     def test_catalog_added(self):
         """The catalog directory is updated to add the new catalog."""
         harness = self.harness
-        simulate_lifecycle_coordinator(harness)
+        (
+            _,
+            postgresql_secret_id,
+            bigquery_secret_id,
+        ) = simulate_lifecycle_coordinator(harness)
+
+        catalog_config = create_added_catalog_config(
+            postgresql_secret_id, bigquery_secret_id
+        )
 
         # Update the config.
-        self.harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
+        self.harness.update_config({"catalog-config": catalog_config})
 
         # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
-        self.assertTrue(container.exists(TEST_CATALOG_PATH))
+        self.assertTrue(container.exists(POSTGRESQL_2_CATALOG_PATH))
+        self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
 
     def test_catalog_invalid_config(self):
         """The catalog directory is updated to add the new catalog."""
         harness = self.harness
         simulate_lifecycle_coordinator(harness)
 
-        self.harness.update_config(
-            {"catalog-config": INCORRECT_CATALOG_CONFIG}
-        )
-
-        self.assertEqual(
-            harness.model.unit.status,
-            BlockedStatus("Invalid catalog-config schema"),
-        )
+        with self.assertRaises(KeyError):
+            self.harness.update_config(
+                {"catalog-config": "catalog: incorrect"}
+            )
 
     def test_catalog_removed(self):
         """The catalog directory is updated to remove existing catalogs."""
@@ -307,7 +328,8 @@ class TestCharm(TestCase):
 
         # Validate catalog.properties file created.
         container = harness.model.unit.get_container("trino")
-        self.assertFalse(container.exists(TEST_CATALOG_PATH))
+        self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
+        self.assertFalse(container.exists(BIGQUERY_CATALOG_PATH))
 
     def test_update_status_up(self):
         """The charm updates the unit status to active based on UP status."""
@@ -361,26 +383,46 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        rel_id = simulate_lifecycle_coordinator(harness)
+
+        (
+            rel_id,
+            postgresql_secret_id,
+            bigquery_secret_id,
+        ) = simulate_lifecycle_coordinator(harness)
+
+        catalog_config = create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id
+        )
         relation_data = harness.get_relation_data(rel_id, harness.charm.app)
         secret = harness.model.get_secret(label="catalog-config")
         content = secret.get_content()
 
         assert relation_data["discovery-uri"] == "http://trino-k8s:8080"
         assert "secret:" in relation_data["catalog-secret-id"]
-        assert content["catalogs"] == TEST_CATALOG_CONFIG
+        assert content["catalogs"] == catalog_config
 
     def test_trino_worker_secret_changed(self):
         """Test the worker catalogs change when the secret content changes."""
         harness = self.harness
-        container, _, secret_id = simulate_lifecycle_worker(harness)
+        (
+            container,
+            _,
+            postgresql_secret_id,
+            bigquery_secret_id,
+            secret_id,
+        ) = simulate_lifecycle_worker(harness)
+
+        catalog_config = create_added_catalog_config(
+            postgresql_secret_id, bigquery_secret_id
+        )
         secret = harness.model.get_secret(id=secret_id)
-        secret.set_content({"catalogs": UPDATED_CATALOG_CONFIG})
+
+        secret.set_content({"catalogs": catalog_config})
         harness.charm.on.secret_changed.emit(
             label="catalog-config", id=secret_id
         )
 
-        self.assertTrue(container.exists(UPDATED_CATALOG_PATH))
+        self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
 
     def test_trino_coordinator_relation_broken(self):
         """Test trino relation.
@@ -403,9 +445,10 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, _, _ = simulate_lifecycle_worker(harness)
+        container, _, _, _, _ = simulate_lifecycle_worker(harness)
 
-        self.assertTrue(container.exists(TEST_CATALOG_PATH))
+        self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
+        self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
 
     def test_trino_worker_relation_broken(self):
         """Test trino relation broken.
@@ -413,10 +456,10 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event, _ = simulate_lifecycle_worker(harness)
+        container, event, _, _, _ = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
-        self.assertFalse(container.exists(TEST_CATALOG_PATH))
+        self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
 
     def test_trino_single_node_deployment(self):
         """Test pebble plan is created with single node deployment."""
@@ -467,12 +510,29 @@ def simulate_lifecycle_worker(harness):
     )
     harness.update_config({"charm-function": "worker"})
 
+    # Add catalog secrets
+    bigquery_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": BIGQUERY_SECRET},
+    )
+
+    postgresql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": POSTGRESQL_REPLICA_SECRET,
+            "cert": POSTGRESQL_REPLICA_CERT,
+        },
+    )
+    catalog_config = create_catalog_config(
+        postgresql_secret_id, bigquery_secret_id
+    )
+
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
 
     secret_id = harness.add_model_secret(
         "trino-k8s",
-        {"catalogs": TEST_CATALOG_CONFIG},
+        {"catalogs": catalog_config},
     )
     rel_id = harness.add_relation("trino-worker", "trino-k8s")
     harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
@@ -485,7 +545,13 @@ def simulate_lifecycle_worker(harness):
     }
     event = make_relation_event("trino-worker", rel_id, data)
     harness.charm.trino_worker._on_relation_changed(event)
-    return container, event, secret_id
+    return (
+        container,
+        event,
+        postgresql_secret_id,
+        bigquery_secret_id,
+        secret_id,
+    )
 
 
 def simulate_lifecycle_coordinator(harness):
@@ -508,17 +574,37 @@ def simulate_lifecycle_coordinator(harness):
     )
     harness.charm.on.trino_pebble_ready.emit(container)
 
-    # Add worker and coordinator relation
-    harness.handle_exec("trino", ["keytool"], result=0)
-    harness.update_config({"catalog-config": TEST_CATALOG_CONFIG})
-    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
     secret_id = harness.add_model_secret(
         "trino-k8s",
         {"users": TEST_USERS},
     )
 
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    # Add catalog secrets
+    bigquery_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": BIGQUERY_SECRET},
+    )
+
+    postgresql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": POSTGRESQL_REPLICA_SECRET,
+            "cert": POSTGRESQL_REPLICA_CERT,
+        },
+    )
+    catalog_config = create_catalog_config(
+        postgresql_secret_id, bigquery_secret_id
+    )
+
+    # Add worker and coordinator relation
+    harness.handle_exec("trino", ["keytool"], result=0)
+    harness.update_config({"catalog-config": catalog_config})
+    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
+
     harness.update_config({"user-secret-id": secret_id})
-    return rel_id
+    return rel_id, postgresql_secret_id, bigquery_secret_id
 
 
 def make_relation_event(app, rel_id, data):
@@ -549,6 +635,82 @@ def make_relation_event(app, rel_id, data):
             ),
         },
     )
+
+
+def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
+    """Create and return catalog-config value.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        bigquery_secret_id: the juju secret id for bigquery
+
+    Returns:
+        the catalog configuration.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        bigquery:
+            backend: bigquery
+            project: project-12345
+            secret-id: {bigquery_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        bigquery:
+            connector: bigquery
+            config: |
+                bigquery.case-insensitive-name-matching=true
+    """
+
+
+def create_added_catalog_config(postgresql_secret_id, bigquery_secret_id):
+    """Create and return catalog-config value, with added catalog.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        bigquery_secret_id: the juju secret id for bigquery
+
+    Returns:
+        the catalog configuration, with an added catalog.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        postgresql-2:
+            backend: dwh
+            database: updated-db
+            secret-id: {postgresql_secret_id}
+        bigquery:
+            backend: bigquery
+            project: project-12345
+            secret-id: {bigquery_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        bigquery:
+            connector: bigquery
+            config: |
+                bigquery.case-insensitive-name-matching=true
+    """
 
 
 class TestState(TestCase):

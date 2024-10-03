@@ -48,59 +48,6 @@ RANGER_PLUGIN_FILES = {
 
 SECRET_LABEL = "catalog-config"  # nosec
 
-# Connector literal
-CONNECTOR_FIELDS = {
-    "elasticsearch": {
-        "required": [
-            "connector.name",
-            "elasticsearch.host",
-            "elasticsearch.port",
-            "elasticsearch.default-schema-name",
-        ],
-        "optional": [],
-    },
-    "mysql": {
-        "required": [
-            "connector.name",
-            "connection-url",
-            "connection-user",
-            "connection-password",
-        ],
-        "optional": [
-            "case-insensitive-name-matching",
-            "case-insensitive-name-matching.cache-ttl",
-            "metadata.cache-ttl",
-            "metadata.cache-missing",
-            "metadata.cache-maximum-size",
-            "write.batch-size",
-            "dynamic-filtering.enabled",
-            "dynamic-filtering.wait-timeout",
-        ],
-    },
-    "postgresql": {
-        "required": [
-            "connector.name",
-            "connection-url",
-            "connection-user",
-            "connection-password",
-        ],
-        "optional": [
-            "case-insensitive-name-matching",
-            "case-insensitive-name-matching.cache-ttl",
-            "metadata.cache-ttl",
-            "metadata.cache-missing",
-            "metadata.cache-maximum-size",
-            "write.batch-size",
-            "dynamic-filtering.enabled",
-            "dynamic-filtering.wait-timeout",
-        ],
-    },
-    "redis": {
-        "required": ["connector.name", "redis.table-names", "redis.nodes"],
-        "optional": [],
-    },
-}
-
 
 # OpenSearch literals
 INDEX_NAME = "ranger_audits"
@@ -119,36 +66,15 @@ DEFAULT_JVM_OPTIONS = [
 USER_SECRET_LABEL = "trino-user-management"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
-    "database": {"type": "string"},
+    "database": {"type": "string", "nullable": True},
+    "project": {"type": "string", "nullable": True},
+    "secret-id": {"type": "string"},
 }
 
 POSTGRESQL_BACKEND_SCHEMA = {
     "connector": {"type": "string"},
     "url": {"type": "string"},
     "params": {"type": "string"},
-    "replicas": {
-        "type": "dict",
-        "schema": {
-            "rw": {
-                "type": "dict",
-                "schema": {
-                    "user": {"type": "string"},
-                    "password": {"type": "string"},
-                    "suffix": {"type": "string", "nullable": True},
-                },
-                "required": False,
-            },
-            "ro": {
-                "type": "dict",
-                "schema": {
-                    "user": {"type": "string"},
-                    "password": {"type": "string"},
-                    "suffix": {"type": "string", "nullable": True},
-                },
-                "required": False,
-            },
-        },
-    },
     "config": {"type": "string", "nullable": True},
 }
 
@@ -156,4 +82,9 @@ REPLICA_SCHEMA = {
     "user": {"type": "string"},
     "password": {"type": "string"},
     "suffix": {"type": "string", "nullable": True},
+}
+
+BIGQUERY_BACKEND_SCHEMA = {
+    "connector": {"type": "string"},
+    "config": {"type": "string", "nullable": True},
 }

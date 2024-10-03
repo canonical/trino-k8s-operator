@@ -10,11 +10,9 @@ import pytest
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
-    CATALOG_CONFIG,
-    EXAMPLE_CATALOG_NAME,
-    TEMP_CATALOG_CONFIG,
-    TEMP_CATALOG_NAME,
     TRINO_USER,
+    add_juju_secret,
+    create_catalog_config,
     curl_unit_ip,
     get_catalogs,
     simulate_crash_and_restart,
@@ -41,25 +39,37 @@ class TestDeployment:
         logging.info(f"Found catalogs: {catalogs}")
         assert catalogs
 
-    async def test_add_catalog(self, ops_test: OpsTest):
-        """Adds a PostgreSQL connector and confirms database added."""
+    async def test_catalog_config(self, ops_test: OpsTest):
+        """Adds a PostgreSQL and BigQuery connector and asserts catalogs added."""
+        postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
+        bigquery_secret_id = await add_juju_secret(ops_test, "bigquery")
+
+        for app in ["trino-k8s", "trino-k8s-worker"]:
+            await ops_test.model.grant_secret("postgresql-secret", app)
+            await ops_test.model.grant_secret("bigquery-secret", app)
+
+        catalog_config = await create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id, True
+        )
         catalogs = await update_catalog_config(
-            ops_test, CATALOG_CONFIG, TRINO_USER
+            ops_test, catalog_config, TRINO_USER
         )
 
         # Verify that both catalogs have been added.
-        assert TEMP_CATALOG_NAME in str(catalogs)
-        assert EXAMPLE_CATALOG_NAME in str(catalogs)
+        assert "postgresql-1" in str(catalogs)
+        assert "bigquery" in str(catalogs)
 
-    async def test_remove_catalog(self, ops_test: OpsTest):
-        """Removes an existing connector confirms database removed."""
-        catalogs = await update_catalog_config(
-            ops_test, TEMP_CATALOG_CONFIG, TRINO_USER
+        updated_catalog_config = await create_catalog_config(
+            postgresql_secret_id, bigquery_secret_id, False
         )
 
-        # Verify that only the example catalog has been removed.
-        assert TEMP_CATALOG_NAME in str(catalogs)
-        assert EXAMPLE_CATALOG_NAME not in str(catalogs)
+        catalogs = await update_catalog_config(
+            ops_test, updated_catalog_config, TRINO_USER
+        )
+
+        # Verify that only the bigquery catalog has been removed.
+        assert "postgresql-1" in str(catalogs)
+        assert "bigquery" not in str(catalogs)
 
     async def test_simulate_crash(self, ops_test: OpsTest):
         """Simulate the crash of the Trino coordinator charm.
@@ -72,7 +82,7 @@ class TestDeployment:
         assert response.status_code == 200
 
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
-        assert TEMP_CATALOG_NAME in str(catalogs)
+        assert catalogs
 
     async def test_trino_default_policy(self, ops_test: OpsTest):
         """Update the config and verify no catalog access."""

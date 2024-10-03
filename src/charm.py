@@ -31,8 +31,10 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError
 
+from catalog_manager import BigqueryCatalog, PostgresqlCatalog
 from literals import (
     CATALOG_DIR,
+    CATALOG_SCHEMA,
     CONF_DIR,
     CONFIG_FILES,
     DEFAULT_CREDENTIALS,
@@ -55,12 +57,11 @@ from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
 from state import State
 from utils import (
-    add_cert_to_truststore,
     add_users_to_password_db,
-    create_cert_and_catalog_dicts,
     generate_password,
     render,
     update_opts,
+    validate_keys,
 )
 
 # Log messages can be retrieved using juju debug-log
@@ -273,6 +274,8 @@ class TrinoK8SCharm(CharmBase):
             event: the secret changed event.
         """
         if not event.secret.label == USER_SECRET_LABEL:
+            self._configure_catalogs(event)
+            self._restart_trino()
             return
 
         try:
@@ -391,64 +394,17 @@ class TrinoK8SCharm(CharmBase):
 
         add_users_to_password_db(container, credentials, db_path)
 
-    def _add_catalogs(self, container, catalogs, truststore_pwd):
-        """Add catalogs to Trino.
-
-        Args:
-            container: The application container.
-            catalogs: Dictionary of catalog configurations.
-            truststore_pwd: The truststore password.
-        """
-        for name, config in catalogs.items():
-            # Inject truststore path and password.
-            config = config.replace(
-                "{SSL_PATH}", str(self.truststore_abs_path)
-            ).replace("{SSL_PWD}", truststore_pwd)
-
-            # Add catalog.
-            container.push(
-                self.catalog_abs_path.joinpath(f"{name}.properties"),
-                config,
-                make_dirs=True,
-            )
-
-    def _add_certs(self, container, certs, truststore_pwd):
-        """Prepare and add certificates to Trino truststore.
-
-        Args:
-            container: The application container.
-            certs: Dictionary of certificate configurations.
-            truststore_pwd: The truststore password.
-        """
-        for name, cert in certs.items():
-            container.push(
-                self.conf_abs_path.joinpath(f"{name}.crt"),
-                cert,
-                make_dirs=True,
-            )
-            try:
-                add_cert_to_truststore(
-                    container,
-                    name,
-                    cert,
-                    truststore_pwd,
-                    str(self.conf_abs_path),
-                )
-                container.remove_path(
-                    self.conf_abs_path.joinpath(f"{name}.crt")
-                )
-            except Exception as e:
-                logger.error(f"Failed to add {name} cert: {e}")
-
-    def _configure_catalogs(self, container):
+    def _configure_catalogs(self, event):
         """Manage catalog properties files.
 
         Args:
-            container: The application container.
-
-        Raises:
-            Exception: in case unable to parse catalog config.
+            event: The juju event.
         """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            event.defer()
+            return
+
         catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
@@ -457,22 +413,48 @@ class TrinoK8SCharm(CharmBase):
             if container.exists(path):
                 container.remove_path(path, recursive=True)
 
-        # Add catalogs from state
         if not catalog_config:
             return
 
-        try:
-            certs, catalogs = create_cert_and_catalog_dicts(catalog_config)
-        except Exception:
-            logger.debug("Unable to create catalogs.")
-            raise
+        catalog_index = yaml.safe_load(catalog_config)
+        catalogs, backends = (
+            catalog_index["catalogs"],
+            catalog_index["backends"],
+        )
 
-        self._add_catalogs(container, catalogs, truststore_pwd)
+        for name, info in catalogs.items():
+            validate_keys(info, CATALOG_SCHEMA)
+            backend = backends[info["backend"]]
+            catalog_instance = self._create_catalog_instance(
+                truststore_pwd, name, info, backend
+            )
+            catalog_instance.configure_catalogs()
 
-        # Add certs from state
-        if not certs:
-            return
-        self._add_certs(container, certs, truststore_pwd)
+    def _create_catalog_instance(self, truststore_pwd, name, info, backend):
+        """Create catalog instances based on connector type.
+
+        Args:
+            truststore_pwd: the truststore password.
+            name: the catalog name.
+            info: the catalog specific information.
+            backend: the backend template for configuration.
+
+        Returns:
+            the appropriate connector class.
+
+        Raises:
+            ValueError: in case the backend type is not supported.
+        """
+        catalog_map = {
+            "postgresql": PostgresqlCatalog,
+            "bigquery": BigqueryCatalog,
+        }
+        catalog_cls = catalog_map.get(backend["connector"], None)
+
+        if catalog_cls is not None:
+            return catalog_cls(self, truststore_pwd, name, info, backend)
+
+        raise ValueError(f"Unsupported backend: {backend}")
 
     def _configure_trino(self, container, env):
         """Add the files needed to configure Trino to the Trino home directory.
@@ -515,10 +497,9 @@ class TrinoK8SCharm(CharmBase):
         if catalogs:
             try:
                 yaml.safe_load(catalogs)
-            except yaml.ScannerError as e:
-                raise yaml.ScannerError(
-                    f"Incorrectly formatted catalog-config: {e}"
-                )
+            except Exception as e:
+                logger.debug(f"Incorrectly formatted catalog-config: {e}")
+                raise
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
@@ -599,11 +580,7 @@ class TrinoK8SCharm(CharmBase):
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
 
-        try:
-            self._configure_catalogs(container)
-        except Exception:
-            self.unit.status = BlockedStatus("Invalid catalog-config schema")
-            return
+        self._configure_catalogs(event)
 
         self.set_java_truststore_password(event)
         env = self._create_environment()
