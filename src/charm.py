@@ -428,7 +428,7 @@ class TrinoK8SCharm(CharmBase):
             catalog_instance = self._create_catalog_instance(
                 truststore_pwd, name, info, backend
             )
-            catalog_instance._configure_catalogs()
+            catalog_instance.configure_catalogs()
 
     def _create_catalog_instance(self, truststore_pwd, name, info, backend):
         """Create catalog instances based on connector type.
@@ -445,10 +445,14 @@ class TrinoK8SCharm(CharmBase):
         Raises:
             ValueError: in case the backend type is not supported.
         """
-        if backend["connector"] == "postgresql":
-            return PostgresqlCatalog(self, truststore_pwd, name, info, backend)
-        if backend["connector"] == "bigquery":
-            return BigqueryCatalog(self, truststore_pwd, name, info, backend)
+        catalog_map = {
+            "postgresql": PostgresqlCatalog,
+            "bigquery": BigqueryCatalog,
+        }
+        catalog_cls = catalog_map.get(backend["connector"], None)
+
+        if catalog_cls is not None:
+            return catalog_cls(self, truststore_pwd, name, info, backend)
 
         raise ValueError(f"Unsupported backend: {backend}")
 

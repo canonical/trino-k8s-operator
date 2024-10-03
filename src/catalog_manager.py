@@ -131,7 +131,7 @@ class CatalogBase(ABC):
             secret_content: the content of the juju secret.
         """
 
-    def _configure_catalogs(self):
+    def configure_catalogs(self):
         """Manage catalog properties files and create the appropriate catalog instance.
 
         Raises:
