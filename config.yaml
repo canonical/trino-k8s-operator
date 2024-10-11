@@ -106,7 +106,7 @@ options:
     description: |
       Specifies the maximum amount of time the client will wait for a response from
       the coordinator once a connection has been established. This timeout ensures
-      that client requests do not hang indefinitely if the coordinator is slow to
+      that client requests do not stalls indefinitely if the coordinator is slow to
       respond.
     type: string
     default: "10m"
