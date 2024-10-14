@@ -553,6 +553,14 @@ class TrinoK8SCharm(CharmBase):
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
             "USER_SECRET_ID": self.config.get("user-secret-id"),
             "JVM_OPTIONS": jvm_opts,
+            "COORDINATOR_REQUEST_TIMEOUT": self.config[
+                "coordinator-request-timeout"
+            ],
+            "COORDINATOR_CONNECT_TIMEOUT": self.config[
+                "coordinator-connect-timeout"
+            ],
+            "WORKER_REQUEST_TIMEOUT": self.config["worker-request-timeout"],
+            "MAX_CONCURRENT_QUERIES": self.config["max-concurrent-queries"],
         }
         return env
 

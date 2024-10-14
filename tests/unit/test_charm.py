@@ -134,6 +134,10 @@ class TestCharm(TestCase):
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                         "USER_SECRET_ID": "secret:secret-id",
                         "JVM_OPTIONS": DEFAULT_JVM_STRING,
+                        "COORDINATOR_REQUEST_TIMEOUT": "10m",
+                        "COORDINATOR_CONNECT_TIMEOUT": "30s",
+                        "WORKER_REQUEST_TIMEOUT": "30s",
+                        "MAX_CONCURRENT_QUERIES": 5,
                     },
                 }
             },
@@ -271,6 +275,10 @@ class TestCharm(TestCase):
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
                         "USER_SECRET_ID": "secret:secret-id",
                         "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
+                        "COORDINATOR_REQUEST_TIMEOUT": "10m",
+                        "COORDINATOR_CONNECT_TIMEOUT": "30s",
+                        "WORKER_REQUEST_TIMEOUT": "30s",
+                        "MAX_CONCURRENT_QUERIES": 5,
                     },
                 }
             },

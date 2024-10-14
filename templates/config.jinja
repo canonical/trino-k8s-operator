@@ -1,14 +1,22 @@
 {% if CHARM_FUNCTION == "coordinator" %}
 coordinator=true
 discovery.uri={{ DISCOVERY_URI }}
+exchange.http-client.connect-timeout={{ COORDINATOR_CONNECT_TIMEOUT }}
+exchange.http-client.request-timeout={{ COORDINATOR_REQUEST_TIMEOUT }}
+query.max-concurrent-queries={{ MAX_CONCURRENT_QUERIES }}
+
 node-scheduler.include-coordinator=false
 {% elif CHARM_FUNCTION == "worker" %}
 coordinator=false
 discovery.uri={{ DISCOVERY_URI }}
+exchange.http-client.request-timeout={{ WORKER_REQUEST_TIMEOUT }}
+
 {% elif CHARM_FUNCTION == "all" %}
 coordinator=true
 node-scheduler.include-coordinator=true
 discovery.uri=http://localhost:8080
+query.max-concurrent-queries={{ MAX_CONCURRENT_QUERIES }}
+
 {% endif %}
 
 http-server.http.port=8080

@@ -102,3 +102,36 @@ options:
         "-Djdk.attach.allowAttachSelf=true"
         "-Dfile.encoding=UTF-8"
     type: string
+  coordinator-request-timeout:
+    description: |
+      Specifies the maximum amount of time the client will wait for a response from
+      the coordinator once a connection has been established. This timeout ensures
+      that client requests do not stall indefinitely if the coordinator is slow to
+      respond.
+    type: string
+    default: "10m"
+
+  coordinator-connect-timeout:
+    description: |
+      Specifies the maximum amount of time the client will wait for a connection
+      to be established with the coordinator. If the connection cannot be made within
+      this period, the client will give up and raise an error.
+    type: string
+    default: "30s"
+
+  worker-request-timeout:
+    description: |
+      Specifies the maximum amount of time the coordinator will wait for a response
+      from a worker node after the connection is established. This setting helps
+      manage scenarios where worker nodes are slow to respond, ensuring that
+      the coordinator does not wait indefinitely.
+    type: string
+    default: "30s"
+
+  max-concurrent-queries:
+    description: |
+      The maximum number of queries that Trino is allowed to run concurrently.
+      Any additional queries beyond this limit will be queued until a running query
+      finishes.
+    type: int
+    default: 5
