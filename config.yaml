@@ -110,7 +110,6 @@ options:
       respond.
     type: string
     default: "10m"
-
   coordinator-connect-timeout:
     description: |
       Specifies the maximum amount of time the client will wait for a connection
@@ -118,7 +117,6 @@ options:
       this period, the client will give up and raise an error.
     type: string
     default: "30s"
-
   worker-request-timeout:
     description: |
       Specifies the maximum amount of time the coordinator will wait for a response
@@ -127,7 +125,6 @@ options:
       the coordinator does not wait indefinitely.
     type: string
     default: "30s"
-
   max-concurrent-queries:
     description: |
       The maximum number of queries that Trino is allowed to run concurrently.
@@ -135,3 +132,13 @@ options:
       finishes.
     type: int
     default: 5
+  workload-memory:
+    description: |
+      Kubernetes memory resource request for the trino workload container.
+    type: string
+    default: "2Gi"
+  workload-cpu:
+    description: |
+      Kubernetes memory resource request for the trino workload container.
+    type: int
+    default: 2
