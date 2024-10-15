@@ -77,6 +77,7 @@ class TestPolicyManager:
             resources=TRINO_IMAGE,
             application_name=APP_NAME,
             config=TRINO_CONIG,
+            trust=True,
         )
 
         async with ops_test.fast_forward():

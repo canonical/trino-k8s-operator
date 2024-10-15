@@ -24,7 +24,7 @@ async def deploy(ops_test: OpsTest):
         "acl-mode-default": "none",
         "charm-function": "all",
     }
-    await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config)
+    await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config, trust=True)
 
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(

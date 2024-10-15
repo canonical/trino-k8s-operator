@@ -32,6 +32,7 @@ async def deploy(ops_test: OpsTest):
             resources=TRINO_IMAGE,
             application_name=APP_NAME,
             num_units=1,
+            trust=True,
         )
         await ops_test.model.deploy(
             charm,
