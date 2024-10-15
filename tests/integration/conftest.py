@@ -40,6 +40,7 @@ async def deploy(ops_test: OpsTest):
             application_name=WORKER_NAME,
             config=WORKER_CONFIG,
             num_units=1,
+            trust=True
         )
 
         await ops_test.model.deploy(NGINX_NAME, trust=True)
