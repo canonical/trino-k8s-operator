@@ -40,7 +40,7 @@ async def deploy(ops_test: OpsTest):
             application_name=WORKER_NAME,
             config=WORKER_CONFIG,
             num_units=1,
-            trust=True
+            trust=True,
         )
 
         await ops_test.model.deploy(NGINX_NAME, trust=True)
@@ -49,6 +49,7 @@ async def deploy(ops_test: OpsTest):
             apps=[APP_NAME, WORKER_NAME],
             status="blocked",
             raise_on_blocked=False,
+            raise_on_error=False,
             timeout=600,
         )
         await ops_test.model.wait_for_idle(
