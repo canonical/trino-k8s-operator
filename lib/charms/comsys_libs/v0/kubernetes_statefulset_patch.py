@@ -108,7 +108,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 
 class KubernetesStatefulsetPatch(Object):
@@ -136,9 +136,6 @@ class KubernetesStatefulsetPatch(Object):
 
         self.framework.observe(charm.on.install, self._patch_statefulset)
         self.framework.observe(charm.on.update_status, self._patch_statefulset)
-        # Sometimes Juju doesn't clean-up a manually edited statefulset,
-        # so we clean it up ourselves just in case.
-        self.framework.observe(charm.on.remove, self._remove_statefulset)
 
         # apply user defined events
         if refresh_event:
@@ -234,31 +231,6 @@ class KubernetesStatefulsetPatch(Object):
 
         # Return True if both memory and CPU are patched as desired
         return is_memory_patched and is_cpu_patched
-
-    def _remove_statefulset(self, _):
-        """Remove a Kubernetes statefulset associated with this charm.
-
-        Specifically designed to delete the statefulset modified by the charm, since Juju
-        can fail to delete custom statefulsets.
-
-        Returns:
-            None
-
-        Raises:
-            ApiError: for deletion errors, excluding when the service is not found (404 Not Found).
-        """
-        client = Client()
-
-        try:
-            client.delete(StatefulSet, self.statefulset_name, namespace=self._namespace)
-            logger.info(
-                "The patched k8s statefulset '%s' was deleted.",
-                self.statefulset_name,
-            )
-        except ApiError as e:
-            if e.status.code == 404:
-                return
-            raise
 
     @property
     def _app(self) -> str:
