@@ -135,10 +135,10 @@ options:
   workload-memory:
     description: |
       Kubernetes memory resource request for the trino workload container.
+      eg. "1Gi"
     type: string
-    default: "1Gi"
   workload-cpu:
     description: |
       Kubernetes cpu resource request for the trino workload container.
+      eg. 1
     type: int
-    default: 1

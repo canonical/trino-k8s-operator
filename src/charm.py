@@ -162,14 +162,17 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
+
+        resources = {
+            "memory": self.config.get("workload-memory"),
+            "cpu": self.config.get("workload-cpu")
+        }
+        resources = {k: v for k, v in resources.items() if v is not None}
+
         self.k8s_resources = KubernetesStatefulsetPatch(
             self,
             resource_updates={
-                "charm": {"memory": "1Gi", "cpu": 1},
-                self.name: {
-                    "memory": self.config["workload-memory"],
-                    "cpu": self.config["workload-cpu"],
-                },
+                self.name: resources
             },
             refresh_event=[self.on.trino_pebble_ready, self.on.config_changed],
         )
