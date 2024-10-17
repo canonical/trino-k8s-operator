@@ -51,7 +51,8 @@ class TestCharm(TestCase):
 
     maxDiff = None
 
-    def setUp(self):
+    @mock.patch("charm.KubernetesStatefulsetPatch")
+    def setUp(self, _):
         """Set up for the unit tests."""
         self.harness = Harness(TrinoK8SCharm)
         self.addCleanup(self.harness.cleanup)

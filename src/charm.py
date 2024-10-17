@@ -15,6 +15,9 @@ import subprocess  # nosec B404
 from pathlib import Path
 
 import yaml
+from charms.comsys_libs.v0.kubernetes_statefulset_patch import (
+    KubernetesStatefulsetPatch,
+)
 from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -159,6 +162,24 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
+
+        resources = {
+            "memory": {
+                "requests": self.config.get("workload-memory-requests"),
+                "limits": self.config.get("workload-memory-limits"),
+            },
+            "cpu": {
+                "requests": self.config.get("workload-cpu-requests"),
+                "limits": self.config.get("workload-cpu-requests"),
+            },
+        }
+        resources = {k: v for k, v in resources.items() if v is not None}
+
+        self.k8s_resources = KubernetesStatefulsetPatch(
+            self,
+            resource_updates={self.name: resources},
+            refresh_event=[self.on.trino_pebble_ready, self.on.config_changed],
+        )
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""

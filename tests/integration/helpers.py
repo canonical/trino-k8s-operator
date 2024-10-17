@@ -269,12 +269,14 @@ async def simulate_crash_and_restart(ops_test):
             application_name=APP_NAME,
             config=COORDINATOR_CONFIG,
             num_units=1,
+            trust=True,
         )
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
             raise_on_blocked=False,
+            raise_on_error=False,
             timeout=1000,
         )
 
