@@ -164,16 +164,20 @@ class TrinoK8SCharm(CharmBase):
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
 
         resources = {
-            "memory": self.config.get("workload-memory"),
-            "cpu": self.config.get("workload-cpu")
+            "memory": {
+                "requests": self.config.get("workload-memory-requests"),
+                "limits": self.config.get("workload-memory-limits"),
+            },
+            "cpu": {
+                "requests": self.config.get("workload-cpu-requests"),
+                "limits": self.config.get("workload-cpu-requests"),
+            },
         }
         resources = {k: v for k, v in resources.items() if v is not None}
 
         self.k8s_resources = KubernetesStatefulsetPatch(
             self,
-            resource_updates={
-                self.name: resources
-            },
+            resource_updates={self.name: resources},
             refresh_event=[self.on.trino_pebble_ready, self.on.config_changed],
         )
 

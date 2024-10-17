@@ -132,13 +132,25 @@ options:
       finishes.
     type: int
     default: 5
-  workload-memory:
+  workload-memory-requests:
     description: |
       Kubernetes memory resource request for the trino workload container.
       eg. "1Gi"
     type: string
-  workload-cpu:
+  workload-memory-limits:
+    description: |
+      Kubernetes memory resource request for the trino workload container.
+      This should be equal to or greater than your requests.
+      eg. "1Gi"
+    type: string
+  workload-cpu-requests:
     description: |
       Kubernetes cpu resource request for the trino workload container.
+      eg. 1
+    type: int
+  workload-cpu-limits:
+    description: |
+      Kubernetes cpu resource request for the trino workload container.
+      This should be equal to or greater than your requests.
       eg. 1
     type: int

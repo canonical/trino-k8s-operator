@@ -46,16 +46,36 @@ class SomeCharm(CharmBase):
     # ...
     self.k8s_resources = KubernetesStatefulsetPatch(
         self,
-        resource_updates={
-            "charm": {"memory": "1Gi", "cpu": 1},
-            self.name: {"memory": self.config["workload-memory"], "cpu": self.config["workload-cpu"]},
-        },
+        resource_updates = {
+            "charm": {
+                "memory": {
+                    "limits": "2Gi",
+                    "requests": "1Gi",
+                },
+                "cpu": {
+                    "limits": 1,
+                    "requests": 1,
+                },
+            },
+            "self.name": {
+                "memory": {
+                    "limits": self.config.get(workload-memory-limits),
+                    "requests": self.config.get(workload-memory-requests),
+                    },
+                "cpu": {
+                    "limits": self.config.get(workload-cpu-limits),
+                    "requests": self.config.get(workload-cpu-requests),
+                    },
+                }
+            },
+        }
+
     )
     # ...
 ```
 
 Observe with additional or custom events by providing `refresh_event` argument:
-For example, you would like to have the resource values as configuration values you will need
+For example, if you would like to have the resource values as configuration values you will need
 to provide the on.config_changed event as a refresh_event.
 
 ```python
@@ -108,7 +128,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 2
+LIBPATCH = 3
 
 
 class KubernetesStatefulsetPatch(Object):
@@ -149,17 +169,21 @@ class KubernetesStatefulsetPatch(Object):
         """Builds a ResourceRequirements object from the given resources dictionary.
 
         Args:
-            resources (dict): Dictionary with resource limits/requests (e.g., {"memory": "4Gi", "cpu": 6}).
+            resources (dict): Dictionary with resource limits/requests (see above).
 
         Returns:
             ResourceRequirements: The constructed ResourceRequirements object.
         """
         limits = {}
         requests = {}
-        if "memory" in resources:
-            limits["memory"] = requests["memory"] = resources["memory"]
-        if "cpu" in resources:
-            limits["cpu"] = requests["cpu"] = str(resources["cpu"])
+
+        for resource_type in ["memory", "cpu"]:
+            if resource_type in resources:
+                key = resources[resource_type]
+                if key.get("limits"):
+                    limits[resource_type] = str(key["limits"])
+                if key.get("requests"):
+                    requests[resource_type] = str(key["requests"])
 
         return ResourceRequirements(limits=limits, requests=requests)
 
@@ -202,12 +226,12 @@ class KubernetesStatefulsetPatch(Object):
             logger.error("Failed to patch StatefulSet: %s", e)
             raise
 
-    def _is_patched(self, container, resources) -> bool:
+    def _is_patched(self, container, desired_resources) -> bool:
         """Checks if the container's resources match the desired specifications.
 
         Args:
             container: The container object from the StatefulSet.
-            resources (dict): The desired resource specifications for the container.
+            desired_resources (dict): The desired resource specifications for the container.
 
         Returns:
             bool: True if the container's resources match the desired resources, otherwise False.
@@ -216,21 +240,20 @@ class KubernetesStatefulsetPatch(Object):
         current_limits = container.resources.limits or {}
         current_requests = container.resources.requests or {}
 
-        # Desired resources
-        desired_memory = resources.get("memory")
-        desired_cpu = str(resources.get("cpu"))
+        # Check memory limits and requests
+        if current_limits.get("memory") != desired_resources.get("memory", {}).get(
+            "limits"
+        ) or current_requests.get("memory") != desired_resources.get("memory", {}).get("requests"):
+            return False
 
-        # Check if memory and CPU match both limits and requests
-        is_memory_patched = (
-            current_limits.get("memory") == desired_memory
-            and current_requests.get("memory") == desired_memory
-        )
-        is_cpu_patched = (
-            current_limits.get("cpu") == desired_cpu and current_requests.get("cpu") == desired_cpu
-        )
+        # Check CPU limits and requests
+        if current_limits.get("cpu") != str(
+            desired_resources.get("cpu", {}).get("limits")
+        ) or current_requests.get("cpu") != str(desired_resources.get("cpu", {}).get("requests")):
+            return False
 
-        # Return True if both memory and CPU are patched as desired
-        return is_memory_patched and is_cpu_patched
+        # All checks passed, container is patched
+        return True
 
     @property
     def _app(self) -> str:
