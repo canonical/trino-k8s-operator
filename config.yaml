@@ -147,10 +147,10 @@ options:
     description: |
       Kubernetes cpu resource request for the trino workload container.
       eg. 1
-    type: int
+    type: string
   workload-cpu-limits:
     description: |
       Kubernetes cpu resource request for the trino workload container.
       This should be equal to or greater than your requests.
       eg. 1
-    type: int
+    type: string
