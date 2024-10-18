@@ -276,7 +276,6 @@ async def simulate_crash_and_restart(ops_test):
             apps=[APP_NAME],
             status="blocked",
             raise_on_blocked=False,
-            raise_on_error=False,
             timeout=1000,
         )
 

@@ -49,7 +49,6 @@ async def deploy(ops_test: OpsTest):
             apps=[APP_NAME, WORKER_NAME],
             status="blocked",
             raise_on_blocked=False,
-            raise_on_error=False,
             timeout=600,
         )
         await ops_test.model.wait_for_idle(
