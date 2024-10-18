@@ -13,6 +13,7 @@ jobs:
           - integration-policy
           - integration-scaling
           - integration-upgrades
+          - integration-resources
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
