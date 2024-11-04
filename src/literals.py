@@ -62,6 +62,8 @@ DEFAULT_JVM_OPTIONS = [
     "-XX:-OmitStackTraceInFastThrow",
     "-Djdk.attach.allowAttachSelf=true",
     "-Dfile.encoding=UTF-8",
+    "-XX:+ExitOnOutOfMemoryError",
+    "-XX:+HeapDumpOnOutOfMemoryError",
 ]
 USER_SECRET_LABEL = "trino-user-management"  # nosec
 CATALOG_SCHEMA = {
