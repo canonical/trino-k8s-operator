@@ -101,6 +101,8 @@ options:
         "-XX:-OmitStackTraceInFastThrow"
         "-Djdk.attach.allowAttachSelf=true"
         "-Dfile.encoding=UTF-8"
+        "-XX:+ExitOnOutOfMemoryError"
+        "-XX:+HeapDumpOnOutOfMemoryError"
     type: string
   coordinator-request-timeout:
     description: |

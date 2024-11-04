@@ -63,6 +63,8 @@ DEFAULT_JVM_STRING = " ".join(
         "-XX:-OmitStackTraceInFastThrow",
         "-Djdk.attach.allowAttachSelf=true",
         "-Dfile.encoding=UTF-8",
+        "-XX:+ExitOnOutOfMemoryError",
+        "-XX:+HeapDumpOnOutOfMemoryError",
     ]
 )
 
@@ -75,6 +77,8 @@ UPDATED_JVM_OPTIONS = " ".join(
         "-XX:-OmitStackTraceInFastThrow",
         "-Djdk.attach.allowAttachSelf=true",
         "-Dfile.encoding=UTF-8",
+        "-XX:+ExitOnOutOfMemoryError",
+        "-XX:+HeapDumpOnOutOfMemoryError",
         "-Xxs10G",
     ]
 )

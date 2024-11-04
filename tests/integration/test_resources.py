@@ -15,6 +15,7 @@ from helpers import (
 from pytest_operator.plugin import OpsTest
 from lightkube.resources.apps_v1 import StatefulSet
 from lightkube import Client  # pyright: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,12 +59,12 @@ class TestResources:
         """Test setting resources."""
         await ops_test.model.applications[APP_NAME].set_config(
             {
-            "workload-memory-requests": "1Gi",
-            "workload-memory-limits": "2Gi",
-            "workload-cpu-requests": "1",
-            "workload-cpu-limits": "2",
+                "workload-memory-requests": "1Gi",
+                "workload-memory-limits": "2Gi",
+                "workload-cpu-requests": "1",
+                "workload-cpu-limits": "2",
             }
-    )
+        )
         time.sleep(10)
         client = Client()
         statefulset = client.get(
@@ -77,5 +78,5 @@ class TestResources:
             if container.name == "trino":
                 current_limits = container.resources.limits or {}
                 current_requests = container.resources.requests or {}
-                assert current_limits == {'cpu': '1', 'memory': '2Gi'}
-                assert current_requests == {'cpu': '1', 'memory': '1Gi'}
+                assert current_limits == {"cpu": "1", "memory": "2Gi"}
+                assert current_requests == {"cpu": "1", "memory": "1Gi"}
