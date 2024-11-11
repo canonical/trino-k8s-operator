@@ -60,7 +60,7 @@ class TestDeployment:
         # Verify that both catalogs have been added.
         assert "postgresql-1" in str(catalogs)
         assert "bigquery" in str(catalogs)
-        assert "gsheet-1" in str(catalogs)
+        assert "gsheets-1" in str(catalogs)
 
         updated_catalog_config = await create_catalog_config(
             postgresql_secret_id, bigquery_secret_id, gsheet_secret_id, False
@@ -73,6 +73,7 @@ class TestDeployment:
         # Verify that only the bigquery catalog has been removed.
         assert "postgresql-1" in str(catalogs)
         assert "bigquery" not in str(catalogs)
+        assert "gsheets-1" in str(catalogs)
 
     async def test_simulate_crash(self, ops_test: OpsTest):
         """Simulate the crash of the Trino coordinator charm.
