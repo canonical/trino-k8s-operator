@@ -24,6 +24,7 @@ from unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     BIGQUERY_SECRET,
     DEFAULT_JVM_STRING,
+    GSHEET_SECRET,
     POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_2_CATALOG_PATH,
     POSTGRESQL_REPLICA_CERT,
@@ -94,9 +95,10 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             bigquery_secret_id,
+            gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
         catalog_config = create_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
         )
 
         # Asserts status is active
@@ -229,10 +231,11 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             bigquery_secret_id,
+            gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
 
         catalog_config = create_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
         )
 
         # Update the config.
@@ -303,10 +306,11 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             bigquery_secret_id,
+            gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
 
         catalog_config = create_added_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
         )
 
         # Update the config.
@@ -397,10 +401,11 @@ class TestCharm(TestCase):
             rel_id,
             postgresql_secret_id,
             bigquery_secret_id,
+            gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
 
         catalog_config = create_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
         )
         relation_data = harness.get_relation_data(rel_id, harness.charm.app)
         secret = harness.model.get_secret(label="catalog-config")
@@ -418,11 +423,12 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             bigquery_secret_id,
+            gsheets_secret_id,
             secret_id,
         ) = simulate_lifecycle_worker(harness)
 
         catalog_config = create_added_catalog_config(
-            postgresql_secret_id, bigquery_secret_id
+            postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
         )
         secret = harness.model.get_secret(id=secret_id)
 
@@ -454,7 +460,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, _, _, _, _ = simulate_lifecycle_worker(harness)
+        container, _, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
         self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
@@ -465,7 +471,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event, _, _, _ = simulate_lifecycle_worker(harness)
+        container, event, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
         self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
@@ -532,8 +538,12 @@ def simulate_lifecycle_worker(harness):
             "cert": POSTGRESQL_REPLICA_CERT,
         },
     )
+    gsheets_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": GSHEET_SECRET},
+    )
     catalog_config = create_catalog_config(
-        postgresql_secret_id, bigquery_secret_id
+        postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
     )
 
     container = harness.model.unit.get_container("trino")
@@ -559,6 +569,7 @@ def simulate_lifecycle_worker(harness):
         event,
         postgresql_secret_id,
         bigquery_secret_id,
+        gsheets_secret_id,
         secret_id,
     )
 
@@ -603,8 +614,15 @@ def simulate_lifecycle_coordinator(harness):
             "cert": POSTGRESQL_REPLICA_CERT,
         },
     )
+    gsheets_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": GSHEET_SECRET},
+    )
+
     catalog_config = create_catalog_config(
-        postgresql_secret_id, bigquery_secret_id
+        postgresql_secret_id,
+        bigquery_secret_id,
+        gsheets_secret_id,
     )
 
     # Add worker and coordinator relation
@@ -613,7 +631,7 @@ def simulate_lifecycle_coordinator(harness):
     rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
 
     harness.update_config({"user-secret-id": secret_id})
-    return rel_id, postgresql_secret_id, bigquery_secret_id
+    return rel_id, postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
 
 
 def make_relation_event(app, rel_id, data):
@@ -646,12 +664,15 @@ def make_relation_event(app, rel_id, data):
     )
 
 
-def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
+def create_catalog_config(
+    postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
+):
     """Create and return catalog-config value.
 
     Args:
         postgresql_secret_id: the juju secret id for postgresql
         bigquery_secret_id: the juju secret id for bigquery
+        gsheets_secret_id: the juju secret id for googlesheets
 
     Returns:
         the catalog configuration.
@@ -666,6 +687,10 @@ def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
             backend: bigquery
             project: project-12345
             secret-id: {bigquery_secret_id}
+        gsheets-1:
+            backend: gsheets
+            metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+            secret-id: {gsheets_secret_id}
     backends:
         dwh:
             connector: postgresql
@@ -679,15 +704,20 @@ def create_catalog_config(postgresql_secret_id, bigquery_secret_id):
             connector: bigquery
             config: |
                 bigquery.case-insensitive-name-matching=true
+        gsheets:
+            connector: gsheets
     """
 
 
-def create_added_catalog_config(postgresql_secret_id, bigquery_secret_id):
+def create_added_catalog_config(
+    postgresql_secret_id, bigquery_secret_id, gsheets_secret_id
+):
     """Create and return catalog-config value, with added catalog.
 
     Args:
         postgresql_secret_id: the juju secret id for postgresql
         bigquery_secret_id: the juju secret id for bigquery
+        gsheets_secret_id: the juju secret id for googlesheets
 
     Returns:
         the catalog configuration, with an added catalog.
@@ -706,6 +736,10 @@ def create_added_catalog_config(postgresql_secret_id, bigquery_secret_id):
             backend: bigquery
             project: project-12345
             secret-id: {bigquery_secret_id}
+        gsheets-1:
+            backend: gsheets
+            metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+            secret-id: {gsheets_secret_id}
     backends:
         dwh:
             connector: postgresql
@@ -719,6 +753,8 @@ def create_added_catalog_config(postgresql_secret_id, bigquery_secret_id):
             connector: bigquery
             config: |
                 bigquery.case-insensitive-name-matching=true
+        gsheets:
+            connector: gsheets
     """
 
 

@@ -70,6 +70,7 @@ CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string", "nullable": True},
     "project": {"type": "string", "nullable": True},
+    "metasheet-id": {"type": "string", "nullable": True},
     "secret-id": {"type": "string"},
 }
 
@@ -87,6 +88,11 @@ REPLICA_SCHEMA = {
 }
 
 BIGQUERY_BACKEND_SCHEMA = {
+    "connector": {"type": "string"},
+    "config": {"type": "string", "nullable": True},
+}
+
+GSHEETS_BACKEND_SCHEMA = {
     "connector": {"type": "string"},
     "config": {"type": "string", "nullable": True},
 }
