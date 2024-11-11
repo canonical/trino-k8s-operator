@@ -57,7 +57,7 @@ project-12345: |
 """  # nosec
 
 GSHEETS_SECRET = """\
-gsheet-1: |
+gsheets-1: |
     {
       "type": "service_account",
       "project_id": "example-project",
