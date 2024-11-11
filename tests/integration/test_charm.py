@@ -48,7 +48,7 @@ class TestDeployment:
         for app in ["trino-k8s", "trino-k8s-worker"]:
             await ops_test.model.grant_secret("postgresql-secret", app)
             await ops_test.model.grant_secret("bigquery-secret", app)
-            await ops_test.model.grant_secret("gsheet-secret", app)
+            await ops_test.model.grant_secret("gsheets-secret", app)
 
         catalog_config = await create_catalog_config(
             postgresql_secret_id, bigquery_secret_id, gsheet_secret_id, True
