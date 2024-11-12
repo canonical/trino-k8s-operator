@@ -97,10 +97,28 @@ For BigQuery (`bigquery-service-accounts.yaml`):
       "universe_domain": "googleapis.com"
     }
 ```
+For Google sheets (`gsheets-service-accounts.yaml`):
+```
+<catalog-name>: |
+    {
+      "type": "service_account",
+      "project_id": "example-project",
+      "private_key_id": "key123",
+      "private_key": "-----BEGIN PRIVATE KEY-----\YOUR PRIVATE KEY\n-----END PRIVATE KEY-----",
+      "client_email": "test-380@example-project.iam.gserviceaccount.com",
+      "client_id": "12345",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
+      "universe_domain": "googleapis.com"
+    }
+```
 These secrets can be created by running the following:
 ```
 juju add-secret postgresql-credentials replicas#file=postgresql-user-creds.yaml cert#file=certificates.yaml
 juju add-secret bigquery-service-accounts service-accounts#file=bigquery-service-accounts.yaml
+juju add-secret gsheets-service-accounts service-accounts#file=gsheets-service-accounts.yaml
 ```
 And access granted to trino coordinator and worker with the following:
 ```
@@ -121,7 +139,10 @@ catalogs:
     backend: bigquery
     project: <project-id>
     secret-id: crt7d1vmp25c760ji14g
-
+  gsheet-1:
+    backend: gsheets
+    metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+    secret-id: csp2ccvmp25c77vadfcg
 backends: 
   dwh:
     connector: postgresql
@@ -135,6 +156,8 @@ backends:
     connector: bigquery
     config: |
       bigquery.case-insensitive-name-matching=true
+  gsheets:
+    connector: gsheets
 ```
 
 Note: the allowed fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html).
@@ -146,6 +169,11 @@ The catalog-config can be applied with the following:
 ```
 juju run trino-k8s catalog-config=@catalog-config.yaml
 ```
+### Additional information for Google sheets connector
+For the google sheets connector it is worth noting that the sheet that is connected to Trino is not the sheet with the data, but rather a metadata sheet following [this format](https://docs.google.com/spreadsheets/d/1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM/edit?gid=0#gid=0). This sheet serves the purpose of mapping other google sheets by id to Trino tables.
+
+In order to add this connector, follow the documentation [here](https://trino.io/docs/current/connector/googlesheets.html) for setting up a Google service account and providing access to that service account to the metasheet and also any listed data sheets.
+
 
 ## User management
 By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.

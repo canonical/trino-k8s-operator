@@ -12,6 +12,7 @@ from ops.model import SecretNotFoundError
 
 from literals import (
     BIGQUERY_BACKEND_SCHEMA,
+    GSHEETS_BACKEND_SCHEMA,
     POSTGRESQL_BACKEND_SCHEMA,
     REPLICA_SCHEMA,
 )
@@ -236,6 +237,50 @@ class BigqueryCatalog(CatalogBase):
             connector.name={self.backend['connector']}
             bigquery.project-id={self.info['project']}
             bigquery.credentials-file={sa_creds_path}
+            """
+        )
+        catalog_content += self.backend.get("config", "")
+        catalog[self.name] = catalog_content
+        return catalog
+
+
+class GsheetCatalog(CatalogBase):
+    """Class for handling the Google Sheets connector."""
+
+    def _get_credentials(self):
+        """Handle BigQuery catalog configuration.
+
+        Returns:
+            sa_creds_path: the path of the service account credentials.
+        """
+        validate_keys(self.backend, GSHEETS_BACKEND_SCHEMA)
+
+        secret = self._get_secret_content(self.info["secret-id"])
+        service_accounts = secret["service-accounts"]
+        sa_dict = yaml.safe_load(service_accounts)
+        sa_string = sa_dict[self.name]
+
+        sa_creds_path = self.charm.conf_abs_path.joinpath(f"{self.name}.json")
+        self._add_service_account(sa_string, sa_creds_path)
+
+        return sa_creds_path
+
+    def _create_properties(self, sa_creds_path):
+        """Create the BigQuery connector catalog files.
+
+        Args:
+            sa_creds_path: the path of the service account credentials.
+
+        Returns:
+            catalog: a dictionary of catalog name and configuration.
+        """
+        catalog = {}
+
+        catalog_content = textwrap.dedent(
+            f"""\
+            connector.name={self.backend['connector']}
+            gsheets.metadata-sheet-id={self.info['metasheet-id']}
+            gsheets.credentials-path={sa_creds_path}
             """
         )
         catalog_content += self.backend.get("config", "")

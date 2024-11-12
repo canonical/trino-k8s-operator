@@ -34,7 +34,7 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError
 
-from catalog_manager import BigqueryCatalog, PostgresqlCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog, PostgresqlCatalog
 from literals import (
     CATALOG_DIR,
     CATALOG_SCHEMA,
@@ -469,6 +469,7 @@ class TrinoK8SCharm(CharmBase):
         catalog_map = {
             "postgresql": PostgresqlCatalog,
             "bigquery": BigqueryCatalog,
+            "gsheets": GsheetCatalog,
         }
         catalog_cls = catalog_map.get(backend["connector"], None)
 
