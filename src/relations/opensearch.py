@@ -96,13 +96,18 @@ class OpensearchRelationHandler(framework.Object):
 
         certificate = self.charm.state.opensearch_certificate
 
+        out, _ = container.exec(
+            ["/bin/sh", "-c", "echo $JAVA_HOME"]
+        ).wait_output()
+        java_home = out.strip()
+
         if certificate and not relation_broken:
             container.push("/opensearch.crt", certificate)
             command = [
                 "keytool",
                 "-importcert",
                 "-keystore",
-                "$JAVA_HOME/lib/security/cacerts",
+                f"{java_home}/lib/security/cacerts",
                 "-file",
                 "/opensearch.crt",
                 "-alias",
@@ -117,7 +122,7 @@ class OpensearchRelationHandler(framework.Object):
                 "keytool",
                 "-delete",
                 "-keystore",
-                "$JAVA_HOME/lib/security/cacerts",
+                f"{java_home}/lib/security/cacerts",
                 "-alias",
                 CERTIFICATE_NAME,
                 "-storepass",
