@@ -3,18 +3,14 @@
 
 """Trino charm integration test config."""
 import logging
+import time
 
 import pytest
-import time
 import pytest_asyncio
-from helpers import (
-    APP_NAME,
-    BASE_DIR,
-    TRINO_IMAGE,
-)
-from pytest_operator.plugin import OpsTest
-from lightkube.resources.apps_v1 import StatefulSet
+from helpers import APP_NAME, BASE_DIR, TRINO_IMAGE
 from lightkube import Client  # pyright: ignore
+from lightkube.resources.apps_v1 import StatefulSet
+from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
