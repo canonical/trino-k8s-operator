@@ -48,6 +48,11 @@ ro:
   user: trino_ro
   password: pwd2
 """  # nosec
+MYSQL_REPLICA_SECRET = """\
+ro:
+  user: trino_ro
+  password: pwd3
+"""  # nosec
 POSTGRESQL_REPLICA_CERT = """\
 cert: |
   -----BEGIN CERTIFICATE-----
@@ -61,6 +66,7 @@ POSTGRESQL_1_CATALOG_PATH = (
 POSTGRESQL_2_CATALOG_PATH = (
     "/usr/lib/trino/etc/catalog/postgresql-2.properties"
 )
+MYSQL_CATALOG_PATH = "/usr/lib/trino/etc/catalog/mysql.properties"
 BIGQUERY_CATALOG_PATH = "/usr/lib/trino/etc/catalog/bigquery.properties"
 RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
 POLICY_MGR_URL = "http://ranger-k8s:6080"

@@ -61,7 +61,7 @@ Adding a catalog to Trino requires user or service account credentiials. For thi
 ### Juju secrets
 Juju secrets are used to manage connector credentials. The format of these differ by connector type. Note: the same secret can be shared by multiple trino catalogs.
 
-For PostgreSQL (`postgresql-user-creds.yaml`):
+For PostgreSQL or MySQL (`postgresql-user-creds.yaml` or `mysql-user-creds.yaml`):
 ```
 rw: 
   user: trino
@@ -117,6 +117,7 @@ For Google sheets (`gsheets-service-accounts.yaml`):
 These secrets can be created by running the following:
 ```
 juju add-secret postgresql-credentials replicas#file=postgresql-user-creds.yaml cert#file=certificates.yaml
+juju add-secret mysql-credentials replicas#file=mysql-user-creds.yaml
 juju add-secret bigquery-service-accounts service-accounts#file=bigquery-service-accounts.yaml
 juju add-secret gsheets-service-accounts service-accounts#file=gsheets-service-accounts.yaml
 ```
@@ -135,6 +136,9 @@ catalogs:
     backend: dwh
     database: example  
     secret-id: crt7gpnmp25c760ji150
+  mysql_example: 
+    backend: mysql
+    secret-id: crt7gpnmp25c760ji150
   ge_bigquery:
     backend: bigquery
     project: <project-id>
@@ -148,6 +152,14 @@ backends:
     connector: postgresql
     url: jdbc:postgresql://<database-host>:5432
     params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+    config: |
+      case-insensitive-name-matching=true
+      decimal-mapping=allow_overflow
+      decimal-rounding-mode=HALF_UP
+  mysql:
+    connector: mysql
+    url: jdbc:mysql://<database-host>:3306
+    params: sslMode=REQUIRED
     config: |
       case-insensitive-name-matching=true
       decimal-mapping=allow_overflow

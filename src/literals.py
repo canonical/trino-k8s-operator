@@ -74,7 +74,7 @@ CATALOG_SCHEMA = {
     "secret-id": {"type": "string"},
 }
 
-POSTGRESQL_BACKEND_SCHEMA = {
+SQL_BACKEND_SCHEMA = {
     "connector": {"type": "string"},
     "url": {"type": "string"},
     "params": {"type": "string"},
