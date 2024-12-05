@@ -279,3 +279,5 @@ Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more infor
 
 ## License
 The Charmed Trino K8s Operator is free software, distributed under the Apache Software License, version 2.0. See [License](LICENSE) for more details. 
+
+test integration
