@@ -13,8 +13,8 @@ from ops.model import SecretNotFoundError
 from literals import (
     BIGQUERY_BACKEND_SCHEMA,
     GSHEETS_BACKEND_SCHEMA,
-    POSTGRESQL_BACKEND_SCHEMA,
     REPLICA_SCHEMA,
+    SQL_BACKEND_SCHEMA,
 )
 from utils import add_cert_to_truststore, validate_keys
 
@@ -151,16 +151,16 @@ class CatalogBase(ABC):
             raise
 
 
-class PostgresqlCatalog(CatalogBase):
-    """Class for handling the PostgreSQL connector."""
+class SqlCatalog(CatalogBase):
+    """Class for handling the PostgreSQL and MySQL connectors."""
 
     def _get_credentials(self):
-        """Handle PostgreSQL catalog configuration.
+        """Handle PostgreSQL/MySQL catalog configuration.
 
         Returns:
             replicas: the database replica configuration.
         """
-        validate_keys(self.backend, POSTGRESQL_BACKEND_SCHEMA)
+        validate_keys(self.backend, SQL_BACKEND_SCHEMA)
         secret = self._get_secret_content(self.info["secret-id"])
         replicas = yaml.safe_load(secret["replicas"])
         certs = yaml.safe_load(secret.get("cert", ""))
@@ -168,7 +168,7 @@ class PostgresqlCatalog(CatalogBase):
         return replicas
 
     def _create_properties(self, replicas):
-        """Create the PostgreSQL connector catalog files.
+        """Create the PostgreSQL/MySQL connector catalog files.
 
         Args:
             replicas: the database replica configuration.
@@ -184,7 +184,7 @@ class PostgresqlCatalog(CatalogBase):
             suffix = replica_info.get("suffix", "")
 
             catalog_name = f"{self.name}{suffix}"
-            url = f"{self.backend['url']}/{self.info['database']}"
+            url = f"{self.backend['url']}/{self.info.get('database','')}"
             if self.backend.get("params"):
                 url = f"{url}?{self.backend['params']}"
 

@@ -34,7 +34,7 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog, PostgresqlCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog, SqlCatalog
 from literals import (
     CATALOG_DIR,
     CATALOG_SCHEMA,
@@ -467,7 +467,8 @@ class TrinoK8SCharm(CharmBase):
             ValueError: in case the backend type is not supported.
         """
         catalog_map = {
-            "postgresql": PostgresqlCatalog,
+            "postgresql": SqlCatalog,
+            "mysql": SqlCatalog,
             "bigquery": BigqueryCatalog,
             "gsheets": GsheetCatalog,
         }
