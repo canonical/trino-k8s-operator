@@ -4,18 +4,12 @@
 """Defines policy relation event handling methods."""
 
 import logging
-from pathlib import Path
 
 from ops import framework
 from ops.model import MaintenanceStatus
 from ops.pebble import ExecError
 
-from literals import (
-    RANGER_PLUGIN_FILES,
-    RANGER_PLUGIN_HOME,
-    TRINO_PLUGIN_DIR,
-    TRINO_PORTS,
-)
+from literals import RANGER_PLUGIN_FILES, TRINO_HOME, TRINO_PORTS
 from log import log_event_handler
 from utils import handle_exec_error, render
 
@@ -23,16 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyRelationHandler(framework.Object):
-    """Client for trino policy relations.
-
-    Attrs:
-        ranger_abs_path: The absolute path for Ranger plugin home directory.
-    """
-
-    @property
-    def ranger_abs_path(self):
-        """Return the Ranger plugin absolute path."""
-        return Path(RANGER_PLUGIN_HOME)
+    """Client for trino policy relations."""
 
     def __init__(self, charm, relation_name="policy"):
         """Construct.
@@ -145,7 +130,7 @@ class PolicyRelationHandler(framework.Object):
             return
 
         try:
-            self._disable_ranger_plugin(container)
+            # self._disable_ranger_plugin(container)
             self.charm.state.ranger_enabled = False
             logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
@@ -165,25 +150,9 @@ class PolicyRelationHandler(framework.Object):
             self.charm.state.policy_manager_url,
             self.charm.state.policy_relation,
         )
-        self._run_plugin_entrypoint(container)
+        # self._run_plugin_entrypoint(container)
         self.charm.state.ranger_enabled = True
         logger.info("Ranger plugin is enabled.")
-
-    @handle_exec_error
-    def _run_plugin_entrypoint(self, container):
-        """Enable ranger plugin.
-
-        Args:
-            container: The application container
-        """
-        command = [
-            "bash",
-            "enable-trino-plugin.sh",
-        ]
-        container.exec(
-            command,
-            working_dir=str(self.ranger_abs_path),
-        ).wait()
 
     def _push_plugin_files(
         self, container, policy_manager_url, policy_relation
@@ -201,6 +170,7 @@ class PolicyRelationHandler(framework.Object):
         ):
             self.charm.opensearch_relation_handler.update_certificates()
         policy_context = {
+            "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
             "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
             or policy_relation,
@@ -214,30 +184,8 @@ class PolicyRelationHandler(framework.Object):
         }
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
-            if file == "access-control.properties":
-                path = self.charm.trino_abs_path.joinpath(file)
-            else:
-                path = self.ranger_abs_path.joinpath(file)
+            path = self.charm.trino_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
-
-    @handle_exec_error
-    def _disable_ranger_plugin(self, container):
-        """Disable ranger plugin.
-
-        Args:
-            container: application container
-        """
-        if not container.exists(f"{TRINO_PLUGIN_DIR}/ranger"):
-            return
-
-        command = [
-            "bash",
-            "disable-trino-plugin.sh",
-        ]
-        container.exec(
-            command,
-            working_dir=str(self.ranger_abs_path),
-        ).wait()
 
     def restart_ranger_plugin(self, event):
         """Restart Ranger plugin for Trino.
@@ -251,5 +199,4 @@ class PolicyRelationHandler(framework.Object):
             return
 
         self.charm.unit.status = MaintenanceStatus("Restarting Ranger plugin")
-        self._disable_ranger_plugin(container)
         self._configure_ranger_plugin(container)

@@ -39,11 +39,10 @@ TRINO_PLUGIN_DIR = "/usr/lib/trino/plugin"
 PASSWORD_DB = "password.db"  # nosec
 
 # Ranger plugin literals
-RANGER_PLUGIN_VERSION = "2.4.0"
-RANGER_PLUGIN_HOME = "/usr/lib/ranger"
 RANGER_PLUGIN_FILES = {
-    "ranger-plugin.jinja": "install.properties",
     "access-control.jinja": "access-control.properties",
+    "ranger-trino-security.jinja": "ranger-trino-security.xml",
+    "ranger-trino-audit.jinja": "ranger-trino-audit.xml",
 }
 
 SECRET_LABEL = "catalog-config"  # nosec

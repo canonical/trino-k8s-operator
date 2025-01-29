@@ -4,11 +4,11 @@ This project uses `tox` for managing test environments (4.4.x). There are some p
 that can be used for linting and formatting code when you're preparing contributions to the charm:
 
 ```shell
-tox run -e format        # update your code according to linting rules
+tox run -e fmt        # update your code according to linting rules
 tox run -e lint          # code style
 tox run -e unit          # unit tests
 tox run -e integration   # integration tests
-tox                      # runs 'format', 'lint', and 'unit' environments
+tox                      # runs 'fmt', 'lint', and 'unit' environments
 ```
 
 # Deploy Trino
