@@ -130,7 +130,6 @@ class PolicyRelationHandler(framework.Object):
             return
 
         try:
-            # self._disable_ranger_plugin(container)
             self.charm.state.ranger_enabled = False
             logger.info("Ranger plugin disabled successfully")
         except ExecError as err:
@@ -150,7 +149,6 @@ class PolicyRelationHandler(framework.Object):
             self.charm.state.policy_manager_url,
             self.charm.state.policy_relation,
         )
-        # self._run_plugin_entrypoint(container)
         self.charm.state.ranger_enabled = True
         logger.info("Ranger plugin is enabled.")
 
