@@ -60,13 +60,9 @@ class TestDeployment:
             True,
         )
 
-        print('1', catalog_config)
-
         catalogs = await update_catalog_config(
             ops_test, catalog_config, TRINO_USER
         )
-
-        print('2', catalog_config)
 
         # Verify that both catalogs have been added.
         assert "postgresql-1" in str(catalogs)

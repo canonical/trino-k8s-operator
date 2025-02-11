@@ -10,10 +10,10 @@ jobs:
       matrix:
         tox-environments:
           - integration-charm
-          # - integration-policy
-          # - integration-scaling
-          # - integration-upgrades
-          # - integration-resources
+#           - integration-policy
+          - integration-scaling
+          - integration-upgrades
+          - integration-resources
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
