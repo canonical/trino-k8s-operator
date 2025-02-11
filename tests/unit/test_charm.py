@@ -20,7 +20,7 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus
 from ops.testing import Harness
-from unit.helpers import (
+from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     BIGQUERY_SECRET,
     DEFAULT_JVM_STRING,
