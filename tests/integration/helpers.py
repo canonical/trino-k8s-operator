@@ -208,24 +208,45 @@ async def create_policy(ops_test, ranger_url):
 
     Args:
         ops_test: PyTest object
-        ranger_url: the polciy manager url
+        ranger_url: the policy manager url
     """
     ranger = RangerClient(ranger_url, RANGER_AUTH)
     policy = RangerPolicy()
     policy.service = TRINO_SERVICE
     policy.name = POLICY_NAME
     policy.resources = {
-        "schema": RangerPolicyResource({"values": ["*"]}),
         "catalog": RangerPolicyResource({"values": ["system"]}),
+        "schema": RangerPolicyResource({"values": ["*"]}),
         "table": RangerPolicyResource({"values": ["*"]}),
         "column": RangerPolicyResource({"values": ["*"]}),
     }
-
     allow_items = RangerPolicyItem()
     allow_items.users = [USER_WITH_ACCESS]
     allow_items.accesses = [RangerPolicyItemAccess({"type": "select"})]
     policy.policyItems = [allow_items]
     ranger.create_policy(policy)
+
+    # the following policies are required to enable querying:
+    # https://trino.io/docs/current/security/ranger-access-control.html#required-policies
+
+    policy.name = 'execute'
+    policy.resources = {
+        "queryId": RangerPolicyResource({"values": ["*"]}),
+    }
+    allow_items.accesses = [RangerPolicyItemAccess({"type": "execute"})]
+    policy.policyItems = [allow_items]
+    ranger.create_policy(policy)
+
+    policy.name = 'impersonate'
+    policy.resources = {
+        "trinouser": RangerPolicyResource({"values": [USER_WITH_ACCESS]}),
+    }
+    allow_items.accesses = [RangerPolicyItemAccess({"type": "impersonate"})]
+    policy.policyItems = [allow_items]
+    ranger.create_policy(policy)
+
+
+
 
 
 async def scale(ops_test: OpsTest, app, units):

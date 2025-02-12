@@ -10,7 +10,7 @@ jobs:
       matrix:
         tox-environments:
           - integration-charm
-#           - integration-policy
+          - integration-policy
           - integration-scaling
           - integration-upgrades
           - integration-resources
