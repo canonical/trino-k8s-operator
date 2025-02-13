@@ -3,14 +3,18 @@
 # See LICENSE file for licensing details.
 
 """Trino charm integration test helpers."""
+from unicodedata import category
 
 import json
 import logging
 import os
+import trino.exceptions
 from pathlib import Path
 
 import requests
 import yaml
+from apache_ranger.client.ranger_user_mgmt_client import RangerUserMgmtClient
+from apache_ranger.model.ranger_user_mgmt import RangerUser
 from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.model.ranger_policy import (
     RangerPolicy,
@@ -98,19 +102,6 @@ RANGER_AUTH = ("admin", "rangerR0cks!")
 TRINO_SERVICE = "trino-service"
 USER_WITH_ACCESS = "dev"
 USER_WITHOUT_ACCESS = "user"
-POLICY_NAME = "system - catalog, schema, table, column"
-
-HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-}
-DEV_USER = {
-    "name": USER_WITH_ACCESS,
-    "password": "aP6X1HhJe6Toui!",
-    "firstName": USER_WITH_ACCESS,
-    "lastName": "user",
-    "emailAddress": "dev@example.com",
-}
 
 # Scaling literals
 WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
@@ -159,7 +150,10 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
         "address"
     ]
     logger.info("executing query on app address: %s", address)
-    catalogs = await query_trino(address, user, CATALOG_QUERY)
+    try:
+        catalogs = await query_trino(address, user, CATALOG_QUERY)
+    except trino.exceptions.TrinoUserError:
+        catalogs = []
     return catalogs
 
 
@@ -186,67 +180,38 @@ async def update_catalog_config(ops_test, catalog_config, user):
     return catalogs
 
 
-async def create_user(ops_test, ranger_url):
+async def create_user(ranger_url):
     """Create Ranger user.
 
     Args:
-        ops_test: PyTest object
         ranger_url: the policy manager url
     """
-    url = f"{ranger_url}/service/xusers/users"
-    response = requests.post(
-        url, headers=HEADERS, json=DEV_USER, auth=RANGER_AUTH, timeout=20
-    )
-    r = json.loads(response.text)
-    logger.info(r)
+    ranger_client = RangerClient(ranger_url, RANGER_AUTH)
+    user_client = RangerUserMgmtClient(ranger_client)
+    user = RangerUser()
+    user.name = USER_WITH_ACCESS
+    user.firstName = 'James'
+    user.lastName = 'Dev'
+    user.emailAddress = 'james.dev@canonical.com'
+    user.password = 'aP6X1HhJe6Toui!'
+    res = user_client.create_user(user)
+    logger.info(res)
 
 
-async def create_policy(ops_test, ranger_url):
-    """Create a Ranger user policy.
+async def update_policies(ranger_url):
+    """Update Ranger user policy.
 
-    Allow user `user1` to access `system` catalog.
+    Allow user `USER_WITH_ACCESS` to access `system` catalog.
 
     Args:
-        ops_test: PyTest object
         ranger_url: the policy manager url
     """
     ranger = RangerClient(ranger_url, RANGER_AUTH)
-    policy = RangerPolicy()
-    policy.service = TRINO_SERVICE
-    policy.name = POLICY_NAME
-    policy.resources = {
-        "catalog": RangerPolicyResource({"values": ["system"]}),
-        "schema": RangerPolicyResource({"values": ["*"]}),
-        "table": RangerPolicyResource({"values": ["*"]}),
-        "column": RangerPolicyResource({"values": ["*"]}),
-    }
-    allow_items = RangerPolicyItem()
-    allow_items.users = [USER_WITH_ACCESS]
-    allow_items.accesses = [RangerPolicyItemAccess({"type": "select"})]
-    policy.policyItems = [allow_items]
-    ranger.create_policy(policy)
 
-    # the following policies are required to enable querying:
-    # https://trino.io/docs/current/security/ranger-access-control.html#required-policies
-
-    policy.name = 'execute'
-    policy.resources = {
-        "queryId": RangerPolicyResource({"values": ["*"]}),
-    }
-    allow_items.accesses = [RangerPolicyItemAccess({"type": "execute"})]
-    policy.policyItems = [allow_items]
-    ranger.create_policy(policy)
-
-    policy.name = 'impersonate'
-    policy.resources = {
-        "trinouser": RangerPolicyResource({"values": [USER_WITH_ACCESS]}),
-    }
-    allow_items.accesses = [RangerPolicyItemAccess({"type": "impersonate"})]
-    policy.policyItems = [allow_items]
-    ranger.create_policy(policy)
-
-
-
+    for policy_name in ['all - trinouser', 'all - catalog', 'all - queryid']:
+        policy = ranger.get_policy(TRINO_SERVICE, policy_name)
+        policy.policyItems[0].users.append(USER_WITH_ACCESS)
+        ranger.update_policy(TRINO_SERVICE, policy_name, policy)
 
 
 async def scale(ops_test: OpsTest, app, units):
