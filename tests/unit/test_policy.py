@@ -15,13 +15,13 @@ from unittest import TestCase, mock
 from ops.model import ActiveStatus, MaintenanceStatus
 from ops.pebble import CheckStatus
 from ops.testing import Harness
+
+from charm import TrinoK8SCharm
 from tests.unit.helpers import (
     POLICY_MGR_URL,
     RANGER_AUDIT_PATH,
     RANGER_SECURITY_PATH,
 )
-
-from charm import TrinoK8SCharm
 
 logger = logging.getLogger(__name__)
 

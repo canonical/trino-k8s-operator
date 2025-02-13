@@ -3,25 +3,17 @@
 # See LICENSE file for licensing details.
 
 """Trino charm integration test helpers."""
-from unicodedata import category
 
-import json
 import logging
 import os
-import trino.exceptions
 from pathlib import Path
 
 import requests
+import trino.exceptions
 import yaml
+from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.client.ranger_user_mgmt_client import RangerUserMgmtClient
 from apache_ranger.model.ranger_user_mgmt import RangerUser
-from apache_ranger.client.ranger_client import RangerClient
-from apache_ranger.model.ranger_policy import (
-    RangerPolicy,
-    RangerPolicyItem,
-    RangerPolicyItemAccess,
-    RangerPolicyResource,
-)
 from pytest_operator.plugin import OpsTest
 from trino_client.trino_client import query_trino
 
@@ -190,10 +182,10 @@ async def create_user(ranger_url):
     user_client = RangerUserMgmtClient(ranger_client)
     user = RangerUser()
     user.name = USER_WITH_ACCESS
-    user.firstName = 'James'
-    user.lastName = 'Dev'
-    user.emailAddress = 'james.dev@canonical.com'
-    user.password = 'aP6X1HhJe6Toui!'
+    user.firstName = "James"
+    user.lastName = "Dev"
+    user.emailAddress = "james.dev@canonical.com"
+    user.password = "aP6X1HhJe6Toui!"
     res = user_client.create_user(user)
     logger.info(res)
 
@@ -208,7 +200,7 @@ async def update_policies(ranger_url):
     """
     ranger = RangerClient(ranger_url, RANGER_AUTH)
 
-    for policy_name in ['all - trinouser', 'all - catalog', 'all - queryid']:
+    for policy_name in ["all - trinouser", "all - catalog", "all - queryid"]:
         policy = ranger.get_policy(TRINO_SERVICE, policy_name)
         policy.policyItems[0].users.append(USER_WITH_ACCESS)
         ranger.update_policy(TRINO_SERVICE, policy_name, policy)

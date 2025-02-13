@@ -17,13 +17,12 @@ from helpers import (
     TRINO_IMAGE,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
-    update_policies,
     create_user,
     get_catalogs,
     get_unit_url,
+    update_policies,
 )
 from pytest_operator.plugin import OpsTest
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,9 @@ TRINO_CONFIG = {
 async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
-    await ops_test.model.deploy(RANGER_NAME, channel="edge", revision=33, trust=True)
+    await ops_test.model.deploy(
+        RANGER_NAME, channel="edge", revision=33, trust=True
+    )
 
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
@@ -104,7 +105,7 @@ class TestPolicyManager:
             raise_on_blocked=False,
             timeout=2000,
         )
-        logging.info(f"update default policies to authorize the new user")
+        logging.info("update default policies to authorize the new user")
         await update_policies(url)
 
         time.sleep(30)  # wait 30 seconds for the policy to be synced.
