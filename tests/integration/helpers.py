@@ -185,7 +185,7 @@ async def create_user(ranger_url):
     user.firstName = "James"
     user.lastName = "Dev"
     user.emailAddress = "james.dev@canonical.com"
-    user.password = "aP6X1HhJe6Toui!"
+    user.password = "aP6X1HhJe6Toui!"  # nosec
     res = user_client.create_user(user)
     logger.info(res)
 
