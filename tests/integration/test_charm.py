@@ -59,7 +59,6 @@ class TestDeployment:
             gsheet_secret_id,
             True,
         )
-
         catalogs = await update_catalog_config(
             ops_test, catalog_config, TRINO_USER
         )

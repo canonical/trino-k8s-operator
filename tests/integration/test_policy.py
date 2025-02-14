@@ -49,21 +49,21 @@ async def deploy_policy_engine(ops_test: OpsTest):
             timeout=2000,
         )
 
-    await ops_test.model.wait_for_idle(
-        apps=[RANGER_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=2000,
-    )
-    logger.info("Integrating Ranger and PostgreSQL.")
-    await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+        await ops_test.model.wait_for_idle(
+            apps=[RANGER_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=2000,
+        )
+        logger.info("Integrating Ranger and PostgreSQL.")
+        await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
 
-    await ops_test.model.wait_for_idle(
-        apps=[POSTGRES_NAME, RANGER_NAME],
-        status="active",
-        raise_on_blocked=False,
-        timeout=2000,
-    )
+        await ops_test.model.wait_for_idle(
+            apps=[POSTGRES_NAME, RANGER_NAME],
+            status="active",
+            raise_on_blocked=False,
+            timeout=2000,
+        )
 
 
 @pytest.mark.abort_on_fail
