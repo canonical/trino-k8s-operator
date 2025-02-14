@@ -15,7 +15,7 @@ flake8-test-docs>=1.0
 
 ipdb==0.13.9
 isort==5.10.1
-juju==3.5.2.1
+Juju==3.5.2.1
 
 mypy
 
