@@ -20,7 +20,10 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus
 from ops.testing import Harness
-from unit.helpers import (
+
+from charm import TrinoK8SCharm
+from state import State
+from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     BIGQUERY_SECRET,
     DEFAULT_JVM_STRING,
@@ -36,9 +39,6 @@ from unit.helpers import (
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
 )
-
-from charm import TrinoK8SCharm
-from state import State
 
 mock_incomplete_pebble_plan = {"services": {"trino": {"override": "replace"}}}
 

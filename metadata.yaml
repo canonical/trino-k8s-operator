@@ -31,7 +31,7 @@ resources:
   trino-image:
     type: oci-image
     description: OCI image for trino
-    upstream-source: ghcr.io/canonical/charmed-trino-rock:436-22.04-edge
+    upstream-source: ghcr.io/canonical/charmed-trino-rock:468-24.04-edge
 
 storage:
   policy:

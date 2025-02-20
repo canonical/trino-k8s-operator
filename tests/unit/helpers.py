@@ -68,7 +68,9 @@ POSTGRESQL_2_CATALOG_PATH = (
 )
 MYSQL_CATALOG_PATH = "/usr/lib/trino/etc/catalog/mysql.properties"
 BIGQUERY_CATALOG_PATH = "/usr/lib/trino/etc/catalog/bigquery.properties"
-RANGER_PROPERTIES_PATH = "/usr/lib/ranger/install.properties"
+RANGER_AUDIT_PATH = "/usr/lib/trino/etc/ranger-trino-audit.xml"
+RANGER_SECURITY_PATH = "/usr/lib/trino/etc/ranger-trino-security.xml"
+
 POLICY_MGR_URL = "http://ranger-k8s:6080"
 
 RANGER_LIB = "/usr/lib/ranger"

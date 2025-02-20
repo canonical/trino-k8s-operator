@@ -9,14 +9,19 @@
 # pylint:disable=protected-access
 
 import logging
+import re
 from unittest import TestCase, mock
 
 from ops.model import ActiveStatus, MaintenanceStatus
 from ops.pebble import CheckStatus
 from ops.testing import Harness
-from unit.helpers import POLICY_MGR_URL, RANGER_LIB, RANGER_PROPERTIES_PATH
 
 from charm import TrinoK8SCharm
+from tests.unit.helpers import (
+    POLICY_MGR_URL,
+    RANGER_AUDIT_PATH,
+    RANGER_SECURITY_PATH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +93,8 @@ class TestPolicy(TestCase):
         event = make_relation_event("ranger-k8s", rel_id, data)
         harness.charm.policy._on_relation_changed(event)
 
-        self.assertTrue(container.exists(RANGER_PROPERTIES_PATH))
+        ranger_config = container.pull(RANGER_SECURITY_PATH).read()
+        self.assertTrue(POLICY_MGR_URL in ranger_config)
 
     def test_policy_relation_broken(self):
         """Add policy_manager_url to the relation databag."""
@@ -102,15 +108,6 @@ class TestPolicy(TestCase):
         self.assertFalse(
             event.relation.data["ranger-k8s"].get("user-group-configuration")
         )
-
-    def test_restore_ranger_plugin(self):
-        """Restore plugin if lost."""
-        harness = self.harness
-        self.test_policy_relation_changed()
-        container = harness.model.unit.get_container("trino")
-        container.remove_path(RANGER_LIB, recursive=True)
-        harness.charm.on.trino_pebble_ready.emit(container)
-        assert container.exists(RANGER_LIB)
 
     @mock.patch("charm.OpensearchRelationHandler.get_secret_content")
     def opensearch_setup(
@@ -162,10 +159,13 @@ class TestPolicy(TestCase):
         )
         container = harness.model.unit.get_container("trino")
         self.assertTrue(container.exists("/opensearch.crt"))
-        ranger_config = container.pull(
-            "/usr/lib/ranger/install.properties"
-        ).read()
-        self.assertTrue("XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config)
+        ranger_config = container.pull(RANGER_AUDIT_PATH).read()
+        ranger_config = re.sub(r"\s", "", ranger_config)
+        user_config = (
+            "<name>xasecure.audit.destination.elasticsearch.user</name>"
+            "<value>testuser</value>"
+        )
+        self.assertTrue(user_config in ranger_config)
 
         container.get_check = mock.Mock(status="up")
         container.get_check.return_value.status = CheckStatus.UP
@@ -191,12 +191,8 @@ class TestPolicy(TestCase):
         )
         container = harness.model.unit.get_container("trino")
         self.assertFalse(container.exists("/opensearch.crt"))
-        ranger_config = container.pull(
-            "/usr/lib/ranger/install.properties"
-        ).read()
-        self.assertFalse(
-            "XAAUDIT.ELASTICSEARCH.USER=testuser" in ranger_config
-        )
+        ranger_config = container.pull(RANGER_AUDIT_PATH).read()
+        self.assertFalse("testuser" in ranger_config)
         container.get_check = mock.Mock(status="up")
         container.get_check.return_value.status = CheckStatus.UP
         harness.charm.on.update_status.emit()
