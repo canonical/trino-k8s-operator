@@ -1,6 +1,5 @@
-# Copyright 2024 Canonical Ltd.
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
----
 
 name: trino
 base: ubuntu@24.04
