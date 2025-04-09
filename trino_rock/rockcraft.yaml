@@ -1,0 +1,219 @@
+# Copyright 2024 Canonical Ltd.
+# See LICENSE file for licensing details.
+---
+
+name: trino
+base: ubuntu@24.04
+version: 468-24.04-edge
+summary: Charmed TrinoROCK OCI
+description: |
+  Trino is an ANSI SQL compliant query engine,
+  that works with BI tools such as R, Tableau,
+  Power BI, Superset and many others.
+license: Apache-2.0
+
+platforms:
+  amd64:
+
+# Please refer to
+# https://discourse.ubuntu.com/t/unifying-user-identity-across-snaps-and-rocks/36469
+# for more information about shared user.
+run_user: _daemon_
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-23-openjdk-amd64
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/trino/bin:/usr/lib/jvm/java-23-openjdk-amd64/bin/ # yamllint disable-line
+
+services:
+  trino-server:
+    override: replace
+    summary: Trino coordinator service
+    startup: disabled
+    command: ./entrypoint.sh
+
+parts:
+  trino:
+    plugin: nil
+    source: https://github.com/trinodb/trino.git
+    source-tag: "468"
+    source-type: git
+    build-packages:
+      - curl
+      - maven
+    build-environment:
+      - JAVA_HOME: /usr/lib/jvm/java-23-openjdk-amd64
+      - JAVA_URL: https://download.java.net/java/GA/jdk23.0.1/c28985cbf10d4e648e4004050f8781aa/11/GPL/openjdk-23.0.1_linux-x64_bin.tar.gz # yamllint disable-line
+    override-build: |
+      # TODO: the following block can be removed when the ubuntu base
+      # used for the rock supports the "openjdk-xx-jdk-headless"
+      # corresponding to the java version used in Trino
+      curl ${JAVA_URL} --output jdk-23.0.1.tar.gz
+      mkdir -p ${JAVA_HOME}
+      mkdir -p ${CRAFT_PART_INSTALL}${JAVA_HOME}
+      tar -xzf jdk-23.0.1.tar.gz
+      cp -r jdk-23.0.1/* ${JAVA_HOME}
+      cp -r jdk-23.0.1/* ${CRAFT_PART_INSTALL}${JAVA_HOME}
+      update-alternatives --install \
+        /usr/bin/java java ${JAVA_HOME}/bin/java 1
+      update-alternatives --install \
+        /usr/bin/javac javac ${JAVA_HOME}/bin/javac 1
+      update-alternatives --set java ${JAVA_HOME}/bin/java
+      update-alternatives --set javac ${JAVA_HOME}/bin/javac
+
+      ./mvnw clean install -DskipTests -Dair.check.skip-all=true \
+        -pl '!:trino-server-rpm,!docs'
+
+      tar -xzf core/trino-server/target/trino-server-*.tar.gz \
+        --directory=${CRAFT_PART_INSTALL} \
+        --strip-components=1
+
+      cp client/trino-cli/target/trino-cli-*-executable.jar \
+        ${CRAFT_PART_INSTALL}/trino-cli
+
+      mkdir -p \
+        ${CRAFT_PART_INSTALL}/data/trino/var/run \
+        ${CRAFT_PART_INSTALL}/data/trino/var/log \
+        ${CRAFT_PART_INSTALL}/data/trino/var/cache \
+        ${CRAFT_PART_INSTALL}/usr/lib/trino/var
+    organize:
+      bin: usr/lib/trino/bin
+      lib: usr/lib/trino/lib
+      plugin/bigquery: usr/lib/trino/plugin/bigquery
+      plugin/elasticsearch: usr/lib/trino/plugin/elasticsearch
+      plugin/google-sheets: usr/lib/trino/plugin/google-sheets
+      plugin/mysql: usr/lib/trino/plugin/mysql
+      plugin/password-authenticators: usr/lib/trino/plugin/password-authenticators # yamllint disable-line
+      plugin/postgresql: usr/lib/trino/plugin/postgresql
+      plugin/prometheus: usr/lib/trino/plugin/prometheus
+      plugin/redis: usr/lib/trino/plugin/redis
+      plugin/apache-ranger: usr/lib/trino/plugin/apache-ranger
+      plugin/hive: usr/lib/trino/plugin/hive
+      plugin/geospatial: usr/lib/trino/plugin/geospatial
+      trino-cli: usr/lib/trino/bin/trino-cli
+    stage:
+      - data/trino
+      - usr/lib/trino/bin
+      - usr/lib/trino/lib
+      - usr/lib/trino/plugin
+      - usr/lib/trino/var
+      - usr/lib/jvm
+    permissions:
+      - path: data/trino/var/run
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: data/trino/var/log
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: data/trino/var/cache
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: data/trino
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: usr/lib/trino/bin
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: usr/lib/trino/lib
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: usr/lib/trino/plugin
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: usr/lib/trino/var
+        owner: 584792
+        group: 584792
+        mode: "755"
+
+  local-files:
+    plugin: dump
+    after: [trino]
+    source: ./local-files
+    organize:
+      jvm.config: usr/lib/trino/etc/jvm.config
+      node.properties: usr/lib/trino/etc/node.properties
+      config.properties: usr/lib/trino/etc/config.properties
+      jmx-config.yaml: usr/lib/trino/etc/trino/jmx/config.yaml
+      trino-entrypoint.sh: entrypoint.sh
+      ranger-trino-security.xml: usr/lib/trino/etc/ranger-trino-security.xml # yamllint disable-line
+      ranger-trino-audit.xml: usr/lib/trino/etc/ranger-trino-audit.xml # yamllint disable-line
+      ranger-policymgr-ssl.xml: usr/lib/trino/etc/ranger-policymgr-ssl.xml # yamllint disable-line
+    stage:
+      - usr/lib/trino/etc/ranger-trino-security.xml
+      - usr/lib/trino/etc/ranger-trino-audit.xml
+      - usr/lib/trino/etc/ranger-policymgr-ssl.xml
+      - usr/lib/trino/etc/jvm.config
+      - usr/lib/trino/etc/node.properties
+      - usr/lib/trino/etc/config.properties
+      - usr/lib/trino/etc/trino/jmx/config.yaml
+      - entrypoint.sh
+    permissions:
+      - path: usr/lib/trino/etc
+        owner: 584792
+        group: 584792
+        mode: "755"
+      - path: entrypoint.sh
+        owner: 584792
+        group: 584792
+        mode: "755"
+
+  # This is a workaround of an issue with ranger groups in trino 468
+  # The issue is tracked here:
+  # https://github.com/trinodb/trino/issues/24887
+  trino-patch:
+    plugin: nil
+    after: [local-files]
+    override-build: |
+      mkdir -p /usr/lib/trino/etc/
+      touch /usr/lib/trino/etc/ranger-trino-security.xml
+      touch /usr/lib/trino/etc/ranger-trino-audit.xml
+      mkdir -p usr/lib/trino/plugin/apache-ranger/conf
+      ln -s /usr/lib/trino/etc/ranger-trino-security.xml \
+        usr/lib/trino/plugin/apache-ranger/conf/ranger-trino-security.xml
+      ln -s /usr/lib/trino/etc/ranger-trino-audit.xml \
+        usr/lib/trino/plugin/apache-ranger/conf/ranger-trino-audit.xml
+      cp -r usr ${CRAFT_PART_INSTALL}/
+    stage:
+      - usr/lib/trino/plugin/apache-ranger/conf
+
+  jmx-exporter:
+    plugin: maven
+    after: [trino]
+    maven-parameters: ["-DskipTests=true"]
+    source: https://github.com/prometheus/jmx_exporter.git
+    source-type: git
+    source-tag: parent-0.19.0
+    organize:
+      jar/jmx_prometheus_javaagent-0.19.0.jar: usr/lib/trino/lib/jmx_prometheus_javaagent.jar # yamllint disable-line
+    stage:
+      - usr/lib/trino/lib/jmx_prometheus_javaagent.jar
+
+  promtail-bin:
+    plugin: dump
+    source: https://github.com/grafana/loki/releases/download/v2.7.5/promtail-linux-amd64.zip # yamllint disable-line
+    source-type: zip
+    organize:
+      promtail-linux-amd64: opt/promtail/promtail-static-amd64
+    stage:
+      - opt/promtail/promtail-static-amd64
+    permissions:
+      - path: opt/promtail
+        owner: 584792
+        group: 584792
+        mode: "755"
+
+  package-management:
+    plugin: nil
+    after: [trino, local-files]
+    overlay-packages:
+      - ca-certificates
+      - python-is-python3
+    stage-packages:
+      - less
+      - apache2-utils

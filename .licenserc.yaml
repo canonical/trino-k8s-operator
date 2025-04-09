@@ -36,4 +36,5 @@ header:
     - 'trivy.yaml'
     - 'lib/**'
     - 'trino-tls.svg'
+    - 'trino_rock/local-files/**'
   comment: on-failure

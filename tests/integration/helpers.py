@@ -24,9 +24,6 @@ BASE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..")
 )
 METADATA = yaml.safe_load(Path(f"{BASE_DIR}/metadata.yaml").read_text())
-TRINO_IMAGE = {
-    "trino-image": METADATA["resources"]["trino-image"]["upstream-source"]
-}
 
 # Charm name literals
 APP_NAME = METADATA["name"]
@@ -249,11 +246,13 @@ async def get_active_workers(ops_test: OpsTest):
     return active_workers
 
 
-async def simulate_crash_and_restart(ops_test):
+async def simulate_crash_and_restart(ops_test, charm, charm_image):
     """Simulates the crash of the Trino coordinator.
 
     Args:
         ops_test: PyTest object.
+        charm: charm path.
+        charm_image: path to rock image to be used.
     """
     # Destroy charm
     await ops_test.model.applications[APP_NAME].destroy()
@@ -262,11 +261,10 @@ async def simulate_crash_and_restart(ops_test):
     )
 
     # Deploy charm again
-    charm = await ops_test.build_charm(BASE_DIR)
     async with ops_test.fast_forward():
         await ops_test.model.deploy(
             charm,
-            resources=TRINO_IMAGE,
+            resources={"trino-image": charm_image},
             application_name=APP_NAME,
             config=COORDINATOR_CONFIG,
             num_units=1,

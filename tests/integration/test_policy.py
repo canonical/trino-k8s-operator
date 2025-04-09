@@ -6,15 +6,14 @@
 
 import logging
 import time
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
-    BASE_DIR,
     POSTGRES_NAME,
     RANGER_NAME,
-    TRINO_IMAGE,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
     create_user,
@@ -22,9 +21,34 @@ from helpers import (
     get_unit_url,
     update_policies,
 )
+from pytest import FixtureRequest
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="module", name="charm_image")
+def charm_image_fixture(request: FixtureRequest) -> str:
+    """The OCI image for charm."""
+    charm_image = request.config.getoption("--superset-image")
+    assert (
+        charm_image
+    ), "--superset-image argument is required which should contain the name of the OCI image."
+    return charm_image
+
+
+@pytest_asyncio.fixture(scope="module", name="charm")
+async def charm_fixture(
+    request: FixtureRequest, ops_test: OpsTest
+) -> str | Path:
+    """Fetch the path to charm."""
+    charms = request.config.getoption("--charm-file")
+    if not charms:
+        charm = await ops_test.build_charm(".")
+        assert charm, "Charm not built"
+        return charm
+    return charms[0]
+
 
 TRINO_CONFIG = {
     "ranger-service-name": "trino-service",
@@ -71,12 +95,13 @@ async def deploy_policy_engine(ops_test: OpsTest):
 class TestPolicyManager:
     """Integration test for Ranger policy enforcement."""
 
-    async def test_policy_enforcement(self, ops_test):
+    async def test_policy_enforcement(
+        self, ops_test, charm: str, charm_image: str
+    ):
         """Test Ranger integration."""
-        charm = await ops_test.build_charm(BASE_DIR)
         await ops_test.model.deploy(
             charm,
-            resources=TRINO_IMAGE,
+            resources={"trino-image": charm_image},
             application_name=APP_NAME,
             config=TRINO_CONFIG,
             trust=True,
