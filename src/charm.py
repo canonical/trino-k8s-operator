@@ -270,7 +270,7 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = ActiveStatus("Status check: UP")
 
     def _validate_pebble_plan(self, container):
-        """Validate Superset pebble plan.
+        """Validate pebble plan.
 
         Args:
             container: application container
