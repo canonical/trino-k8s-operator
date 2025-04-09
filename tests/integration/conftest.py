@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(scope="module", name="charm_image")
 def charm_image_fixture(request: FixtureRequest) -> str:
     """The OCI image for charm."""
-    charm_image = request.config.getoption("--trino-image")
+    charm_image = request.config.getoption("--trino-k8s-operator-image")
     assert (
         charm_image
-    ), "--trino-image argument is required which should contain the name of the OCI image."
+    ), "--trino-k8s-operator-image argument is required which should contain the name of the OCI image."
     return charm_image
 
 
