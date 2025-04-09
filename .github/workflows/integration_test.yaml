@@ -18,5 +18,6 @@ jobs:
       juju-channel: 3.4/stable
       self-hosted-runner: true
       self-hosted-runner-label: "xlarge"
+      builder-runner-label: "xlarge"
       microk8s-addons: "dns ingress rbac storage metallb:10.15.119.2-10.15.119.4 registry"
       trivy-severity-config: CRITICAL
