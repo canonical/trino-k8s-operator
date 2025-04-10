@@ -15,4 +15,4 @@ def pytest_addoption(parser: pytest.Parser):
     # The prebuilt charm file.
     parser.addoption("--charm-file", action="append", default=[])
     # The charm image name:tag.
-    parser.addoption("--trino-k8s-operator-image", action="store", default="")
+    parser.addoption("--trino-image", action="store", default="")

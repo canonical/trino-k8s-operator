@@ -1,7 +1,7 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-name: trino-k8s-operator
+name: trino
 base: ubuntu@24.04
 version: 468-24.04-edge
 summary: Charmed TrinoROCK OCI
