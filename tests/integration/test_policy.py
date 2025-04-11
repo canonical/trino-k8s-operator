@@ -86,6 +86,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
             apps=[POSTGRES_NAME, RANGER_NAME],
             status="active",
             raise_on_blocked=False,
+            raise_on_error=False,
             timeout=2000,
         )
 
