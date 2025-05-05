@@ -34,12 +34,18 @@ TRINO_CONFIG = {
 @pytest_asyncio.fixture(name="deploy-policy", scope="module")
 async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
-    await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
     await ops_test.model.deploy(
         RANGER_NAME, channel="edge", revision=34, trust=True
     )
 
     async with ops_test.fast_forward():
+        await ops_test.model.wait_for_idle(
+            apps=[RANGER_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=2000,
+        )
+        await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
         await ops_test.model.wait_for_idle(
             apps=[POSTGRES_NAME],
             status="active",
@@ -47,12 +53,6 @@ async def deploy_policy_engine(ops_test: OpsTest):
             timeout=2000,
         )
 
-        await ops_test.model.wait_for_idle(
-            apps=[RANGER_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
         logger.info("Integrating Ranger and PostgreSQL.")
         await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
 
