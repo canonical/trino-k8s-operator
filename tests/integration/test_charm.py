@@ -87,13 +87,17 @@ class TestDeployment:
         assert "bigquery" not in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
-    async def test_simulate_crash(self, ops_test: OpsTest):
+    async def test_simulate_crash(
+        self, ops_test: OpsTest, charm: str, charm_image: str
+    ):
         """Simulate the crash of the Trino coordinator charm.
 
         Args:
             ops_test: PyTest object.
+            charm: charm path.
+            charm_image: path to rock image to be used.
         """
-        await simulate_crash_and_restart(ops_test)
+        await simulate_crash_and_restart(ops_test, charm, charm_image)
         response = await curl_unit_ip(ops_test)
         assert response.status_code == 200
 

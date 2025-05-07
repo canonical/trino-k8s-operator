@@ -11,10 +11,8 @@ import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
-    BASE_DIR,
     POSTGRES_NAME,
     RANGER_NAME,
-    TRINO_IMAGE,
     USER_WITH_ACCESS,
     USER_WITHOUT_ACCESS,
     create_user,
@@ -38,7 +36,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
     await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
     await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", revision=33, trust=True
+        RANGER_NAME, channel="edge", revision=34, trust=True
     )
 
     async with ops_test.fast_forward():
@@ -48,13 +46,13 @@ async def deploy_policy_engine(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=2000,
         )
-
         await ops_test.model.wait_for_idle(
             apps=[RANGER_NAME],
             status="blocked",
             raise_on_blocked=False,
             timeout=2000,
         )
+
         logger.info("Integrating Ranger and PostgreSQL.")
         await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
 
@@ -71,12 +69,13 @@ async def deploy_policy_engine(ops_test: OpsTest):
 class TestPolicyManager:
     """Integration test for Ranger policy enforcement."""
 
-    async def test_policy_enforcement(self, ops_test):
+    async def test_policy_enforcement(
+        self, ops_test, charm: str, charm_image: str
+    ):
         """Test Ranger integration."""
-        charm = await ops_test.build_charm(BASE_DIR)
         await ops_test.model.deploy(
             charm,
-            resources=TRINO_IMAGE,
+            resources={"trino-image": charm_image},
             application_name=APP_NAME,
             config=TRINO_CONFIG,
             trust=True,

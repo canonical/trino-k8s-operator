@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 import requests
 import yaml
-from helpers import APP_NAME, BASE_DIR, TRINO_IMAGE, get_unit_url
+from helpers import APP_NAME, get_unit_url
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
@@ -46,11 +46,12 @@ async def deploy(ops_test: OpsTest):
 class TestUpgrade:
     """Integration test for Trino charm upgrade from previous release."""
 
-    async def test_upgrade(self, ops_test: OpsTest):
+    async def test_upgrade(
+        self, ops_test: OpsTest, charm: str, charm_image: str
+    ):
         """Builds the current charm and refreshes the current deployment."""
-        charm = await ops_test.build_charm(BASE_DIR)
         await ops_test.model.applications[APP_NAME].refresh(
-            path=str(charm), resources=TRINO_IMAGE
+            path=str(charm), resources={"trino-image": charm_image}
         )
 
         async with ops_test.fast_forward():
