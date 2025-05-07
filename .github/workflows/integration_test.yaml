@@ -17,7 +17,7 @@ jobs:
       modules: '["test_policy.py"]'
       juju-channel: 3.6/stable
       self-hosted-runner: true
-      self-hosted-runner-label: "2xlarge"
-      builder-runner-label: "2xlarge"
+      self-hosted-runner-label: ["2xlarge", "noble"]
+      builder-runner-label: "large"
       microk8s-addons: "dns ingress rbac storage metallb:10.15.119.2-10.15.119.4 registry"
       trivy-severity-config: CRITICAL
