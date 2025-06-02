@@ -7,7 +7,7 @@ import time
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, BASE_DIR, TRINO_IMAGE
+from helpers import APP_NAME
 from lightkube import Client  # pyright: ignore
 from lightkube.resources.apps_v1 import StatefulSet
 from pytest_operator.plugin import OpsTest
@@ -17,10 +17,8 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-resources", scope="module")
-async def deploy(ops_test: OpsTest):
+async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the app."""
-    charm = await ops_test.build_charm(BASE_DIR)
-
     trino_config = {
         "charm-function": "all",
     }
@@ -28,7 +26,7 @@ async def deploy(ops_test: OpsTest):
     async with ops_test.fast_forward():
         await ops_test.model.deploy(
             charm,
-            resources=TRINO_IMAGE,
+            resources={"trino-image": charm_image},
             application_name=APP_NAME,
             config=trino_config,
             num_units=1,

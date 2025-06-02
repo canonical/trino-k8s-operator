@@ -1,0 +1,55 @@
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<configuration xmlns:xi="http://www.w3.org/2001/XInclude">
+  <!-- properties used for 2-way SSL between the Trino plugin and Apache Ranger server -->
+  <property>
+    <name>xasecure.policymgr.clientssl.keystore</name>
+    <value></value>
+    <description>Path to keystore file. Only required for two-way SSL. This property should not be included for one-way SSL</description>
+  </property>
+
+  <property>
+    <name>xasecure.policymgr.clientssl.keystore.type</name>
+    <value>jks</value>
+    <description>Type of keystore. Default: jks</description>
+  </property>
+
+  <property>
+    <name>xasecure.policymgr.clientssl.keystore.credential.file</name>
+    <value></value>
+    <description>Path to credential file for the keystore; the credential should be in alias sslKeyStore. Only required for two-way SSL. This property should not be included for one-way SSL</description>
+  </property>
+
+  <property>
+    <name>xasecure.policymgr.clientssl.truststore</name>
+    <value></value>
+    <description>Path to truststore file</description>
+  </property>
+
+  <property>
+    <name>xasecure.policymgr.clientssl.truststore.type</name>
+    <value>jks</value>
+    <description>Type of truststore. Default: jks</description>
+  </property>
+
+  <property>
+    <name>xasecure.policymgr.clientssl.truststore.credential.file</name>
+    <value></value>
+    <description>Path to credential file for the truststore; the credential should be in alias sslTrustStore</description>
+  </property>
+</configuration>
