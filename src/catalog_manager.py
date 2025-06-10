@@ -10,12 +10,7 @@ from abc import ABC, abstractmethod
 import yaml
 from ops.model import SecretNotFoundError
 
-from literals import (
-    BIGQUERY_BACKEND_SCHEMA,
-    GSHEETS_BACKEND_SCHEMA,
-    REPLICA_SCHEMA,
-    SQL_BACKEND_SCHEMA,
-)
+from literals import BIGQUERY_BACKEND_SCHEMA, GSHEETS_BACKEND_SCHEMA
 from utils import add_cert_to_truststore, validate_keys
 
 logger = logging.getLogger(__name__)
@@ -149,56 +144,6 @@ class CatalogBase(ABC):
         except Exception as e:
             logger.error(f"Unable to add catalog {self.name!r}: {e}")
             raise
-
-
-class SqlCatalog(CatalogBase):
-    """Class for handling the PostgreSQL and MySQL connectors."""
-
-    def _get_credentials(self):
-        """Handle PostgreSQL/MySQL catalog configuration.
-
-        Returns:
-            replicas: the database replica configuration.
-        """
-        validate_keys(self.backend, SQL_BACKEND_SCHEMA)
-        secret = self._get_secret_content(self.info["secret-id"])
-        replicas = yaml.safe_load(secret["replicas"])
-        certs = yaml.safe_load(secret.get("cert", ""))
-        self._add_certs(certs)
-        return replicas
-
-    def _create_properties(self, replicas):
-        """Create the PostgreSQL/MySQL connector catalog files.
-
-        Args:
-            replicas: the database replica configuration.
-
-        Returns:
-            catalogs: a dictionary of catalog name and configuration.
-        """
-        catalogs = {}
-        for replica_info in replicas.values():
-            validate_keys(replica_info, REPLICA_SCHEMA)
-            user_name = replica_info.get("user")
-            user_pwd = replica_info.get("password")
-            suffix = replica_info.get("suffix", "")
-
-            catalog_name = f"{self.name}{suffix}"
-            url = f"{self.backend['url']}/{self.info.get('database','')}"
-            if self.backend.get("params"):
-                url = f"{url}?{self.backend['params']}"
-
-            catalog_content = textwrap.dedent(
-                f"""\
-                connector.name={self.backend['connector']}
-                connection-url={url}
-                connection-user={user_name}
-                connection-password={user_pwd}
-                """
-            )
-            catalog_content += self.backend.get("config", "")
-            catalogs[catalog_name] = catalog_content
-        return catalogs
 
 
 class BigqueryCatalog(CatalogBase):

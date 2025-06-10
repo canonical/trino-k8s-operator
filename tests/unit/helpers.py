@@ -53,6 +53,11 @@ ro:
   user: trino_ro
   password: pwd3
 """  # nosec
+REDSHIFT_REPLICA_SECRET = """\
+ro:
+  user: trino_ro
+  password: pwd4
+"""  # nosec
 POSTGRESQL_REPLICA_CERT = """\
 cert: |
   -----BEGIN CERTIFICATE-----
@@ -67,6 +72,7 @@ POSTGRESQL_2_CATALOG_PATH = (
     "/usr/lib/trino/etc/catalog/postgresql-2.properties"
 )
 MYSQL_CATALOG_PATH = "/usr/lib/trino/etc/catalog/mysql.properties"
+REDSHIFT_CATALOG_PATH = "/usr/lib/trino/etc/catalog/redshift.properties"
 BIGQUERY_CATALOG_PATH = "/usr/lib/trino/etc/catalog/bigquery.properties"
 RANGER_AUDIT_PATH = "/usr/lib/trino/etc/ranger-trino-audit.xml"
 RANGER_SECURITY_PATH = "/usr/lib/trino/etc/ranger-trino-security.xml"

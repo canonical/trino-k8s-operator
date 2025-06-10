@@ -56,12 +56,12 @@ juju relate trino-k8s nginx-ingress-integrator
 Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
 
 ## Trino catalogs
-Adding a catalog to Trino requires user or service account credentiials. For this we use Juju secrets.
+Adding a catalog to Trino requires user or service account credentials. For this we use Juju secrets.
 
 ### Juju secrets
 Juju secrets are used to manage connector credentials. The format of these differ by connector type. Note: the same secret can be shared by multiple trino catalogs.
 
-For PostgreSQL or MySQL (`postgresql-user-creds.yaml` or `mysql-user-creds.yaml`):
+For PostgreSQL, MySQL or Redshift (`postgresql-user-creds.yaml`, `mysql-user-creds.yaml` or `redshift-user-creds.yaml`):
 ```
 rw: 
   user: trino
@@ -118,12 +118,13 @@ These secrets can be created by running the following:
 ```
 juju add-secret postgresql-credentials replicas#file=postgresql-user-creds.yaml cert#file=certificates.yaml
 juju add-secret mysql-credentials replicas#file=mysql-user-creds.yaml
+juju add-secret redshift-credentials replicas#file=redshift-user-creds.yaml
 juju add-secret bigquery-service-accounts service-accounts#file=bigquery-service-accounts.yaml
 juju add-secret gsheets-service-accounts service-accounts#file=gsheets-service-accounts.yaml
 ```
 And access granted to trino coordinator and worker with the following:
 ```
-juju grant-secret <secret-id> trino-k8s-coodinator
+juju grant-secret <secret-id> trino-k8s
 juju grant-secret <secret-id> trino-k8s-worker
 ```
 
@@ -138,6 +139,9 @@ catalogs:
     secret-id: crt7gpnmp25c760ji150
   mysql_example: 
     backend: mysql
+    secret-id: crt7gpnmp25c760ji150
+  redshift_example: 
+    backend: redshift
     secret-id: crt7gpnmp25c760ji150
   ge_bigquery:
     backend: bigquery
@@ -164,6 +168,12 @@ backends:
       case-insensitive-name-matching=true
       decimal-mapping=allow_overflow
       decimal-rounding-mode=HALF_UP
+  redshift:
+    connector: redshift
+    url: jdbc:redshift://<database-host>:5439/<database-name>
+    params: SSL=TRUE
+    config: |
+      case-insensitive-name-matching=true
   bigquery:
     connector: bigquery
     config: |
@@ -179,7 +189,7 @@ The `{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore 
 The catalog-config can be applied with the following:
 
 ```
-juju run trino-k8s catalog-config=@catalog-config.yaml
+juju config trino-k8s catalog-config=@catalog_config.yaml
 ```
 ### Additional information for Google sheets connector
 For the google sheets connector it is worth noting that the sheet that is connected to Trino is not the sheet with the data, but rather a metadata sheet following [this format](https://docs.google.com/spreadsheets/d/1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM/edit?gid=0#gid=0). This sheet serves the purpose of mapping other google sheets by id to Trino tables.
