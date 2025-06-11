@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class SqlCatalog(CatalogBase):
-    """Class for handling the PostgreSQL, MySQL and Redshift connectors."""
+    """Class for handling the PostgreSQL, MySQL and Redshift connectors.
+
+    Attrs:
+        db_url: Database url for the catalog
+    """
 
     @property
     def db_url(self):
@@ -71,7 +75,11 @@ class SqlCatalog(CatalogBase):
 
 
 class RedshiftCatalog(SqlCatalog):
-    """Class for handling the Redshift connector."""
+    """Class for handling the Redshift connector.
+
+    Attrs:
+        db_url: Database url for the catalog
+    """
 
     @property
     def db_url(self):
