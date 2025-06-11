@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class SqlCatalog(CatalogBase):
-    """Class for handling the PostgreSQL and MySQL connectors."""
+    """Class for handling the PostgreSQL, MySQL and Redshift connectors."""
+
+    @property
+    def db_url(self):
+        """Get database URL for the connection."""
+        return f"{self.backend['url']}/{self.info.get('database', '')}"
 
     def _get_credentials(self):
         """Handle PostgreSQL/MySQL/Redshift catalog configuration.
@@ -30,10 +35,6 @@ class SqlCatalog(CatalogBase):
         certs = yaml.safe_load(secret.get("cert", ""))
         self._add_certs(certs)
         return replicas
-
-    def _get_db_url(self):
-        """Get database url for the connection."""
-        return f"{self.backend['url']}/{self.info.get('database','')}"
 
     def _create_properties(self, replicas):
         """Create the PostgreSQL/MySQL/Redshift connector catalog files.
@@ -52,7 +53,7 @@ class SqlCatalog(CatalogBase):
             suffix = replica_info.get("suffix", "")
 
             catalog_name = f"{self.name}{suffix}"
-            url = self._get_db_url()
+            url = self.db_url
             if self.backend.get("params"):
                 url = f"{url}?{self.backend['params']}"
 
@@ -72,6 +73,7 @@ class SqlCatalog(CatalogBase):
 class RedshiftCatalog(SqlCatalog):
     """Class for handling the Redshift connector."""
 
-    def _get_db_url(self):
-        """Get database url for the connection."""
+    @property
+    def db_url(self):
+        """Get database URL for the connection."""
         return f"{self.backend['url']}"

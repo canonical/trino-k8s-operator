@@ -31,7 +31,8 @@ newgrp snap_microk8s
 mkdir -p ~/.kube/ && microk8s config > ~/.kube/config
 
 # Enable the necessary Microk8s addons:
-sudo microk8s enable hostpath-storage dns
+sudo microk8s enable hostpath-storage
+sudo microk8s enable dns
 sudo microk8s enable registry
 
 # Set up a short alias for Kubernetes CLI:
@@ -93,7 +94,7 @@ cd trino_rock
 # Note: to build trino rock, you need to have at least 30GB of free disk space.
 # The first run may take 45 to 60 minutes.
 rockcraft pack
-rockcraft.skopeo --insecure-policy copy --dest-tls-verify=false oci-archive:trino_468-24.04-edge_amd64.rock docker://localhost:32000/trino-rock:468
+rockcraft.skopeo --insecure-policy copy --dest-tls-verify=false oci-archive:trino_<version>-24.04-edge_amd64.rock docker://localhost:32000/trino-rock:<version>
 ```
 
 ### Deploy charm
@@ -102,10 +103,10 @@ rockcraft.skopeo --insecure-policy copy --dest-tls-verify=false oci-archive:trin
 charmcraft pack
 
 # Deploy the coordinator:
-juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=localhost:32000/trino-rock:468 --config charm-function=coordinator trino-k8s
+juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=localhost:32000/trino-rock:<version> --config charm-function=coordinator trino-k8s
 
 # Deploy the worker:
-juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=localhost:32000/trino-rock:468 --config charm-function=worker trino-k8s-worker
+juju deploy ./trino-k8s_ubuntu-22.04-amd64.charm --resource trino-image=localhost:32000/trino-rock:<version> --config charm-function=worker trino-k8s-worker
 
 # Check deployment was successful:
 kubectl get pods -n trino-k8s
@@ -118,10 +119,10 @@ Note: due to the requirements of the `discovery_uri`, when using a separate coor
 ### Refresh charm
 ```bash
 # Refresh the coordinator:
-juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s --resource trino-image=localhost:32000/trino-rock:468 
+juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s --resource trino-image=localhost:32000/trino-rock:<version> 
 
 # Refresh the worker:
-juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s-worker --resource trino-image=localhost:32000/trino-rock:468 
+juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s-worker --resource trino-image=localhost:32000/trino-rock:<version> 
 ```
 
 
