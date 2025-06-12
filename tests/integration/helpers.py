@@ -82,6 +82,13 @@ ro:
   password: pwd3
 """  # nosec
 
+
+REDSHIFT_REPLICA_SECRET = """\
+ro:
+  user: trino_ro
+  password: pwd4
+"""  # nosec
+
 CATALOG_QUERY = "SHOW CATALOGS"
 TRINO_USER = "trino"
 
@@ -322,6 +329,8 @@ async def add_juju_secret(ops_test: OpsTest, connector_type: str):
         data_args = [f"replicas={POSTGRESQL_REPLICA_SECRET}"]  # nosec
     elif connector_type == "mysql":
         data_args = [f"replicas=={MYSQL_REPLICA_SECRET}"]  # nosec
+    elif connector_type == "redshift":
+        data_args = [f"replicas=={REDSHIFT_REPLICA_SECRET}"]  # nosec
     elif connector_type == "bigquery":
         data_args = [f"service-accounts={BIGQUERY_SECRET}"]  # nosec
     elif connector_type == "gsheets":
@@ -340,6 +349,7 @@ async def add_juju_secret(ops_test: OpsTest, connector_type: str):
 async def create_catalog_config(
     postgresql_secret_id,
     mysql_secret_id,
+    redshift_secret_id,
     bigquery_secret_id,
     gsheets_secret_id,
     include_bigquery=True,
@@ -348,7 +358,8 @@ async def create_catalog_config(
 
     Args:
         postgresql_secret_id: the juju secret id for postgresql
-        mysql_secret_id: the juju secret id for postgresql
+        mysql_secret_id: the juju secret id for mysql
+        redshift_secret_id: the juju secret id for redshift
         bigquery_secret_id: the juju secret id for bigquery
         gsheets_secret_id: the juju secret id for gsheets
         include_bigquery: flag to indicate if bigquery configuration should be included.
@@ -366,6 +377,9 @@ async def create_catalog_config(
             mysql:
                 backend: mysql
                 secret-id: {mysql_secret_id}
+            redshift:
+                backend: redshift
+                secret-id: {redshift_secret_id}
             bigquery:
                 backend: bigquery
                 project: project-12345
@@ -391,6 +405,12 @@ async def create_catalog_config(
                     case-insensitive-name-matching=true
                     decimal-mapping=allow_overflow
                     decimal-rounding-mode=HALF_UP
+            redshift:
+                connector: redshift
+                url: jdbc:redshift://redshift.com:5439/example
+                params: SSL=TRUE
+                config: |
+                    case-insensitive-name-matching=true
             bigquery:
                 connector: bigquery
                 config: |
@@ -409,6 +429,9 @@ async def create_catalog_config(
             mysql:
                 backend: mysql
                 secret-id: {mysql_secret_id}
+            redshift:
+                backend: redshift
+                secret-id: {redshift_secret_id}
             gsheets-1:
                 backend: gsheets
                 metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
@@ -430,6 +453,12 @@ async def create_catalog_config(
                     case-insensitive-name-matching=true
                     decimal-mapping=allow_overflow
                     decimal-rounding-mode=HALF_UP
+            redshift:
+                connector: redshift
+                url: jdbc:redshift://redshift.com:5439/example
+                params: SSL=TRUE
+                config: |
+                    case-insensitive-name-matching=true
             gsheets:
                 connector: gsheets
         """

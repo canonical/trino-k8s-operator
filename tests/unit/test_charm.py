@@ -34,6 +34,8 @@ from tests.unit.helpers import (
     POSTGRESQL_2_CATALOG_PATH,
     POSTGRESQL_REPLICA_CERT,
     POSTGRESQL_REPLICA_SECRET,
+    REDSHIFT_CATALOG_PATH,
+    REDSHIFT_REPLICA_SECRET,
     SERVER_PORT,
     TEST_USERS,
     UPDATED_JVM_OPTIONS,
@@ -97,12 +99,14 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
         catalog_config = create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         )
@@ -237,6 +241,7 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
@@ -244,6 +249,7 @@ class TestCharm(TestCase):
         catalog_config = create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         )
@@ -316,6 +322,7 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
@@ -323,6 +330,7 @@ class TestCharm(TestCase):
         catalog_config = create_added_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         )
@@ -415,6 +423,7 @@ class TestCharm(TestCase):
             rel_id,
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         ) = simulate_lifecycle_coordinator(harness)
@@ -422,6 +431,7 @@ class TestCharm(TestCase):
         catalog_config = create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         )
@@ -441,6 +451,7 @@ class TestCharm(TestCase):
             _,
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
             secret_id,
@@ -449,6 +460,7 @@ class TestCharm(TestCase):
         catalog_config = create_added_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
         )
@@ -461,6 +473,7 @@ class TestCharm(TestCase):
 
         self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
         self.assertTrue(container.exists(MYSQL_CATALOG_PATH))
+        self.assertTrue(container.exists(REDSHIFT_CATALOG_PATH))
 
     def test_trino_coordinator_relation_broken(self):
         """Test trino relation.
@@ -483,7 +496,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
+        container, _, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
         self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
@@ -494,7 +507,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event, _, _, _, _, _ = simulate_lifecycle_worker(harness)
+        container, event, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
         self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
@@ -565,6 +578,10 @@ def simulate_lifecycle_worker(harness):
         "trino-k8s",
         {"replicas": MYSQL_REPLICA_SECRET},
     )
+    redshift_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"replicas": REDSHIFT_REPLICA_SECRET},
+    )
     gsheets_secret_id = harness.add_model_secret(
         "trino-k8s",
         {"service-accounts": GSHEET_SECRET},
@@ -572,6 +589,7 @@ def simulate_lifecycle_worker(harness):
     catalog_config = create_catalog_config(
         postgresql_secret_id,
         mysql_secret_id,
+        redshift_secret_id,
         bigquery_secret_id,
         gsheets_secret_id,
     )
@@ -599,6 +617,7 @@ def simulate_lifecycle_worker(harness):
         event,
         postgresql_secret_id,
         mysql_secret_id,
+        redshift_secret_id,
         bigquery_secret_id,
         gsheets_secret_id,
         secret_id,
@@ -651,6 +670,12 @@ def simulate_lifecycle_coordinator(harness):
             "replicas": MYSQL_REPLICA_SECRET,
         },
     )
+    redshift_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": REDSHIFT_REPLICA_SECRET,
+        },
+    )
     gsheets_secret_id = harness.add_model_secret(
         "trino-k8s",
         {"service-accounts": GSHEET_SECRET},
@@ -659,6 +684,7 @@ def simulate_lifecycle_coordinator(harness):
     catalog_config = create_catalog_config(
         postgresql_secret_id,
         mysql_secret_id,
+        redshift_secret_id,
         bigquery_secret_id,
         gsheets_secret_id,
     )
@@ -673,6 +699,7 @@ def simulate_lifecycle_coordinator(harness):
         rel_id,
         postgresql_secret_id,
         mysql_secret_id,
+        redshift_secret_id,
         bigquery_secret_id,
         gsheets_secret_id,
     )
@@ -711,6 +738,7 @@ def make_relation_event(app, rel_id, data):
 def create_catalog_config(
     postgresql_secret_id,
     mysql_secret_id,
+    redshift_secret_id,
     bigquery_secret_id,
     gsheets_secret_id,
 ):
@@ -719,6 +747,7 @@ def create_catalog_config(
     Args:
         postgresql_secret_id: the juju secret id for postgresql
         mysql_secret_id: the juju secret id for mysql
+        redshift_secret_id: the juju secret id for redshift
         bigquery_secret_id: the juju secret id for bigquery
         gsheets_secret_id: the juju secret id for googlesheets
 
@@ -734,6 +763,9 @@ def create_catalog_config(
         mysql:
             backend: mysql
             secret-id: {mysql_secret_id}
+        redshift:
+            backend: redshift
+            secret-id: {redshift_secret_id}
         bigquery:
             backend: bigquery
             project: project-12345
@@ -759,6 +791,12 @@ def create_catalog_config(
                 case-insensitive-name-matching=true
                 decimal-mapping=allow_overflow
                 decimal-rounding-mode=HALF_UP
+        redshift:
+            connector: redshift
+            url: jdbc:redshift://redshift.com:5439/example
+            params: SSL=TRUE
+            config: |
+                case-insensitive-name-matching=true
         bigquery:
             connector: bigquery
             config: |
@@ -771,6 +809,7 @@ def create_catalog_config(
 def create_added_catalog_config(
     postgresql_secret_id,
     mysql_secret_id,
+    redshift_secret_id,
     bigquery_secret_id,
     gsheets_secret_id,
 ):
@@ -779,6 +818,7 @@ def create_added_catalog_config(
     Args:
         postgresql_secret_id: the juju secret id for postgresql
         mysql_secret_id: the juju secret id for mysql
+        redshift_secret_id: the juju secret id for redshift
         bigquery_secret_id: the juju secret id for bigquery
         gsheets_secret_id: the juju secret id for googlesheets
 
@@ -798,6 +838,9 @@ def create_added_catalog_config(
         mysql:
             backend: mysql
             secret-id: {mysql_secret_id}
+        redshift:
+            backend: redshift
+            secret-id: {redshift_secret_id}
         bigquery:
             backend: bigquery
             project: project-12345
@@ -823,6 +866,12 @@ def create_added_catalog_config(
                 case-insensitive-name-matching=true
                 decimal-mapping=allow_overflow
                 decimal-rounding-mode=HALF_UP
+        redshift:
+            connector: redshift
+            url: jdbc:redshift://redshift.com:5439/example
+            params: SSL=TRUE
+            config: |
+                case-insensitive-name-matching=true
         bigquery:
             connector: bigquery
             config: |

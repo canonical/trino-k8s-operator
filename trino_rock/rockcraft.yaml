@@ -80,6 +80,7 @@ parts:
       plugin/bigquery: usr/lib/trino/plugin/bigquery
       plugin/elasticsearch: usr/lib/trino/plugin/elasticsearch
       plugin/google-sheets: usr/lib/trino/plugin/google-sheets
+      plugin/redshift: usr/lib/trino/plugin/redshift
       plugin/mysql: usr/lib/trino/plugin/mysql
       plugin/password-authenticators: usr/lib/trino/plugin/password-authenticators # yamllint disable-line
       plugin/postgresql: usr/lib/trino/plugin/postgresql

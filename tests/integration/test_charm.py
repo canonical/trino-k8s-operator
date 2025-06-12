@@ -43,18 +43,21 @@ class TestDeployment:
         """Adds a PostgreSQL and BigQuery connector and asserts catalogs added."""
         postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
         mysql_secret_id = await add_juju_secret(ops_test, "mysql")
+        redshift_secret_id = await add_juju_secret(ops_test, "redshift")
         bigquery_secret_id = await add_juju_secret(ops_test, "bigquery")
         gsheet_secret_id = await add_juju_secret(ops_test, "gsheets")
 
         for app in ["trino-k8s", "trino-k8s-worker"]:
             await ops_test.model.grant_secret("postgresql-secret", app)
             await ops_test.model.grant_secret("mysql-secret", app)
+            await ops_test.model.grant_secret("redshift-secret", app)
             await ops_test.model.grant_secret("bigquery-secret", app)
             await ops_test.model.grant_secret("gsheets-secret", app)
 
         catalog_config = await create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheet_secret_id,
             True,
@@ -66,12 +69,14 @@ class TestDeployment:
         # Verify that both catalogs have been added.
         assert "postgresql-1" in str(catalogs)
         assert "mysql" in str(catalogs)
+        assert "redshift" in str(catalogs)
         assert "bigquery" in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
         updated_catalog_config = await create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
+            redshift_secret_id,
             bigquery_secret_id,
             gsheet_secret_id,
             False,
@@ -84,6 +89,7 @@ class TestDeployment:
         # Verify that only the bigquery catalog has been removed.
         assert "postgresql-1" in str(catalogs)
         assert "mysql" in str(catalogs)
+        assert "redshift" in str(catalogs)
         assert "bigquery" not in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 

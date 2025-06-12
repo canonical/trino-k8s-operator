@@ -34,7 +34,7 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog, SqlCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog
 from literals import (
     CATALOG_DIR,
     CATALOG_SCHEMA,
@@ -58,6 +58,7 @@ from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
+from sql_catalog import RedshiftCatalog, SqlCatalog
 from state import State
 from utils import (
     add_users_to_password_db,
@@ -469,6 +470,7 @@ class TrinoK8SCharm(CharmBase):
         catalog_map = {
             "postgresql": SqlCatalog,
             "mysql": SqlCatalog,
+            "redshift": RedshiftCatalog,
             "bigquery": BigqueryCatalog,
             "gsheets": GsheetCatalog,
         }
