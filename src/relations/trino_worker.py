@@ -78,7 +78,7 @@ class TrinoWorker(Object):
             return
 
         secret = self.model.get_secret(id=secret_id, label=SECRET_LABEL)
-        content = secret.get_content()
+        content = secret.get_content(refresh=True)
         self.charm.state.catalog_config = content["catalogs"]
 
         self.charm._update(event)

@@ -113,3 +113,344 @@ UPDATED_JVM_OPTIONS = " ".join(
         "-Xxs10G",
     ]
 )
+
+
+def simulate_lifecycle_worker(harness):
+    """Establish a relation between Trino worker and coordinator.
+
+    Args:
+        harness: ops.testing.Harness object used to simulate trino relation.
+
+    Returns:
+        container: the trino application container.
+        event: the relation event.
+    """
+    # Simulate peer relation readiness.
+    harness.add_relation("peer", "trino")
+
+    # Simulate pebble readiness.
+    harness.handle_exec("trino", ["keytool"], result=0)
+    harness.handle_exec("trino", ["htpasswd"], result=0)
+    harness.handle_exec(
+        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+    )
+    harness.update_config({"charm-function": "worker"})
+
+    # Add catalog secrets
+    bigquery_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": BIGQUERY_SECRET},
+    )
+
+    postgresql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": POSTGRESQL_REPLICA_SECRET,
+            "cert": POSTGRESQL_REPLICA_CERT,
+        },
+    )
+    mysql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"replicas": MYSQL_REPLICA_SECRET},
+    )
+    redshift_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"replicas": REDSHIFT_REPLICA_SECRET},
+    )
+    gsheets_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": GSHEET_SECRET},
+    )
+    catalog_config = create_catalog_config(
+        postgresql_secret_id,
+        mysql_secret_id,
+        redshift_secret_id,
+        bigquery_secret_id,
+        gsheets_secret_id,
+    )
+
+    container = harness.model.unit.get_container("trino")
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"catalogs": catalog_config},
+    )
+    rel_id = harness.add_relation("trino-worker", "trino-k8s")
+    harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
+
+    data = {
+        "trino-worker": {
+            "discovery-uri": "http://trino-k8s:8080",
+            "catalog-secret-id": secret_id,
+        }
+    }
+    event = make_relation_event("trino-worker", rel_id, data)
+    harness.charm.trino_worker._on_relation_changed(event)
+    return (
+        container,
+        event,
+        postgresql_secret_id,
+        mysql_secret_id,
+        redshift_secret_id,
+        bigquery_secret_id,
+        gsheets_secret_id,
+        secret_id,
+    )
+
+
+def simulate_lifecycle_coordinator(harness):
+    """Simulate a healthy charm life-cycle.
+
+    Args:
+        harness: ops.testing.Harness object used to simulate charm lifecycle.
+
+    Returns:
+        rel_id: the relation ID of the trino coordinator:worker relation.
+    """
+    # Simulate peer relation readiness.
+    harness.add_relation("peer", "trino")
+
+    # Simulate pebble readiness.
+    container = harness.model.unit.get_container("trino")
+    harness.handle_exec("trino", ["htpasswd"], result=0)
+    harness.handle_exec(
+        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+    )
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"users": TEST_USERS},
+    )
+
+    harness.charm.on.trino_pebble_ready.emit(container)
+
+    # Add catalog secrets
+    bigquery_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": BIGQUERY_SECRET},
+    )
+
+    postgresql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": POSTGRESQL_REPLICA_SECRET,
+            "cert": POSTGRESQL_REPLICA_CERT,
+        },
+    )
+    mysql_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": MYSQL_REPLICA_SECRET,
+        },
+    )
+    redshift_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {
+            "replicas": REDSHIFT_REPLICA_SECRET,
+        },
+    )
+    gsheets_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"service-accounts": GSHEET_SECRET},
+    )
+
+    catalog_config = create_catalog_config(
+        postgresql_secret_id,
+        mysql_secret_id,
+        redshift_secret_id,
+        bigquery_secret_id,
+        gsheets_secret_id,
+    )
+
+    # Add worker and coordinator relation
+    harness.handle_exec("trino", ["keytool"], result=0)
+    harness.update_config({"catalog-config": catalog_config})
+    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
+
+    harness.update_config({"user-secret-id": secret_id})
+    return (
+        rel_id,
+        postgresql_secret_id,
+        mysql_secret_id,
+        redshift_secret_id,
+        bigquery_secret_id,
+        gsheets_secret_id,
+    )
+
+
+def make_relation_event(app, rel_id, data):
+    """Create and return a mock policy created event.
+
+        The event is generated by the relation with postgresql_db
+
+    Args:
+        app: name of the application.
+        rel_id: relation id.
+        data: relation data.
+
+    Returns:
+        Event dict.
+    """
+    return type(
+        "Event",
+        (),
+        {
+            "app": app,
+            "relation": type(
+                "Relation",
+                (),
+                {
+                    "data": data,
+                    "id": rel_id,
+                },
+            ),
+        },
+    )
+
+
+def create_catalog_config(
+    postgresql_secret_id,
+    mysql_secret_id,
+    redshift_secret_id,
+    bigquery_secret_id,
+    gsheets_secret_id,
+):
+    """Create and return catalog-config value.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        mysql_secret_id: the juju secret id for mysql
+        redshift_secret_id: the juju secret id for redshift
+        bigquery_secret_id: the juju secret id for bigquery
+        gsheets_secret_id: the juju secret id for googlesheets
+
+    Returns:
+        the catalog configuration.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        mysql:
+            backend: mysql
+            secret-id: {mysql_secret_id}
+        redshift:
+            backend: redshift
+            secret-id: {redshift_secret_id}
+        bigquery:
+            backend: bigquery
+            project: project-12345
+            secret-id: {bigquery_secret_id}
+        gsheets-1:
+            backend: gsheets
+            metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+            secret-id: {gsheets_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        mysql:
+            connector: mysql
+            url: jdbc:mysql://mysql.com:3306
+            params: sslMode=REQUIRED
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        redshift:
+            connector: redshift
+            url: jdbc:redshift://redshift.com:5439/example
+            params: SSL=TRUE
+            config: |
+                case-insensitive-name-matching=true
+        bigquery:
+            connector: bigquery
+            config: |
+                bigquery.case-insensitive-name-matching=true
+        gsheets:
+            connector: gsheets
+    """
+
+
+def create_added_catalog_config(
+    postgresql_secret_id,
+    mysql_secret_id,
+    redshift_secret_id,
+    bigquery_secret_id,
+    gsheets_secret_id,
+):
+    """Create and return catalog-config value, with added catalog.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        mysql_secret_id: the juju secret id for mysql
+        redshift_secret_id: the juju secret id for redshift
+        bigquery_secret_id: the juju secret id for bigquery
+        gsheets_secret_id: the juju secret id for googlesheets
+
+    Returns:
+        the catalog configuration, with an added catalog.
+    """
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        postgresql-2:
+            backend: dwh
+            database: updated-db
+            secret-id: {postgresql_secret_id}
+        mysql:
+            backend: mysql
+            secret-id: {mysql_secret_id}
+        redshift:
+            backend: redshift
+            secret-id: {redshift_secret_id}
+        bigquery:
+            backend: bigquery
+            project: project-12345
+            secret-id: {bigquery_secret_id}
+        gsheets-1:
+            backend: gsheets
+            metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+            secret-id: {gsheets_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        mysql:
+            connector: mysql
+            url: jdbc:mysql://mysql.com:3306
+            params: sslMode=REQUIRED
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        redshift:
+            connector: redshift
+            url: jdbc:redshift://redshift.com:5439/example
+            params: SSL=TRUE
+            config: |
+                case-insensitive-name-matching=true
+        bigquery:
+            connector: bigquery
+            config: |
+                bigquery.case-insensitive-name-matching=true
+        gsheets:
+            connector: gsheets
+    """
