@@ -165,7 +165,7 @@ class TestDeployment:
             apps=[APP_NAME, WORKER_NAME], timeout=600
         )
 
-        # Step 3: Update catalog config to remove bigquery (but DO NOT use config-changed after this)
+        # Step 3: Update catalog config to remove bigquery (DO NOT use config-changed after this)
         updated_catalog_config = await create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
@@ -174,7 +174,7 @@ class TestDeployment:
             gsheet_secret_id,
             False,  # now exclude bigquery
         )
-        await update_catalog_config(ops_test, catalog_config, TRINO_USER)
+        await update_catalog_config(ops_test, updated_catalog_config, TRINO_USER)
 
         # Step 4: Re-establish relation
         await ops_test.model.integrate(
