@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 
 class TestCatalogConfigFreshness(TestCase):
+    """Unit tests for Trino charm catalog freshness."""
+
     @mock.patch("charm.KubernetesStatefulsetPatch")
     def setUp(self, _):
         """Set up for the unit tests."""
