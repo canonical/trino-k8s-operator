@@ -76,9 +76,14 @@ class TestCatalogUpdates:
             gsheet_secret_id,
             False,  # now exclude bigquery
         )
-        await update_catalog_config(
-            ops_test, updated_catalog_config, TRINO_USER
+
+        await ops_test.model.applications[APP_NAME].set_config(
+            {"catalog-config": updated_catalog_config}
         )
+        async with ops_test.fast_forward():
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME], timeout=300, raise_on_blocked=False
+            )
 
         # Step 4: Re-establish relation
         await ops_test.model.integrate(
