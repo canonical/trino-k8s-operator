@@ -46,10 +46,6 @@ class TrinoWorker(Object):
             self._on_relation_changed,
         )
         self.framework.observe(
-            charm.on.secret_changed,
-            self._on_secret_changed,
-        )
-        self.framework.observe(
             charm.on[self.relation_name].relation_broken,
             self._on_relation_broken,
         )
@@ -71,37 +67,8 @@ class TrinoWorker(Object):
         event_data = event.relation.data[event.app]
         self.charm.state.discovery_uri = event_data.get("discovery-uri")
         self.charm.state.user_secret_id = event_data.get("user-secret-id")
+        self.charm.state.catalog_config = event_data.get("catalogs")
 
-        secret_id = event_data.get("catalog-secret-id")
-        if not secret_id:
-            self.charm._update(event)
-            return
-
-        secret = self.model.get_secret(id=secret_id, label=SECRET_LABEL)
-        content = secret.get_content(refresh=True)
-        self.charm.state.catalog_config = content["catalogs"]
-
-        self.charm._update(event)
-
-    @log_event_handler(logger)
-    def _on_secret_changed(self, event):
-        """Handle secret changed hook.
-
-        Args:
-            event: the secret changed event.
-        """
-        if not self.charm.state.is_ready():
-            event.defer()
-            return
-
-        if not self.charm.unit.is_leader():
-            return
-
-        if not event.secret.label == SECRET_LABEL:
-            return
-
-        content = event.secret.get_content(refresh=True)
-        self.charm.state.catalog_config = content["catalogs"]
         self.charm._update(event)
 
     def _on_relation_broken(self, event):
@@ -126,6 +93,7 @@ class TrinoWorker(Object):
             return
 
         self.charm.state.discovery_uri = ""
+        self.charm.state.catalog_config = ""
         self.charm.state.catalog_config = ""
 
         self.charm._update(event)

@@ -77,40 +77,20 @@ class TrinoCoordinator(Object):
         if not self.charm.config["charm-function"] == "coordinator":
             return
 
+        # This is a list that contains every relation to the 'trino-coordinator' endpoint
+        # In theory it is not limited but in practice this will have 0 or 1 items
         coordinator_relations = self.model.relations["trino-coordinator"]
 
         relation_data = {
             "discovery-uri": self.charm.config["discovery-uri"],
             "user-secret-id": self.charm.config.get("user-secret-id", ""),
+            "catalogs": self.charm.config.get("catalog-config", ""),
         }
 
         for relation in coordinator_relations:
-            if self.charm.config.get("catalog-config"):
-                relation_data, secret = self._update_juju_secret(relation_data)
-                secret.grant(relation)
             relation.data[self.charm.app].update(relation_data)
 
         self.charm._update(event)
-
-    def _update_juju_secret(self, relation_data):
-        """Create a juju secret with the catalog-config data.
-
-        Args:
-            relation_data: the data to be put in the relation databag.
-
-        Returns:
-            relation_data: updated relation data with the secret values.
-            secret: the juju secret created.
-        """
-        content = {"catalogs": self.charm.config["catalog-config"]}
-        try:
-            secret = self.model.get_secret(label=SECRET_LABEL)
-            secret.set_content(content)
-        except SecretNotFoundError:
-            secret = self.charm.app.add_secret(content, label=SECRET_LABEL)
-
-        relation_data.update({"catalog-secret-id": secret.id})
-        return relation_data, secret
 
     def _on_relation_broken(self, event):
         """Coordinator updates and re-validates relations on relation broken.
@@ -118,11 +98,6 @@ class TrinoCoordinator(Object):
         Args:
             event: the relation broken event.
         """
-        try:
-            secret = self.model.get_secret(label=SECRET_LABEL)
-            secret.remove_all_revisions()
-        except SecretNotFoundError:
-            logger.debug(f"No secret found with label {SECRET_LABEL!r}")
 
         self.charm._update(event)
 
