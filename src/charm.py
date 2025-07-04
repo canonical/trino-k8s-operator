@@ -295,6 +295,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
+        # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
             self._restart_trino()

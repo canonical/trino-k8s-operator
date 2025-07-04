@@ -172,17 +172,13 @@ def simulate_lifecycle_worker(harness):
     container = harness.model.unit.get_container("trino")
     harness.charm.on.trino_pebble_ready.emit(container)
 
-    secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"catalogs": catalog_config},
-    )
     rel_id = harness.add_relation("trino-worker", "trino-k8s")
     harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
 
     data = {
         "trino-worker": {
             "discovery-uri": "http://trino-k8s:8080",
-            "catalog-secret-id": secret_id,
+            "catalogs": catalog_config,
         }
     }
     event = make_relation_event("trino-worker", rel_id, data)
@@ -195,7 +191,6 @@ def simulate_lifecycle_worker(harness):
         redshift_secret_id,
         bigquery_secret_id,
         gsheets_secret_id,
-        secret_id,
     )
 
 

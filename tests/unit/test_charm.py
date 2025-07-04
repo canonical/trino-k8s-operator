@@ -304,12 +304,9 @@ class TestCharm(TestCase):
             gsheets_secret_id,
         )
         relation_data = harness.get_relation_data(rel_id, harness.charm.app)
-        secret = harness.model.get_secret(label="catalog-config")
-        content = secret.get_content()
 
         assert relation_data["discovery-uri"] == "http://trino-k8s:8080"
-        assert "secret:" in relation_data["catalog-secret-id"]
-        assert content["catalogs"] == catalog_config
+        assert relation_data["catalogs"] == catalog_config
 
     def test_trino_coordinator_relation_broken(self):
         """Test trino relation.
@@ -332,7 +329,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relate correctly.
         """
         harness = self.harness
-        container, _, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
+        container, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
         self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
@@ -343,7 +340,7 @@ class TestCharm(TestCase):
         The coordinator and worker Trino charms relation is broken.
         """
         harness = self.harness
-        container, event, _, _, _, _, _, _ = simulate_lifecycle_worker(harness)
+        container, event, _, _, _, _, _ = simulate_lifecycle_worker(harness)
 
         harness.charm.trino_worker._on_relation_broken(event)
         self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
