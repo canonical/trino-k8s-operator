@@ -8,9 +8,7 @@ import logging
 
 from ops.charm import CharmBase
 from ops.framework import Object
-from ops.model import SecretNotFoundError
 
-from literals import SECRET_LABEL
 from log import log_event_handler
 
 logger = logging.getLogger(__name__)
@@ -98,7 +96,6 @@ class TrinoCoordinator(Object):
         Args:
             event: the relation broken event.
         """
-
         self.charm._update(event)
 
     def _validate(self):

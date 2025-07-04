@@ -9,7 +9,7 @@ import logging
 from ops.charm import CharmBase
 from ops.framework import Object
 
-from literals import CATALOG_DIR, SECRET_LABEL
+from literals import CATALOG_DIR
 from log import log_event_handler
 
 logger = logging.getLogger(__name__)
