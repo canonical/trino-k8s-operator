@@ -17,10 +17,8 @@ from ops.testing import Harness
 from charm import TrinoK8SCharm
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
-    MYSQL_CATALOG_PATH,
     POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_2_CATALOG_PATH,
-    REDSHIFT_CATALOG_PATH,
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
     create_added_catalog_config,
@@ -200,7 +198,9 @@ class TestCatalogConfigFreshness(TestCase):
         new_data = dict(event.relation.data)
         new_data["trino-worker"].update({"catalogs": extended_catalog_config})
 
-        new_event = make_relation_event("trino-worker", event.relation.id, new_data)
+        new_event = make_relation_event(
+            "trino-worker", event.relation.id, new_data
+        )
         harness.charm.trino_worker._on_relation_changed(new_event)
 
         self.assertEqual(
