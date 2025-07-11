@@ -43,7 +43,7 @@ requires:
   policy:
     interface: ranger_client
     limit: 1
-  log-proxy:
+  logging:
     interface: loki_push_api
     optional: true
     limit: 1

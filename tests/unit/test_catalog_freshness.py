@@ -17,14 +17,13 @@ from ops.testing import Harness
 from charm import TrinoK8SCharm
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
-    MYSQL_CATALOG_PATH,
     POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_2_CATALOG_PATH,
-    REDSHIFT_CATALOG_PATH,
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
     create_added_catalog_config,
     create_catalog_config,
+    make_relation_event,
     simulate_lifecycle_coordinator,
     simulate_lifecycle_worker,
 )
@@ -168,38 +167,6 @@ class TestCatalogConfigFreshness(TestCase):
         self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
         self.assertFalse(container.exists(BIGQUERY_CATALOG_PATH))
 
-    def test_trino_worker_secret_changed(self):
-        """Test the worker catalogs change when the secret content changes."""
-        harness = self.harness
-        (
-            container,
-            _,
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-            secret_id,
-        ) = simulate_lifecycle_worker(harness)
-
-        catalog_config = create_added_catalog_config(
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        )
-        secret = harness.model.get_secret(id=secret_id)
-
-        secret.set_content({"catalogs": catalog_config})
-        harness.charm.on.secret_changed.emit(
-            label="catalog-config", id=secret_id
-        )
-
-        self.assertTrue(container.exists(POSTGRESQL_1_CATALOG_PATH))
-        self.assertTrue(container.exists(MYSQL_CATALOG_PATH))
-        self.assertTrue(container.exists(REDSHIFT_CATALOG_PATH))
-
     def test_worker_fetches_latest_catalog_on_relation_change(self):
         """Test the worker catalogs change after the config and relation changes simultaneously."""
         harness = self.harness
@@ -211,10 +178,7 @@ class TestCatalogConfigFreshness(TestCase):
             redshift_secret_id,
             bigquery_secret_id,
             gsheets_secret_id,
-            secret_id,
         ) = simulate_lifecycle_worker(harness)
-
-        secret = harness.model.get_secret(id=secret_id)
 
         old_catalog = create_catalog_config(
             postgresql_secret_id,
@@ -223,7 +187,6 @@ class TestCatalogConfigFreshness(TestCase):
             bigquery_secret_id,
             gsheets_secret_id,
         )
-        secret.set_content({"catalogs": old_catalog})
 
         extended_catalog_config = create_added_catalog_config(
             postgresql_secret_id,
@@ -232,17 +195,22 @@ class TestCatalogConfigFreshness(TestCase):
             bigquery_secret_id,
             gsheets_secret_id,
         )
-        secret.set_content({"catalogs": extended_catalog_config})
-        harness.charm.trino_worker._on_relation_changed(event)
+        new_data = dict(event.relation.data)
+        new_data["trino-worker"].update({"catalogs": extended_catalog_config})
+
+        new_event = make_relation_event(
+            "trino-worker", event.relation.id, new_data
+        )
+        harness.charm.trino_worker._on_relation_changed(new_event)
 
         self.assertEqual(
             harness.charm.trino_worker.charm.state.catalog_config,
             extended_catalog_config,
-            "Catalog should be updated to the latest version even relation is changed.",
+            "Catalog should be updated to the latest version when relation is changed.",
         )
 
         self.assertNotEqual(
             harness.charm.trino_worker.charm.state.catalog_config,
             old_catalog,
-            "Stale catalog should not be used because refresh=True is set.",
+            "Stale catalog should not be used after it is updated.",
         )

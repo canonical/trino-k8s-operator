@@ -20,7 +20,7 @@ from charms.comsys_libs.v0.kubernetes_statefulset_patch import (
 )
 from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
@@ -44,7 +44,6 @@ from literals import (
     DEFAULT_JVM_OPTIONS,
     INDEX_NAME,
     JMX_PORT,
-    LOG_FILES,
     METRICS_PORT,
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
@@ -147,9 +146,7 @@ class TrinoK8SCharm(CharmBase):
         )
 
         # Loki
-        self.log_proxy = LogProxyConsumer(
-            self, log_files=LOG_FILES, relation_name="log-proxy"
-        )
+        self.log_proxy = LogForwarder(self, relation_name="logging")
 
         # Grafana
         self._grafana_dashboards = GrafanaDashboardProvider(
@@ -295,6 +292,7 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: the secret changed event.
         """
+        # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
             self._restart_trino()
