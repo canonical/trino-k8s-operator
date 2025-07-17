@@ -61,6 +61,7 @@ class TrinoCoordinator(Object):
             return
 
         self._update_coordinator_relation_data(event)
+        self.charm._update(event)
 
     def _update_coordinator_relation_data(self, event):
         """Update the `trino-coordinator` relation databag.
