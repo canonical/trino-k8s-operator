@@ -229,8 +229,8 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
-        self._update(event)
         self.trino_coordinator._update_coordinator_relation_data(event)
+        self._update(event)
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
