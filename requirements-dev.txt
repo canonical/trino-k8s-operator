@@ -6,10 +6,10 @@ black==22.8.0
 coverage[toml]==6.4.4
 codespell==2.2.1
 
-flake8==5.0.4
-flake8-builtins==1.5.3
-flake8-copyright==0.2.3
-flake8-docstrings==1.6.0
+flake8==7.0.0
+flake8-builtins==3.0.0
+flake8-copyright==0.2.4
+flake8-docstrings==1.7.0
 flake8-docstrings-complete>=1.0.3
 flake8-test-docs>=1.0
 
@@ -22,7 +22,7 @@ mypy
 pep8-naming==0.13.2
 pydocstyle
 pylint
-pyproject-flake8==5.0.4.post1
+pyproject-flake8==7.0.0
 pytest==7.4.0
 pytest-operator==0.31.1
 pytest-asyncio==0.21.0
