@@ -26,6 +26,7 @@ CONFIG_FILES = {
     "file-ranger.jinja": "file-ranger.properties",
     "file-view-only.jinja": "file-view-only.properties",
     "view-only-rules.jinja": "view-only-rules.json",
+    "file-rules.jinja": "file-rules.properties",
 }
 
 CONF_DIR = "conf"
