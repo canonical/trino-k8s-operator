@@ -23,6 +23,9 @@ CONFIG_FILES = {
     "access-control.jinja": "access-control.properties",
     "rules.jinja": "rules.json",
     "jvm.jinja": "jvm.config",
+    "file-ranger.jinja": "file-ranger.properties",
+    "file-view-only.jinja": "file-view-only.properties",
+    "view-only-rules.jinja": "view-only-rules.json",
 }
 
 CONF_DIR = "conf"
