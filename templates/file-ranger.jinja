@@ -1,3 +1,4 @@
 access-control.name=ranger
 ranger.service.name={{ REPOSITORY_NAME }}
 ranger.plugin.config.resource={{ TRINO_HOME }}/ranger-trino-security.xml,{{ TRINO_HOME }}/ranger-trino-audit.xml,{{ TRINO_HOME }}/ranger-policymgr-ssl.xml
+ranger.plugin.audit.enabled=true

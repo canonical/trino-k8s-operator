@@ -49,7 +49,7 @@ jmx.rmiserver.port={{ JMX_PORT }}
 
 {% if RANGER_RELATION == true %}
 
-access-control.config-files={{ TRINO_HOME }}/file-view-only.properties,{{ TRINO_HOME }}/file-ranger.properties
+access-control.config-files={{ TRINO_HOME }}/file-ranger.properties,{{ TRINO_HOME }}/file-view-only.properties
 
 {% else %}
 
