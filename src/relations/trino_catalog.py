@@ -49,12 +49,24 @@ class TrinoCatalogRelationHandler(Object):
 
         # Observe relation events
         self.framework.observe(
-            self.charm.on.trino_catalog_relation_created,
-            self._on_relation_created,
+            charm.on[self.relation_name].relation_created,
+            self._on_relation_changed,
+        )
+        self.framework.observe(
+            charm.on[self.relation_name].relation_changed,
+            self._on_relation_changed,
+        )
+        self.framework.observe(
+            charm.on[self.relation_name].relation_broken,
+            self._on_relation_broken,
         )
 
-    def _on_relation_created(self, event):
+    def _on_relation_changed(self, event):
         """Handle trino-catalog relation created."""
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
         self._update_relation(event.relation)
 
     def _get_url(self) -> Optional[str]:
@@ -139,12 +151,16 @@ class TrinoCatalogRelationHandler(Object):
             logger.error("Failed to process catalog-config: %s", str(e))
             return []
 
-    def _update_relation(self, relation: Relation) -> None:
+    def _update_relation(self, event) -> None:
         """Update a specific trino-catalog relation.
 
         Args:
-            relation: The relation to update
+            event: the relation changed or config changed event.
         """
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
         if not self.charm.unit.is_leader():
             return
 
@@ -167,7 +183,7 @@ class TrinoCatalogRelationHandler(Object):
         # Note: The library will put the secret ID in the databag
         # Admin must grant access: juju grant-secret <secret> <requirer-app>
         self.provider.update_relation_data(
-            relation=relation,
+            relation=event.relation,
             trino_url=url,
             trino_catalogs=catalogs,
             trino_credentials_secret_id=secret_id,
@@ -175,8 +191,10 @@ class TrinoCatalogRelationHandler(Object):
 
     def update_all_relations(self) -> None:
         """Update all trino-catalog relations."""
+        logger.debug("UPDATE ALL RELATIONS CALLED")
         if not self.charm.unit.is_leader():
             return
+        logger.debug("UPDATE ALL RELATIONS CALLED 2")
 
         # Get Trino URL
         url = self._get_url()
@@ -206,6 +224,10 @@ class TrinoCatalogRelationHandler(Object):
         Checks if the changed secret is used in trino-catalog relations
         and updates the revision to trigger credentials_changed on requirers.
         """
+        if not self.charm.state.is_ready():
+            event.defer()
+            return
+
         if not self.charm.unit.is_leader():
             return
 
