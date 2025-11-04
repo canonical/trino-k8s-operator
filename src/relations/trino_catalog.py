@@ -16,7 +16,7 @@ from charms.trino_k8s.v0.trino_catalog import (
     TrinoCatalog,
     TrinoCatalogProvider,
 )
-from ops.charm import SecretChangedEvent
+from ops.charm import CharmBase, SecretChangedEvent
 from ops.framework import Object
 from ops.model import Relation
 
@@ -35,7 +35,9 @@ class TrinoCatalogRelationHandler(Object):
     to each requirer application using: juju grant-secret <secret> <requirer-app>
     """
 
-    def __init__(self, charm):
+    def __init__(
+        self, charm: CharmBase, relation_name: str = "trino-catalog"
+    ) -> None:
         """Construct.
 
         Args:
@@ -43,6 +45,7 @@ class TrinoCatalogRelationHandler(Object):
         """
         super().__init__(charm, "trino-catalog-provider")
         self.charm = charm
+        self.relation_name = relation_name
 
         # Initialize the provider library
         self.provider = TrinoCatalogProvider(self.charm)
