@@ -59,10 +59,6 @@ class TrinoCatalogRelationHandler(Object):
             charm.on[self.relation_name].relation_changed,
             self._on_relation_changed,
         )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
 
     def _on_relation_changed(self, event):
         """Handle trino-catalog relation created."""
