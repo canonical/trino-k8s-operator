@@ -134,6 +134,33 @@ options:
       finishes.
     type: int
     default: 5
+  query-max-cpu-time:
+    description: |
+      The maximum CPU time a query may consume across the entire cluster.
+      Queries exceeding this limit will be killed.
+      eg. "1h", "30m", "10s"
+    type: string
+  query-max-memory-per-node:
+    description: |
+      The maximum amount of user memory a query may use on any one node.
+      eg. "1GB", "512MB"
+    type: string
+  query-max-memory:
+    description: |
+      The maximum amount of user memory a query may use across the entire cluster.
+      eg. "5GB", "2GB"
+    type: string
+  query-max-total-memory:
+    description: |
+      The maximum amount of memory (user + system) a query may use across the entire cluster.
+      eg. "10GB", "5GB"
+    type: string
+  memory-heap-headroom-per-node:
+    description: |
+      The amount of heap memory to reserve for operations that are not tracked by Trino's
+      memory management system. This prevents the JVM from running out of memory.
+      eg. "2GB", "1GB"
+    type: string
   workload-memory-requests:
     description: |
       Kubernetes memory resource request for the trino workload container.
