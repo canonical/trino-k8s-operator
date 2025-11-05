@@ -110,7 +110,7 @@ class TrinoCatalogRequirerCharm(CharmBase):
         logger.info("Trino catalogs changed. New catalogs:")
         for catalog in event.trino_catalogs:
             logger.info(
-                "  - %s (connector: %s)",
+                "    - %s (connector: %s, description: %s)",
                 catalog.name,
                 catalog.connector,
                 catalog.description,
@@ -184,7 +184,7 @@ class TrinoCatalogRequirerCharm(CharmBase):
         logger.info("  Available catalogs:")
         for catalog in trino_info["trino_catalogs"]:
             logger.info(
-                "    - %s (connector: %s)",
+                "    - %s (connector: %s, description: %s)",
                 catalog.name,
                 catalog.connector,
                 catalog.description,

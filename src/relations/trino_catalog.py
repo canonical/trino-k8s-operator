@@ -220,7 +220,7 @@ class TrinoCatalogRelationHandler(Object):
         """Handle Trino credentials secret change.
 
         Checks if the changed secret is used in trino-catalog relations
-        and updates the revision to trigger credentials_changed on requirers.
+        and updates the secret to trigger credentials_changed on requirers.
         """
         if not self.charm.state.is_ready():
             event.defer()
@@ -231,20 +231,9 @@ class TrinoCatalogRelationHandler(Object):
 
         secret_id = event.secret.id
 
-        # Get new revision
-        try:
-            new_revision = str(event.secret.get_info().revision)
-        except Exception as e:
-            logger.error(
-                "Failed to get secret revision for %s: %s",
-                secret_id,
-                str(e),
-            )
-            return
-
         # Update all relations using this secret
         updated_count = self.provider.update_secret_data(
-            secret_id, new_revision
+            secret_id
         )
 
         if updated_count > 0:

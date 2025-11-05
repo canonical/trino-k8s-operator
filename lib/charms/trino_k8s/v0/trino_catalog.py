@@ -131,9 +131,6 @@ class TrinoCatalogProvider(Object):
             current_url = current_data.get("trino_url")
             current_catalogs_str = current_data.get("trino_catalogs")
             current_secret_id = current_data.get("trino_credentials_secret_id")
-            current_secret_rev = current_data.get(
-                "trino_credentials_secret_revision"
-            )
 
             # Get new values
             new_url = trino_url
@@ -144,29 +141,17 @@ class TrinoCatalogProvider(Object):
                 )
             )
             new_secret_id = trino_credentials_secret_id
-            try:
-                new_secret = self.charm.model.get_secret(id=new_secret_id)
-                new_secret_rev = str(new_secret.get_info().revision)
-            except Exception as e:
-                logger.error(
-                    "Failed to get secret %s: %s",
-                    new_secret_id,
-                    str(e),
-                )
-                return False
 
             # Detect changes
             url_changed = current_url != new_url
             catalogs_changed = current_catalogs_str != new_catalogs_str
             secret_id_changed = current_secret_id != new_secret_id
-            secret_revision_changed = current_secret_rev != new_secret_rev
 
             # If nothing changed, skip update
             if not (
                 url_changed
                 or catalogs_changed
                 or secret_id_changed
-                or secret_revision_changed
             ):
                 logger.debug(
                     "No changes for relation %s, skipping update", relation.id
@@ -179,7 +164,6 @@ class TrinoCatalogProvider(Object):
                     "trino_url": new_url,
                     "trino_catalogs": new_catalogs_str,
                     "trino_credentials_secret_id": new_secret_id,
-                    "trino_credentials_secret_revision": new_secret_rev,
                 }
             )
 
@@ -189,7 +173,7 @@ class TrinoCatalogProvider(Object):
                 changes.append("URL")
             if catalogs_changed:
                 changes.append("catalogs")
-            if secret_id_changed or secret_revision_changed:
+            if secret_id_changed:
                 changes.append("credentials")
 
             logger.info(
@@ -218,6 +202,7 @@ class TrinoCatalogProvider(Object):
             trino_catalogs: List of TrinoCatalog objects
             trino_credentials_secret_id: Juju secret ID containing Trino users
         """
+        logger.debug("INTERFACE UPDATE ALL RELATIONS")
         for relation in self.charm.model.relations.get(self.relation_name, []):
             self.update_relation_data(
                 relation=relation,
@@ -226,15 +211,14 @@ class TrinoCatalogProvider(Object):
                 trino_credentials_secret_id=trino_credentials_secret_id,
             )
 
-    def update_secret_data(self, secret_id: str, revision: str) -> None:
-        """Update secret revision for all relations using the given secret_id.
+    def update_secret_data(self, secret_id: str) -> None:
+        """Update secret for all relations using the given secret_id.
 
-        When the secret revision changes, updating the databag triggers
+        When the secret changes, updating the databag triggers
         relation-changed on the requirer side, which emits credentials_changed event.
 
         Args:
             secret_id: The Juju secret ID to match
-            revision: The new secret revision number
         """
 
         for relation in self.charm.model.relations.get(self.relation_name, []):
@@ -243,13 +227,13 @@ class TrinoCatalogProvider(Object):
 
             if stored_secret_id == secret_id:
                 logger.debug(
-                    "Updating secret revision for relation %s",
+                    "Updating secret for relation %s",
                     relation.id,
                 )
                 # Changing databag values triggers relation-changed on
                 # requirer side which then emits credentials-changed event
                 relation_data.update(
-                    {"trino_credentials_secret_revision": revision}
+                    {"trino_credentials_secret_id": stored_secret_id}
                 )
 
 
@@ -349,7 +333,6 @@ class TrinoCatalogRequirer(Object):
         self._previous_url = None
         self._previous_catalogs = None
         self._previous_secret_id = None
-        self._previous_secret_revision = None
 
         self.framework.observe(
             self.charm.on[relation_name].relation_changed,
@@ -372,9 +355,6 @@ class TrinoCatalogRequirer(Object):
         trino_catalogs_str = relation_data.get("trino_catalogs")
         trino_credentials_secret_id = relation_data.get(
             "trino_credentials_secret_id"
-        )
-        trino_credentials_secret_revision = relation_data.get(
-            "trino_credentials_secret_revision"
         )
 
         if not all(
@@ -411,11 +391,9 @@ class TrinoCatalogRequirer(Object):
             )
             self._previous_catalogs = trino_catalogs_str
 
-        # Credentials changed (ID or revision)
+        # Credentials changed
         credentials_changed = (
             self._previous_secret_id != trino_credentials_secret_id
-            or self._previous_secret_revision
-            != trino_credentials_secret_revision
         )
 
         if credentials_changed:
@@ -425,7 +403,6 @@ class TrinoCatalogRequirer(Object):
                 relation_id=event.relation.id,
             )
             self._previous_secret_id = trino_credentials_secret_id
-            self._previous_secret_revision = trino_credentials_secret_revision
 
     def get_trino_info(self) -> Optional[dict]:
         """Get current Trino connection information.
