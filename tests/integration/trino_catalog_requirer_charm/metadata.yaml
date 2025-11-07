@@ -1,3 +1,6 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 name: requirer-charm
 title: Trino Catalog Requirer App
 summary: Requirer charm for trino-catalog relation
