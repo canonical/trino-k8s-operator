@@ -67,11 +67,22 @@ class TrinoCatalog:
         )
 
     def __repr__(self) -> str:
-        """String representation for debugging."""
+        """String representation for debugging.
+
+        Returns:
+            String representation of the TrinoCatalog object.
+        """
         return f"TrinoCatalog(name={self.name}, connector={self.connector}, description={self.description})"
 
     def __eq__(self, other) -> bool:
-        """Compare two catalogs for equality."""
+        """Compare two catalogs for equality.
+
+        Args:
+            other: Object to compare with.
+
+        Returns:
+            True if catalogs are equal, False otherwise.
+        """
         if not isinstance(other, TrinoCatalog):
             return False
         return (
@@ -92,6 +103,12 @@ class TrinoCatalogProvider(Object):
     """
 
     def __init__(self, charm: CharmBase, relation_name: str = "trino-catalog"):
+        """Initialize the TrinoCatalogProvider.
+
+        Args:
+            charm: The charm instance.
+            relation_name: Name of the relation.
+        """
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
@@ -212,6 +229,12 @@ class TrinoCatalogRequirer(Object):
     """Requirer side of the trino_catalog relation."""
 
     def __init__(self, charm: CharmBase, relation_name: str = "trino-catalog"):
+        """Initialize the TrinoCatalogRequirer.
+
+        Args:
+            charm: The charm instance.
+            relation_name: Name of the relation.
+        """
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
