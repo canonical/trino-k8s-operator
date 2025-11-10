@@ -259,11 +259,9 @@ class TrinoCatalogRequirer(Object):
     def get_credentials(self) -> Optional[tuple]:
         """Get Trino credentials to use from the secret.
 
-        Returns the first user credentials for simplicity. This can be
-        extended with custom logic if needed to select different users.
-
         Note: The requirer application must be granted access to the secret
-        using: juju grant-secret <secret> <requirer-app>
+        using: juju grant-secret <secret> <requirer-app>. The secret must
+        contain a user matching the format "app-<requirer-charm-name>".
 
         Returns:
             Tuple of (username, password) or None if not available.
