@@ -1,0 +1,5 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+get-relation-data:
+  description: Get the current Trino relation data received by this charm

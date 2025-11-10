@@ -52,6 +52,30 @@ class TrinoCatalogRequirerCharm(CharmBase):
             self._on_trino_catalog_relation_broken,
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(
+            self.on.get_relation_data_action, self._on_get_relation_data_action
+        )
+
+    def _on_get_relation_data_action(self, event):
+        """Handle the get-relation-data action."""
+        trino_info = self.trino_catalog.get_trino_info()
+
+        if not trino_info:
+            event.fail("No Trino relation data available")
+            return
+
+        # Format catalog info for output
+        catalogs_info = [cat.to_dict() for cat in trino_info["trino_catalogs"]]
+
+        event.set_results(
+            {
+                "trino-url": trino_info["trino_url"],
+                "trino-catalogs": str(catalogs_info),
+                "trino-credentials-secret-id": trino_info[
+                    "trino_credentials_secret_id"
+                ],
+            }
+        )
 
     def _on_install(self, event):
         """Handle install event."""
