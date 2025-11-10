@@ -43,7 +43,7 @@ async def deploy_requirer(ops_test: OpsTest):
         )
 
     # Create user secret for Trino (trino-user-management)
-    users_secret_data = "app-requirer-app: password123\nother-user: pass456"
+    users_secret_data = "app-requirer-app: test1\nother-user: test2"  # nosec
     user_secret = await ops_test.model.add_secret(
         name="trino-user-management",
         data_args=[f"users={users_secret_data}"],
@@ -303,9 +303,7 @@ async def test_catalog_config_propagation(ops_test: OpsTest):
 async def test_user_secret_propagation(ops_test: OpsTest):
     """Test that user-secret-id changes propagate to the requirer."""
     # Create a new user secret (trino-user-management)
-    new_user_secret_data = (
-        "app-requirer-app: newpassword123\nother-user: pass456"
-    )
+    new_user_secret_data = "app-requirer-app: test1\nother-user: test2"  # nosec
     new_user_secret = await ops_test.model.add_secret(
         name="trino-user-management-new",
         data_args=[f"users={new_user_secret_data}"],
