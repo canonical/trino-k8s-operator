@@ -141,6 +141,11 @@ class TestCharm(TestCase):
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",
                         "WORKER_REQUEST_TIMEOUT": "30s",
                         "MAX_CONCURRENT_QUERIES": 5,
+                        "QUERY_MAX_CPU_TIME": None,
+                        "QUERY_MAX_MEMORY_PER_NODE": None,
+                        "QUERY_MAX_MEMORY": None,
+                        "QUERY_MAX_TOTAL_MEMORY": None,
+                        "MEMORY_HEAP_HEADROOM_PER_NODE": None,
                     },
                 }
             },
@@ -371,3 +376,33 @@ class TestCharm(TestCase):
             harness.model.unit.status,
             MaintenanceStatus("replanning application"),
         )
+
+    def test_resource_management_config(self):
+        """Test resource management configuration variables.
+
+        The charm includes resource management variables in the environment
+        with the correct values when configured.
+        """
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        # Update config with resource management values
+        harness.update_config(
+            {
+                "query-max-cpu-time": "1h",
+                "query-max-memory-per-node": "2GB",
+                "query-max-memory": "10GB",
+                "query-max-total-memory": "15GB",
+                "memory-heap-headroom-per-node": "1GB",
+            }
+        )
+
+        # Check that variables are present in environment with correct values
+        got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        environment = got_plan["services"]["trino"]["environment"]
+
+        self.assertEqual(environment["QUERY_MAX_CPU_TIME"], "1h")
+        self.assertEqual(environment["QUERY_MAX_MEMORY_PER_NODE"], "2GB")
+        self.assertEqual(environment["QUERY_MAX_MEMORY"], "10GB")
+        self.assertEqual(environment["QUERY_MAX_TOTAL_MEMORY"], "15GB")
+        self.assertEqual(environment["MEMORY_HEAP_HEADROOM_PER_NODE"], "1GB")
