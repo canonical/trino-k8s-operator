@@ -110,6 +110,11 @@ class TestCatalogConfigFreshness(TestCase):
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",
                         "WORKER_REQUEST_TIMEOUT": "30s",
                         "MAX_CONCURRENT_QUERIES": 5,
+                        "QUERY_MAX_CPU_TIME": None,
+                        "QUERY_MAX_MEMORY_PER_NODE": None,
+                        "QUERY_MAX_MEMORY": None,
+                        "QUERY_MAX_TOTAL_MEMORY": None,
+                        "MEMORY_HEAP_HEADROOM_PER_NODE": None,
                     },
                 }
             },

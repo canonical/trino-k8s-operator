@@ -16,8 +16,23 @@ coordinator=true
 node-scheduler.include-coordinator=true
 discovery.uri=http://localhost:8080
 query.max-concurrent-queries={{ MAX_CONCURRENT_QUERIES }}
-
+    {% if QUERY_MAX_CPU_TIME is not none %}
+query.max-cpu-time={{ QUERY_MAX_CPU_TIME }}
+    {% endif %}
+    {% if QUERY_MAX_MEMORY_PER_NODE is not none %}
+query.max-memory-per-node={{ QUERY_MAX_MEMORY_PER_NODE }}
+    {% endif %}
+    {% if QUERY_MAX_MEMORY is not none %}
+query.max-memory={{ QUERY_MAX_MEMORY }}
+    {% endif %}
+    {% if QUERY_MAX_TOTAL_MEMORY is not none %}
+query.max-total-memory={{ QUERY_MAX_TOTAL_MEMORY }}
+    {% endif %}
+    {% if MEMORY_HEAP_HEADROOM_PER_NODE is not none %}
+memory.heap-headroom-per-node={{ MEMORY_HEAP_HEADROOM_PER_NODE }}
+    {% endif %}
 {% endif %}
+
 
 http-server.http.port=8080
 node.internal-address-source=FQDN
