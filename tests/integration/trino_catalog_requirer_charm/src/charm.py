@@ -39,10 +39,12 @@ class TrinoCatalogRequirerCharm(CharmBase):
             self, relation_name="trino-catalog"
         )
 
+        # standard events
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.update_status, self._on_update_status)
 
-        # Observe standard charm events
+        # relation events
         self.framework.observe(
             self.on.trino_catalog_relation_changed,
             self._on_trino_catalog_relation_changed,
@@ -51,30 +53,10 @@ class TrinoCatalogRequirerCharm(CharmBase):
             self.on.trino_catalog_relation_broken,
             self._on_trino_catalog_relation_broken,
         )
-        self.framework.observe(self.on.update_status, self._on_update_status)
+
+        # action event
         self.framework.observe(
             self.on.get_relation_data_action, self._on_get_relation_data_action
-        )
-
-    def _on_get_relation_data_action(self, event):
-        """Handle the get-relation-data action."""
-        trino_info = self.trino_catalog.get_trino_info()
-
-        if not trino_info:
-            event.fail("No Trino relation data available")
-            return
-
-        # Format catalog info for output
-        catalogs_info = [cat.to_dict() for cat in trino_info["trino_catalogs"]]
-
-        event.set_results(
-            {
-                "trino-url": trino_info["trino_url"],
-                "trino-catalogs": str(catalogs_info),
-                "trino-credentials-secret-id": trino_info[
-                    "trino_credentials_secret_id"
-                ],
-            }
         )
 
     def _on_install(self, event):
@@ -115,6 +97,14 @@ class TrinoCatalogRequirerCharm(CharmBase):
         This is where you would actually configure your application
         to connect to Trino using the provided information.
         """
+
+        # Check if we already have a relation
+        if not self.model.relations.get("trino-catalog"):
+            self.unit.status = BlockedStatus(
+                "Waiting for trino-catalog relation"
+            )
+            return
+
         # Get all Trino information
         trino_info = self.trino_catalog.get_trino_info()
         if not trino_info:
@@ -143,6 +133,27 @@ class TrinoCatalogRequirerCharm(CharmBase):
                 catalog.description,
             )
         self.unit.status = ActiveStatus("Connected to Trino")
+
+    def _on_get_relation_data_action(self, event):
+        """Handle the get-relation-data action."""
+        trino_info = self.trino_catalog.get_trino_info()
+
+        if not trino_info:
+            event.fail("No Trino relation data available")
+            return
+
+        # Format catalog info for output
+        catalogs_info = [cat.to_dict() for cat in trino_info["trino_catalogs"]]
+
+        event.set_results(
+            {
+                "trino-url": trino_info["trino_url"],
+                "trino-catalogs": str(catalogs_info),
+                "trino-credentials-secret-id": trino_info[
+                    "trino_credentials_secret_id"
+                ],
+            }
+        )
 
 
 if __name__ == "__main__":
