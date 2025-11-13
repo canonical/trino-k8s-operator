@@ -6,7 +6,7 @@
 
 APP_NAME = "trino-k8s"
 TRINO_PORTS = {
-    "HTTPS": 8443,
+    "HTTPS": 443,
     "HTTP": 8080,
 }
 

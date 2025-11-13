@@ -8,7 +8,12 @@ import logging
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, add_juju_secret, create_catalog_config
+from helpers import (
+    APP_NAME,
+    add_juju_secret,
+    create_catalog_config,
+    get_secret_id_by_label,
+)
 from pytest_operator.plugin import OpsTest
 
 from literals import TRINO_PORTS, USER_SECRET_LABEL
@@ -38,7 +43,7 @@ async def deploy_requirer(ops_test: OpsTest):
             apps=[REQUIRER_APP],
             status="blocked",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -62,7 +67,7 @@ async def deploy_trino(ops_test: OpsTest, charm: str, charm_image: str):
             apps=[APP_NAME],
             status="active",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -92,14 +97,14 @@ async def test_02_trino_catalog_relation_created(ops_test: OpsTest):
             apps=[APP_NAME],
             status="active",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
         await ops_test.model.wait_for_idle(
             apps=[REQUIRER_APP],
             status="waiting",  # Requirer will be waiting for Trino data
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
     # Verify relation exists
@@ -124,7 +129,7 @@ async def test_03_trino_catalog_relation_set_url(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
-            timeout=2000,
+            timeout=1000,
         )
 
         # Requirer will be waiting for Trino data (it needs all three: catalogs, URL, secret)
@@ -132,7 +137,7 @@ async def test_03_trino_catalog_relation_set_url(ops_test: OpsTest):
             apps=[REQUIRER_APP],
             status="waiting",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -174,7 +179,7 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
-            timeout=2000,
+            timeout=1000,
         )
 
         # Requirer will be waiting for Trino data (it needs all three: catalogs, URL, secret)
@@ -182,7 +187,7 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
             apps=[REQUIRER_APP],
             status="waiting",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -192,7 +197,7 @@ async def test_05_trino_catalog_relation_set_secret(ops_test: OpsTest):
     """Test granting the user secret to Trino but not to requirer which will be blocked."""
     # Create user secret for Trino
     users_secret_data = (
-        "app-requirer-app: password1\nuser2: password2"  # nosec
+        "app-requirer-charm: password1\nuser2: password2"  # nosec
     )
     user_secret = await ops_test.model.add_secret(
         name=USER_SECRET_LABEL,
@@ -213,7 +218,7 @@ async def test_05_trino_catalog_relation_set_secret(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
-            timeout=2000,
+            timeout=1000,
         )
 
         # Requirer has all three (catalogs, URL, secret) but hasn't been granted the secret yet
@@ -221,7 +226,7 @@ async def test_05_trino_catalog_relation_set_secret(ops_test: OpsTest):
             apps=[REQUIRER_APP],
             status="blocked",
             raise_on_blocked=False,
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -238,7 +243,7 @@ async def test_06_trino_catalog_relation_grant_secret(
         await ops_test.model.wait_for_idle(
             apps=[REQUIRER_APP],
             status="active",
-            timeout=2000,
+            timeout=1000,
         )
 
 
@@ -276,7 +281,9 @@ async def test_07_trino_catalog_relation_read_data(
     ), f"Expected catalogs {expected_catalogs}, got {catalog_names}"
 
     logger.info(
-        f"Verified requirer received {catalogs_count} catalogs: {catalog_names}"
+        "Verified requirer received %s catalogs: %s",
+        catalogs_count,
+        catalog_names,
     )
 
     # Verify the requirer received the URL
@@ -284,19 +291,21 @@ async def test_07_trino_catalog_relation_read_data(
     assert (
         result_url == f"trino.test.com:{TRINO_PORTS['HTTPS']}"
     ), f"Expected URL 'trino.test.com:{TRINO_PORTS['HTTPS']}', got '{result_url}'"
-    logger.info(f"Verified requirer received Trino URL: {result_url}")
+    logger.info("Verified requirer received Trino URL: %s", result_url)
 
     # Verify the requirer received the username and password
     result_username = action.results.get("trino-username")
     result_password = action.results.get("trino-password")
     assert (
-        result_username == "app-requirer-app"
-    ), f"Expected username 'app-requirer-app', got '{result_username}'"
+        result_username == "app-requirer-charm"
+    ), f"Expected username 'app-requirer-charm', got '{result_username}'"
     assert (
-        result_password == "password1"
+        result_password == "password1"  # nosec
     ), f"Expected password 'password1', got '{result_password}'"
     logger.info(
-        f"Verified requirer received Trino credentials: username='{result_username}', password='{result_password}'"
+        "Verified requirer received Trino credentials: username='%s', password='%s'",
+        result_username,
+        result_password,
     )
 
 
@@ -305,11 +314,25 @@ async def test_07_trino_catalog_relation_read_data(
 async def test_08_catalog_config_propagation(ops_test: OpsTest):
     """Test that catalog-config changes propagate to the requirer."""
     # Get catalog secrets
-    postgresql_secret_id = ops_test.model.get_secret("postgresql-secret").id
-    mysql_secret_id = ops_test.model.get_secret("mysql-secret").id
-    redshift_secret_id = ops_test.model.get_secret("redshift-secret").id
-    bigquery_secret_id = ops_test.model.get_secret("bigquery-secret").id
-    gsheets_secret_id = ops_test.model.get_secret("gsheets-secret").id
+    postgresql_secret_id = await get_secret_id_by_label(
+        ops_test, "postgresql-secret"
+    )
+    mysql_secret_id = await get_secret_id_by_label(ops_test, "mysql-secret")
+    redshift_secret_id = await get_secret_id_by_label(
+        ops_test, "redshift-secret"
+    )
+    bigquery_secret_id = await get_secret_id_by_label(
+        ops_test, "bigquery-secret"
+    )
+    gsheets_secret_id = await get_secret_id_by_label(
+        ops_test, "gsheets-secret"
+    )
+
+    logger.info("PostgreSQL secret ID: %s", postgresql_secret_id)
+    logger.info("MySQL secret ID: %s", mysql_secret_id)
+    logger.info("Redshift secret ID: %s", redshift_secret_id)
+    logger.info("BigQuery secret ID: %s", bigquery_secret_id)
+    logger.info("GSheets secret ID: %s", gsheets_secret_id)
 
     # Update to remove bigquery
     catalog_config_without_bigquery = await create_catalog_config(
@@ -329,7 +352,7 @@ async def test_08_catalog_config_propagation(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
-            timeout=600,
+            timeout=1000,
         )
 
     # Verify the requirer received the updated catalogs (without bigquery)
@@ -359,7 +382,9 @@ async def test_08_catalog_config_propagation(ops_test: OpsTest):
     ), f"Expected catalogs {expected_catalogs}, got {catalog_names}"
 
     logger.info(
-        f"Verified catalog count reduced to {catalogs_count} after removing bigquery: {catalog_names}"
+        "Verified catalog count reduced to %s after removing bigquery: %s",
+        catalogs_count,
+        catalog_names,
     )
 
 
@@ -369,7 +394,7 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
     """Test that multiple requirers can connect to same Trino."""
     # Deploy a second requirer
     requirer_charm = await ops_test.build_charm(REQUIRER_CHARM_PATH)
-    requirer_app_2 = "requirer-app-2"
+    requirer_app_2 = "second-requirer"
 
     async with ops_test.fast_forward():
         await ops_test.model.deploy(
@@ -381,7 +406,7 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[requirer_app_2],
             status="blocked",
-            timeout=600,
+            timeout=1000,
         )
 
     # Relate second requirer to Trino
@@ -394,7 +419,7 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
             apps=[requirer_app_2],
             status="blocked",
             raise_on_blocked=False,
-            timeout=600,
+            timeout=1000,
         )
 
     # Grant secret to second requirer
@@ -404,7 +429,7 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
         await ops_test.model.wait_for_idle(
             apps=[requirer_app_2],
             status="active",
-            timeout=600,
+            timeout=1000,
         )
 
     # Verify both requirers are connected
@@ -439,7 +464,7 @@ async def test_10_relation_broken(ops_test: OpsTest):
             apps=[REQUIRER_APP],
             status="blocked",
             raise_on_blocked=False,
-            timeout=600,
+            timeout=1000,
         )
 
     # Verify relation is removed

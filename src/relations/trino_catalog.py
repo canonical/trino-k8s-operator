@@ -61,7 +61,7 @@ class TrinoCatalogRelationHandler(Object):
             event.defer()
             return
 
-        self._update_relation(event.relation)
+        self._update_relation(event)
 
     def _get_url(self) -> Optional[str]:
         """Get the Trino URL from configuration.

@@ -463,3 +463,26 @@ async def create_catalog_config(
                 connector: gsheets
         """
     return catalog_config
+
+
+async def get_secret_id_by_label(ops_test: OpsTest, label: str):
+    """Get the secret ID by label.
+
+    Args:
+        ops_test: PyTest object.
+        label: Label of the secret to find.
+
+    Returns:
+        Secret ID string if found, None otherwise.
+    """
+    result = await ops_test.juju("secrets", "--format=yaml")
+    if result[0] != 0:
+        return None
+
+    secrets = yaml.safe_load(result[1])
+
+    for secret_id, info in secrets.items():
+        if info and info.get("name") == label:
+            return secret_id
+
+    return None
