@@ -75,8 +75,7 @@ class TrinoCatalogRequirerCharm(CharmBase):
             self._configure_application()
 
     def _on_update_status(self, event):
-        """Handle update-status event to check credentials after grant."""
-        # This fires periodically, so we can check if secret was granted
+        """Handle update-status event."""
         self._configure_application()
 
     def _on_trino_catalog_relation_changed(self, event):
@@ -97,7 +96,6 @@ class TrinoCatalogRequirerCharm(CharmBase):
         This is where you would actually configure your application
         to connect to Trino using the provided information.
         """
-
         # Check if we already have a relation
         if not self.model.relations.get("trino-catalog"):
             self.unit.status = BlockedStatus(
@@ -137,6 +135,7 @@ class TrinoCatalogRequirerCharm(CharmBase):
     def _on_get_relation_data_action(self, event):
         """Handle the get-relation-data action."""
         trino_info = self.trino_catalog.get_trino_info()
+        trino_username, trino_password = self.trino_catalog.get_credentials()
 
         if not trino_info:
             event.fail("No Trino relation data available")
@@ -149,9 +148,8 @@ class TrinoCatalogRequirerCharm(CharmBase):
             {
                 "trino-url": trino_info["trino_url"],
                 "trino-catalogs": str(catalogs_info),
-                "trino-credentials-secret-id": trino_info[
-                    "trino_credentials_secret_id"
-                ],
+                "trino-username": trino_username,
+                "trino-password": trino_password,
             }
         )
 
