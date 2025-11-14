@@ -143,65 +143,67 @@ class TrinoCatalogProvider(Object):
             )
             return False
 
-        try:
-            # Get current values from databag
-            current_data = relation.data[self.charm.app]
-            current_url = current_data.get("trino_url")
-            current_catalogs_str = current_data.get("trino_catalogs")
-            current_secret_id = current_data.get("trino_credentials_secret_id")
+        # Get current values from databag
+        current_data = relation.data[self.charm.app]
+        current_url = current_data.get("trino_url")
+        current_catalogs_str = current_data.get("trino_catalogs")
+        current_secret_id = current_data.get("trino_credentials_secret_id")
 
-            # Get new values
-            new_url = trino_url
+        # Get new values
+        new_url = trino_url
+        try:
             new_catalogs_str = json.dumps(
                 sorted(
                     [c.to_dict() for c in trino_catalogs],
                     key=lambda x: x["name"],
                 )
             )
-            new_secret_id = trino_credentials_secret_id
-
-            # Detect changes
-            url_changed = current_url != new_url
-            catalogs_changed = current_catalogs_str != new_catalogs_str
-            secret_id_changed = current_secret_id != new_secret_id
-
-            # If nothing changed, skip update
-            if not (url_changed or catalogs_changed or secret_id_changed):
-                logger.debug(
-                    "No changes for relation %s, skipping update", relation.id
-                )
-                return True
-
-            # Update relation databag
-            relation.data[self.charm.app].update(
-                {
-                    "trino_url": new_url,
-                    "trino_catalogs": new_catalogs_str,
-                    "trino_credentials_secret_id": new_secret_id,
-                }
-            )
-
-            # Log what changed
-            changes = []
-            if url_changed:
-                changes.append("URL")
-            if catalogs_changed:
-                changes.append("catalogs")
-            if secret_id_changed:
-                changes.append("credentials")
-
-            logger.info(
-                "Updated trino-catalog relation %s: %s changed",
+        except (TypeError, KeyError) as e:
+            logger.error(
+                "Failed to serialize catalogs for relation %s: %s",
                 relation.id,
-                ", ".join(changes),
+                str(e),
+            )
+            return False
+
+        new_secret_id = trino_credentials_secret_id
+
+        # Detect changes
+        url_changed = current_url != new_url
+        catalogs_changed = current_catalogs_str != new_catalogs_str
+        secret_id_changed = current_secret_id != new_secret_id
+
+        # If nothing changed, skip update
+        if not (url_changed or catalogs_changed or secret_id_changed):
+            logger.debug(
+                "No changes for relation %s, skipping update", relation.id
             )
             return True
 
-        except Exception as e:
-            logger.error(
-                "Failed to update relation %s: %s", relation.id, str(e)
-            )
-            return False
+        # Update relation databag
+        relation.data[self.charm.app].update(
+            {
+                "trino_url": new_url,
+                "trino_catalogs": new_catalogs_str,
+                "trino_credentials_secret_id": new_secret_id,
+            }
+        )
+
+        # Log what changed
+        changes = []
+        if url_changed:
+            changes.append("URL")
+        if catalogs_changed:
+            changes.append("catalogs")
+        if secret_id_changed:
+            changes.append("credentials")
+
+        logger.info(
+            "Updated trino-catalog relation %s: %s changed",
+            relation.id,
+            ", ".join(changes),
+        )
+        return True
 
     def update_all_relations(
         self,
@@ -300,25 +302,25 @@ class TrinoCatalogRequirer(Object):
                 id=trino_info["trino_credentials_secret_id"]
             )
             credentials = secret.get_content(refresh=True)
-            users_data = credentials.get("users", "")
-
-            # Parse "username: password" format
-            users = {}
-            for line in users_data.strip().split("\n"):
-                if ":" in line:
-                    username, password = line.split(":", 1)
-                    users[username.strip()] = password.strip()
-
-            # Search for the required user
-            if required_username not in users:
-                logger.error(
-                    "User '%s' not found in Trino user credentials.",
-                    required_username,
-                )
-                return None
-
-            return (required_username, users[required_username])
-
         except Exception as e:
-            logger.error("Failed to get secret: %s", str(e))
+            logger.error("Failed to access secret: %s", str(e))
             return None
+
+        users_data = credentials.get("users", "")
+
+        # Parse "username: password" format
+        users = {}
+        for line in users_data.strip().split("\n"):
+            if ":" in line:
+                username, password = line.split(":", 1)
+                users[username.strip()] = password.strip()
+
+        # Search for the required user
+        if required_username not in users:
+            logger.error(
+                "User '%s' not found in Trino user credentials.",
+                required_username,
+            )
+            return None
+
+        return (required_username, users[required_username])

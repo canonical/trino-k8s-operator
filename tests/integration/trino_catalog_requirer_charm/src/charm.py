@@ -109,12 +109,16 @@ class TrinoCatalogRequirerCharm(CharmBase):
             return
 
         # Get credentials
-        credentials = self.trino_catalog.get_credentials()
-        if not credentials:
-            self.unit.status = BlockedStatus("Missing Trino credentials")
+        try:
+            credentials = self.trino_catalog.get_credentials()
+            if not credentials:
+                self.unit.status = BlockedStatus("Missing Trino credentials")
+                return
+            username, password = credentials
+        except Exception as e:
+            logger.error("Failed to get Trino credentials: %s", str(e))
+            self.unit.status = BlockedStatus(f"Failed to get credentials: {e}")
             return
-
-        username, password = credentials
 
         # Log the configuration (in real charm, you'd write config files, etc.)
         logger.info("Configuring application with Trino connection:")
@@ -133,10 +137,19 @@ class TrinoCatalogRequirerCharm(CharmBase):
     def _on_get_relation_data_action(self, event):
         """Handle the get-relation-data action."""
         trino_info = self.trino_catalog.get_trino_info()
-        trino_username, trino_password = self.trino_catalog.get_credentials()
 
         if not trino_info:
             event.fail("No Trino relation data available")
+            return
+
+        try:
+            credentials = self.trino_catalog.get_credentials()
+            if not credentials:
+                event.fail("Failed to get Trino credentials")
+                return
+            trino_username, trino_password = credentials
+        except Exception as e:
+            event.fail(f"Error getting credentials: {e}")
             return
 
         # Format catalog info for output

@@ -93,47 +93,43 @@ class TrinoCatalogRelationHandler(Object):
 
         try:
             config = yaml.safe_load(catalog_config_str)
-
-            catalogs_dict = config.get("catalogs", {})
-            backends_dict = config.get("backends", {})
-
-            if not catalogs_dict:
-                logger.debug("No catalogs found in catalog-config")
-                return []
-
-            # Build structured catalog list
-            catalog_list = []
-
-            for catalog_name, catalog_config in catalogs_dict.items():
-                # Get backend name from catalog config
-                backend_name = catalog_config.get("backend")
-
-                # Connector is optional - try to get it from backend
-                connector = ""
-                if backend_name:
-                    backend_config = backends_dict.get(backend_name)
-                    if backend_config:
-                        connector = backend_config.get("connector", "")
-
-                # Create TrinoCatalog object
-                catalog = TrinoCatalog(
-                    name=catalog_name,
-                    connector=connector,
-                    description="",
-                )
-
-                catalog_list.append(catalog)
-
-            logger.debug("Parsed %s catalogs from config", len(catalog_list))
-
-            return catalog_list
-
         except yaml.YAMLError as e:
             logger.error("Failed to parse catalog-config YAML: %s", str(e))
             return []
-        except Exception as e:
-            logger.error("Failed to process catalog-config: %s", str(e))
+
+        catalogs_dict = config.get("catalogs", {})
+        backends_dict = config.get("backends", {})
+
+        if not catalogs_dict:
+            logger.debug("No catalogs found in catalog-config")
             return []
+
+        # Build structured catalog list
+        catalog_list = []
+
+        for catalog_name, catalog_config in catalogs_dict.items():
+            # Get backend name from catalog config
+            backend_name = catalog_config.get("backend")
+
+            # Connector is optional - try to get it from backend
+            connector = ""
+            if backend_name:
+                backend_config = backends_dict.get(backend_name)
+                if backend_config:
+                    connector = backend_config.get("connector", "")
+
+            # Create TrinoCatalog object
+            catalog = TrinoCatalog(
+                name=catalog_name,
+                connector=connector,
+                description="",
+            )
+
+            catalog_list.append(catalog)
+
+        logger.debug("Parsed %s catalogs from config", len(catalog_list))
+
+        return catalog_list
 
     def _update_relation(self, event) -> None:
         """Update a specific trino-catalog relation.
