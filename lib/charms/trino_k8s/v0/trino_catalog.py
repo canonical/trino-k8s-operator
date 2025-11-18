@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from ops.charm import CharmBase
 from ops.framework import Object
+from ops.model import ModelError, SecretNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,10 @@ class TrinoCatalogRequirer(Object):
 
         Returns:
             Tuple of (username, password) or None if not available.
+
+        Raises:
+            SecretNotFoundError: If the secret does not exist.
+            ModelError: If permission is denied to access the secret.
         """
         required_username = f"app-{self.charm.meta.name}"
 
@@ -302,9 +307,19 @@ class TrinoCatalogRequirer(Object):
                 id=trino_info["trino_credentials_secret_id"]
             )
             credentials = secret.get_content(refresh=True)
-        except Exception as e:
-            logger.error("Failed to access secret: %s", str(e))
-            return None
+        except SecretNotFoundError:
+            logger.error(
+                "Secret '%s' not found.",
+                trino_info["trino_credentials_secret_id"],
+            )
+            raise
+        except ModelError as e:
+            logger.error(
+                "Permission denied accessing secret '%s': %s. Run juju grant-secret",
+                trino_info["trino_credentials_secret_id"],
+                str(e),
+            )
+            raise
 
         users_data = credentials.get("users", "")
 

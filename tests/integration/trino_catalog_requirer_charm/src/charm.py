@@ -13,7 +13,13 @@ import logging
 from charms.trino_k8s.v0.trino_catalog import TrinoCatalogRequirer
 from ops.charm import CharmBase
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    ModelError,
+    SecretNotFoundError,
+    WaitingStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +117,30 @@ class TrinoCatalogRequirerCharm(CharmBase):
         # Get credentials
         try:
             credentials = self.trino_catalog.get_credentials()
-            if not credentials:
-                self.unit.status = BlockedStatus("Missing Trino credentials")
-                return
-            username, password = credentials
-        except Exception as e:
-            logger.error("Failed to get Trino credentials: %s", str(e))
-            self.unit.status = BlockedStatus(f"Failed to get credentials: {e}")
+        except SecretNotFoundError:
+            self.unit.status = BlockedStatus(
+                "Trino credentials secret not found."
+            )
             return
+        except ModelError:
+            self.unit.status = BlockedStatus(
+                "Permission denied on Trino credentials secret."
+            )
+            return
+        except Exception as e:
+            logger.error(
+                "Unexpected error getting Trino credentials: %s", str(e)
+            )
+            self.unit.status = BlockedStatus("Failed to get credentials.")
+            return
+
+        if not credentials:
+            # Library returns None when user not found in secret
+            self.unit.status = BlockedStatus(
+                "User not found in Trino credentials secret."
+            )
+            return
+        username, password = credentials
 
         # Log the configuration (in real charm, you'd write config files, etc.)
         logger.info("Configuring application with Trino connection:")
@@ -144,13 +166,21 @@ class TrinoCatalogRequirerCharm(CharmBase):
 
         try:
             credentials = self.trino_catalog.get_credentials()
-            if not credentials:
-                event.fail("Failed to get Trino credentials")
-                return
-            trino_username, trino_password = credentials
-        except Exception as e:
-            event.fail(f"Error getting credentials: {e}")
+        except SecretNotFoundError:
+            event.fail("Trino credentials secret not found.")
             return
+        except ModelError:
+            event.fail("Permission denied on Trino credentials secret.")
+            return
+        except Exception as e:
+            event.fail(f"Unexpected error getting credentials secret: {e}")
+            return
+
+        if not credentials:
+            # Library returns None when user not found in secret
+            event.fail("User not found in Trino credentials secret.")
+            return
+        trino_username, trino_password = credentials
 
         # Format catalog info for output
         catalogs_info = [cat.to_dict() for cat in trino_info["trino_catalogs"]]
