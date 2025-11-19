@@ -69,6 +69,25 @@ parts:
       cp client/trino-cli/target/trino-cli-*-executable.jar \
         ${CRAFT_PART_INSTALL}/trino-cli
 
+      # Fix CVE-2025-12383 by replacing jersey 3.1.9 with 3.1.10
+      JERSEY_VERSION="3.1.10"
+      JERSEY_BASE_URL="https://repo1.maven.org/maven2/org/glassfish/jersey"
+      
+      # Download and replace jersey-client
+      curl -L ${JERSEY_BASE_URL}/core/jersey-client/${JERSEY_VERSION}/jersey-client-${JERSEY_VERSION}.jar \
+        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-client-${JERSEY_VERSION}.jar
+      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-client-3.1.9.jar
+      
+      # Download and replace jersey-common
+      curl -L ${JERSEY_BASE_URL}/core/jersey-common/${JERSEY_VERSION}/jersey-common-${JERSEY_VERSION}.jar \
+        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-common-${JERSEY_VERSION}.jar
+      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-common-3.1.9.jar
+      
+      # Download and replace jersey-server
+      curl -L ${JERSEY_BASE_URL}/core/jersey-server/${JERSEY_VERSION}/jersey-server-${JERSEY_VERSION}.jar \
+        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-server-${JERSEY_VERSION}.jar
+      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-server-3.1.9.jar
+
       mkdir -p \
         ${CRAFT_PART_INSTALL}/data/trino/var/run \
         ${CRAFT_PART_INSTALL}/data/trino/var/log \
