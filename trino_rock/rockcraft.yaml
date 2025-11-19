@@ -59,8 +59,10 @@ parts:
       update-alternatives --set java ${JAVA_HOME}/bin/java
       update-alternatives --set javac ${JAVA_HOME}/bin/javac
 
+      # Fix CVE-2025-12383 by upgrading jersey-client to 3.1.10
       ./mvnw clean install -DskipTests -Dair.check.skip-all=true \
-        -pl '!:trino-server-rpm,!docs'
+        -pl '!:trino-server-rpm,!docs' \
+        -Djersey.version=3.1.10
 
       tar -xzf core/trino-server/target/trino-server-*.tar.gz \
         --directory=${CRAFT_PART_INSTALL} \
