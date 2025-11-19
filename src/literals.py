@@ -20,9 +20,12 @@ CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
     "password-authenticator.jinja": "password-authenticator.properties",
-    "access-control.jinja": "access-control.properties",
     "rules.jinja": "rules.json",
     "jvm.jinja": "jvm.config",
+    "file-ranger.jinja": "file-ranger.properties",
+    "file-view-only.jinja": "file-view-only.properties",
+    "view-only-rules.jinja": "view-only-rules.json",
+    "file-rules.jinja": "file-rules.properties",
 }
 
 CONF_DIR = "conf"
@@ -35,7 +38,6 @@ PASSWORD_DB = "password.db"  # nosec
 
 # Ranger plugin literals
 RANGER_PLUGIN_FILES = {
-    "access-control.jinja": "access-control.properties",
     "ranger-trino-security.jinja": "ranger-trino-security.xml",
     "ranger-trino-audit.jinja": "ranger-trino-audit.xml",
 }

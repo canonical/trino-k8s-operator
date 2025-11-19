@@ -1,12 +1,4 @@
-{% if RANGER_RELATION == true %}
-
 access-control.name=ranger
 ranger.service.name={{ REPOSITORY_NAME }}
 ranger.plugin.config.resource={{ TRINO_HOME }}/ranger-trino-security.xml,{{ TRINO_HOME }}/ranger-trino-audit.xml,{{ TRINO_HOME }}/ranger-policymgr-ssl.xml
-
-{% else %}
-
-access-control.name=file
-security.config-file={{ TRINO_HOME }}/rules.json
-
-{% endif %}
+ranger.plugin.audit.enabled=true
