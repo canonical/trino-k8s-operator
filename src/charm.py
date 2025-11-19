@@ -258,10 +258,12 @@ class TrinoK8SCharm(CharmBase):
             self.unit.status = BlockedStatus(str(err))
             return
 
-        check = container.get_check("up")
-        if check.status != CheckStatus.UP:
-            self.unit.status = MaintenanceStatus("Status check: DOWN")
-            return
+        if self.config["charm-function"] in ["coordinator", "all"]:
+            check = container.get_check("up")
+            if check.status != CheckStatus.UP:
+                self.unit.status = MaintenanceStatus("Status check: DOWN")
+                self._restart_trino()
+                return
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -649,15 +651,20 @@ class TrinoK8SCharm(CharmBase):
                     "on-check-failure": {"up": "ignore"},
                 }
             },
-            "checks": {
-                "up": {
-                    "override": "replace",
-                    "period": "30s",
-                    "http": {"url": "http://localhost:8080/v1/info"},
-                }
-            },
         }
         if self.config["charm-function"] in ["coordinator", "all"]:
+            pebble_layer.update(
+                {
+                    "checks": {
+                        "up": {
+                            "override": "replace",
+                            "period": "30s",
+                            "http": {"url": "http://localhost:8080/"},
+                        }
+                    }
+                },
+            )
+            
             # Handle Ranger plugin
             if self.state.ranger_enabled and not container.exists(
                 f"{TRINO_PLUGIN_DIR}/ranger"
