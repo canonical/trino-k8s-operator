@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""Minimal Trino requirer charm for testing.
+
+Demonstrates usage of the TrinoCatalogRequirer library to consume
+Trino catalog information via the trino-catalog relation.
+"""
+
+import logging
+
+from charms.trino_k8s.v0.trino_catalog import TrinoCatalogRequirer
+from ops.charm import CharmBase
+from ops.main import main
+from ops.model import (
+    ActiveStatus,
+    BlockedStatus,
+    ModelError,
+    SecretNotFoundError,
+    WaitingStatus,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class TrinoCatalogRequirerCharm(CharmBase):
+    """Minimal charm that consumes Trino catalog relation.
+
+    Demonstrates usage of the TrinoCatalogRequirer library.
+    """
+
+    def __init__(self, *args):
+        """Construct.
+
+        Args:
+            args: Ignore.
+        """
+        super().__init__(*args)
+
+        # Initialize the requirer library
+        self.trino_catalog = TrinoCatalogRequirer(
+            self, relation_name="trino-catalog"
+        )
+
+        # standard events
+        self.framework.observe(self.on.install, self._on_install)
+        self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.update_status, self._on_update_status)
+
+        # relation events
+        self.framework.observe(
+            self.on.trino_catalog_relation_changed,
+            self._on_trino_catalog_relation_changed,
+        )
+        self.framework.observe(
+            self.on.trino_catalog_relation_broken,
+            self._on_trino_catalog_relation_broken,
+        )
+
+        # action event
+        self.framework.observe(
+            self.on.get_relation_data_action, self._on_get_relation_data_action
+        )
+
+    def _on_install(self, event):
+        """Handle install event."""
+        self.unit.status = BlockedStatus("Waiting for trino-catalog relation")
+
+    def _on_start(self, event):
+        """Handle start event."""
+        # Check if we already have a relation
+        if not self.model.relations.get("trino-catalog"):
+            self.unit.status = BlockedStatus(
+                "Waiting for trino-catalog relation"
+            )
+        else:
+            # Relation exists, check if we have data
+            self._configure_application()
+
+    def _on_update_status(self, event):
+        """Handle update-status event."""
+        self._configure_application()
+
+    def _on_trino_catalog_relation_changed(self, event):
+        """Handle relation changed event."""
+        logger.info("Trino catalog relation changed: %s", event.relation.id)
+        self.unit.status = WaitingStatus("Waiting for Trino data")
+        # Try to configure in case data is already available
+        self._configure_application()
+
+    def _on_trino_catalog_relation_broken(self, event):
+        """Handle relation broken event."""
+        logger.info("Trino catalog relation broken: %s", event.relation.id)
+        self.unit.status = BlockedStatus("Trino relation removed")
+
+    def _configure_application(self):
+        """Configure the application with Trino connection info.
+
+        This is where you would actually configure your application
+        to connect to Trino using the provided information.
+        """
+        # Check if we already have a relation
+        if not self.model.relations.get("trino-catalog"):
+            self.unit.status = BlockedStatus(
+                "Waiting for trino-catalog relation"
+            )
+            return
+
+        # Get all Trino information
+        trino_info = self.trino_catalog.get_trino_info()
+        if not trino_info:
+            logger.warning("No Trino info available yet")
+            self.unit.status = WaitingStatus("Waiting for Trino data")
+            return
+
+        # Get credentials
+        try:
+            credentials = self.trino_catalog.get_credentials()
+        except SecretNotFoundError:
+            self.unit.status = BlockedStatus(
+                "Trino credentials secret not found."
+            )
+            return
+        except ModelError:
+            self.unit.status = BlockedStatus(
+                "Permission denied on Trino credentials secret."
+            )
+            return
+        except Exception as e:
+            logger.error(
+                "Unexpected error getting Trino credentials: %s", str(e)
+            )
+            self.unit.status = BlockedStatus("Failed to get credentials.")
+            return
+
+        if not credentials:
+            # Library returns None when user not found in secret
+            self.unit.status = BlockedStatus(
+                "User not found in Trino credentials secret."
+            )
+            return
+        username, password = credentials
+
+        # Log the configuration (in real charm, you'd write config files, etc.)
+        logger.info("Configuring application with Trino connection:")
+        logger.info("  URL: %s", trino_info["trino_url"])
+        logger.info("  Username: %s", username)
+        logger.info("  Available catalogs:")
+        for catalog in trino_info["trino_catalogs"]:
+            logger.info(
+                "    - %s (connector: %s, description: %s)",
+                catalog.name,
+                catalog.connector,
+                catalog.description,
+            )
+        self.unit.status = ActiveStatus("Connected to Trino")
+
+    def _on_get_relation_data_action(self, event):
+        """Handle the get-relation-data action."""
+        trino_info = self.trino_catalog.get_trino_info()
+
+        if not trino_info:
+            event.fail("No Trino relation data available")
+            return
+
+        try:
+            credentials = self.trino_catalog.get_credentials()
+        except SecretNotFoundError:
+            event.fail("Trino credentials secret not found.")
+            return
+        except ModelError:
+            event.fail("Permission denied on Trino credentials secret.")
+            return
+        except Exception as e:
+            event.fail(f"Unexpected error getting credentials secret: {e}")
+            return
+
+        if not credentials:
+            # Library returns None when user not found in secret
+            event.fail("User not found in Trino credentials secret.")
+            return
+        trino_username, trino_password = credentials
+
+        # Format catalog info for output
+        catalogs_info = [cat.to_dict() for cat in trino_info["trino_catalogs"]]
+
+        event.set_results(
+            {
+                "trino-url": trino_info["trino_url"],
+                "trino-catalogs": str(catalogs_info),
+                "trino-username": trino_username,
+                "trino-password": trino_password,
+            }
+        )
+
+
+if __name__ == "__main__":
+    main(TrinoCatalogRequirerCharm)

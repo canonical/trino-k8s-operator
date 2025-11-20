@@ -1,0 +1,14 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: requirer-charm
+title: Trino Catalog Requirer App
+summary: Requirer charm for trino-catalog relation
+description: |
+  A minimal test charm to verify the trino-catalog relation interface.
+  This charm acts as a requirer and logs what it receives from Trino.
+
+requires:
+  trino-catalog:
+    interface: trino_catalog
+

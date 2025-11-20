@@ -64,6 +64,9 @@ provides:
   trino-coordinator:
     interface: trino_client
     optional: true
+  trino-catalog:
+    interface: trino_catalog
+    optional: true
 
 peers:
   peer:

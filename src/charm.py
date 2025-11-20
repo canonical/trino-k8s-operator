@@ -55,6 +55,7 @@ from literals import (
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
+from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
 from sql_catalog import RedshiftCatalog, SqlCatalog
@@ -120,6 +121,7 @@ class TrinoK8SCharm(CharmBase):
         self.policy = PolicyRelationHandler(self)
         self.trino_coordinator = TrinoCoordinator(self)
         self.trino_worker = TrinoWorker(self)
+        self.trino_catalog = TrinoCatalogRelationHandler(self)
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
@@ -264,6 +266,8 @@ class TrinoK8SCharm(CharmBase):
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
                 self._restart_trino()
                 return
+
+        self.trino_catalog.update_all_relations()
 
         self.unit.status = ActiveStatus("Status check: UP")
 
