@@ -1,3 +1,5 @@
+
+
 # Trino K8s Operator
 The Charmed Trino K8s Operator delivers automated management on [Trino](https://trino.io/) data virtualization software on top of a Kubernetes cluster. Trino is a distributed SQL query engine designed to query large data sets distributed over one or more heterogeneous data sources.
 
@@ -196,6 +198,20 @@ For the google sheets connector it is worth noting that the sheet that is connec
 
 In order to add this connector, follow the documentation [here](https://trino.io/docs/current/connector/googlesheets.html) for setting up a Google service account and providing access to that service account to the metasheet and also any listed data sheets.
 
+
+### Charm relation
+The `trino-catalog` relation allows external applications to discover and connect to Trino catalogs programmatically. The Trino charm shares connection details including the server URL, available catalogs, and user credentials via Juju secrets.
+
+```bash
+# Deploy a requirer application
+juju deploy <requirer-app>
+juju relate trino-k8s <requirer-app>
+
+# Grant the credentials secret to the requirer
+juju grant-secret trino-user-management <requirer-app>
+```
+
+**Note:** Credentials must be manually granted using `juju grant-secret`. The requirer application must have a user in the credentials secret matching the format `app-<requirer-charm-name>`.
 
 ## User management
 By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
