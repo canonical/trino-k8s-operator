@@ -30,7 +30,7 @@ class TrinoCatalogRelationHandler(Object):
     and shares it with requirers via the trino-catalog relation.
 
     Note: The model-owned secret (user-secret-id) must be manually granted
-    to each requirer application using: juju grant-secret <secret> <requirer-app>
+    to each requirer application using: juju grant-secret <secret> <requirer-app>.
     """
 
     def __init__(
