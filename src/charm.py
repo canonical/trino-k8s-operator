@@ -32,7 +32,7 @@ from ops.model import (
     SecretNotFoundError,
     WaitingStatus,
 )
-from ops.pebble import CheckStatus, ExecError
+from ops.pebble import CheckStatus, ExecError, PathError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog
 from literals import (
@@ -432,20 +432,23 @@ class TrinoK8SCharm(CharmBase):
         catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
-        # Remove existing catalogs and certs.
-        for path in [self.catalog_abs_path, self.conf_abs_path]:
-            if container.exists(path):
-                container.remove_path(path, recursive=True)
+        try:
+            container.remove_path(self.conf_abs_path, recursive=True)
+        except PathError as e:
+            logging.debug("Could not remove conf directory: %s", str(e))
 
-        if not catalog_config:
-            return
-
-        catalog_index = yaml.safe_load(catalog_config)
+        catalog_index = yaml.safe_load(catalog_config or "")
+        if catalog_index is None:
+            catalog_index = {
+                "catalogs": {},
+                "backends": {},
+            }
         catalogs, backends = (
             catalog_index["catalogs"],
             catalog_index["backends"],
         )
 
+        # Upsert current catalogs
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
@@ -453,6 +456,25 @@ class TrinoK8SCharm(CharmBase):
                 truststore_pwd, name, info, backend
             )
             catalog_instance.configure_catalogs()
+
+        # Remove obsolete catalogs
+        if not container.isdir(self.catalog_abs_path):
+            return
+
+        for file in container.list_files(
+            self.catalog_abs_path, pattern="*.properties"
+        ):
+            if Path(file.name).stem in catalogs:
+                continue
+
+            try:
+                container.remove_path(file.path)
+            except PathError as e:
+                logging.debug(
+                    "Could not remove obsolete catalog file '%s': %s",
+                    file.name,
+                    str(e),
+                )
 
     def _create_catalog_instance(self, truststore_pwd, name, info, backend):
         """Create catalog instances based on connector type.
@@ -668,7 +690,7 @@ class TrinoK8SCharm(CharmBase):
                     }
                 },
             )
-            
+
             # Handle Ranger plugin
             if self.state.ranger_enabled and not container.exists(
                 f"{TRINO_PLUGIN_DIR}/ranger"
