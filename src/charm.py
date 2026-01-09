@@ -429,7 +429,6 @@ class TrinoK8SCharm(CharmBase):
             event.defer()
             return
 
-        catalog_config = self.state.catalog_config
         truststore_pwd = generate_password()
 
         try:
@@ -437,7 +436,7 @@ class TrinoK8SCharm(CharmBase):
         except PathError as e:
             logging.debug("Could not remove conf directory: %s", str(e))
 
-        catalog_index = yaml.safe_load(catalog_config or "")
+        catalog_index = yaml.safe_load(self.state.catalog_config or "")
         if catalog_index is None:
             catalog_index = {
                 "catalogs": {},

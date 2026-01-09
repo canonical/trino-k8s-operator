@@ -132,6 +132,7 @@ class CatalogBase(ABC):
 
         Returns:
             List of names of the catalogs created.
+
         Raises:
             Exception: in case of error adding catalog.
         """
