@@ -130,6 +130,8 @@ class CatalogBase(ABC):
     def configure_catalogs(self):
         """Manage catalog properties files and create the appropriate catalog instance.
 
+        Returns:
+            List of names of the catalogs created.
         Raises:
             Exception: in case of error adding catalog.
         """
@@ -141,6 +143,7 @@ class CatalogBase(ABC):
             logger.info(
                 f"{connector} catalog {self.name!r} added successfully"
             )
+            return list(catalogs.keys())
         except Exception as e:
             logger.error(f"Unable to add catalog {self.name!r}: {e}")
             raise

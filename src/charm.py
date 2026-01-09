@@ -449,13 +449,15 @@ class TrinoK8SCharm(CharmBase):
         )
 
         # Upsert current catalogs
+        upserted_catalogs = []
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
             catalog_instance = self._create_catalog_instance(
                 truststore_pwd, name, info, backend
             )
-            catalog_instance.configure_catalogs()
+            batch = catalog_instance.configure_catalogs()
+            upserted_catalogs.extend(batch)
 
         # Remove obsolete catalogs
         if not container.isdir(self.catalog_abs_path):
@@ -464,7 +466,7 @@ class TrinoK8SCharm(CharmBase):
         for file in container.list_files(
             self.catalog_abs_path, pattern="*.properties"
         ):
-            if Path(file.name).stem in catalogs:
+            if Path(file.name).stem in upserted_catalogs:
                 continue
 
             try:
