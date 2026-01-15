@@ -235,3 +235,31 @@ class GsheetCatalog(CatalogBase):
         catalog_content += self.backend.get("config", "")
         catalog[self.name] = catalog_content
         return catalog
+
+
+class HiveCatalog(CatalogBase):
+    """Class for handling the Hive connector."""
+
+    def _get_credentials(self):
+        """No-op fetch method for a connector with no credentials."""
+        return None
+
+    def _create_properties(self, secret_content):
+        """Create the Hive connector catalog files.
+
+        Args:
+            secret_content: unused argument.
+
+        Returns:
+            catalog: a dictionary of catalog name and configuration.
+        """
+        catalog = {}
+
+        catalog_content = textwrap.dedent(
+            f"""\
+            connector.name={self.backend['connector']}
+            hive.metastore.uri={self.backend['url']}
+            """
+        )
+        catalog[self.name] = catalog_content
+        return catalog

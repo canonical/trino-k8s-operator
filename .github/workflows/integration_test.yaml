@@ -15,7 +15,7 @@ jobs:
     with:
       channel: 1.34-strict/stable
       modules: '["test_charm.py", "test_policy.py", "test_resources.py", "test_scaling.py", "test_upgrades.py", "test_catalog_updates.py", "test_trino_catalog_relation.py"]'
-      juju-channel: 3.6/stable
+      juju-channel: 3/stable
       self-hosted-runner: true
       self-hosted-runner-label: "xlarge"
       builder-runner-label: "xlarge"

@@ -151,6 +151,8 @@ catalogs:
     backend: gsheets
     metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
     secret-id: csp2ccvmp25c77vadfcg
+  metastore_example:
+    backend: hive_metastore
 backends: 
   dwh:
     connector: postgresql
@@ -180,6 +182,9 @@ backends:
       bigquery.case-insensitive-name-matching=true
   gsheets:
     connector: gsheets
+  hive_metastore:
+    connector: hive
+    url: thrift://<hive-metastore-host>:9083
 ```
 
 Note: the allowed fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html).
@@ -195,6 +200,9 @@ juju config trino-k8s catalog-config=@catalog_config.yaml
 For the google sheets connector it is worth noting that the sheet that is connected to Trino is not the sheet with the data, but rather a metadata sheet following [this format](https://docs.google.com/spreadsheets/d/1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM/edit?gid=0#gid=0). This sheet serves the purpose of mapping other google sheets by id to Trino tables.
 
 In order to add this connector, follow the documentation [here](https://trino.io/docs/current/connector/googlesheets.html) for setting up a Google service account and providing access to that service account to the metasheet and also any listed data sheets.
+
+### Additional information for Hive connector
+The Hive connector is currently intended to enable virtual views (i.e. `CREATE VIEW`) with the use of Hive Metastore. Intended use case for now is for a co-located Hive Metastore deployment to be used where only a URL is needed. Since the only data stored on Hive Metastore is encrypted view definitions, authentication is not necessary for the moment and no credentials are needed.
 
 ### Charm relation
 The `trino-catalog` relation allows external applications to discover and connect to Trino catalogs programmatically. The Trino charm shares connection details including the server URL, available catalogs, and user credentials via Juju secrets.
