@@ -208,6 +208,16 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
+        container = self.unit.get_container(self.name)
+        if container.can_connect():
+            try:
+                meta_file = container.pull("/rockcraft.yaml")
+                meta = yaml.safe_load(meta_file)
+                if meta and "version" in meta:
+                    self.unit.set_workload_version(meta["version"])
+            except (PathError, yaml.YAMLError) as e:
+                logger.debug("Could not get workload version: %s", str(e))
+
         self._update(event)
 
     @log_event_handler(logger)

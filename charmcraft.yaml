@@ -13,9 +13,10 @@ parts:
       - libssl-dev
       - rustc
       - cargo
-    stage:
-      - "."
+    prime:
       - "-trino_rock"
+      - "-tests"
+
 bases:
   - build-on:
     - name: ubuntu
