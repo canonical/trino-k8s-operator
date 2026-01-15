@@ -34,7 +34,7 @@ from ops.model import (
 )
 from ops.pebble import CheckStatus, ExecError, PathError
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
 from literals import (
     CATALOG_DIR,
     CATALOG_SCHEMA,
@@ -511,6 +511,7 @@ class TrinoK8SCharm(CharmBase):
             "redshift": RedshiftCatalog,
             "bigquery": BigqueryCatalog,
             "gsheets": GsheetCatalog,
+            "hive": HiveCatalog,
         }
         catalog_cls = catalog_map.get(backend["connector"], None)
 
