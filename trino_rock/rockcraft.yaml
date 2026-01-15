@@ -182,6 +182,16 @@ parts:
         group: 584792
         mode: "755"
 
+  # This is to get metadata for the charm
+  # about the OCI image used. i.e. workload version.
+  rock-source:
+    plugin: dump
+    source: .
+    organize:
+      rockcraft.yaml: rockcraft.yaml
+    stage:
+      - rockcraft.yaml
+
   # This is a workaround of an issue with ranger groups in trino 468
   # The issue is tracked here:
   # https://github.com/trinodb/trino/issues/24887

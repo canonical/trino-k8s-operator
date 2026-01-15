@@ -208,6 +208,16 @@ class TrinoK8SCharm(CharmBase):
         Args:
             event: The event triggered when the relation changed.
         """
+        container = self.unit.get_container(self.name)
+        if container.can_connect():
+            try:
+                meta_file = container.pull("/rockcraft.yaml")
+                meta = yaml.safe_load(meta_file)
+                if meta and "version" in meta:
+                    self.unit.set_workload_version(meta["version"])
+            except (PathError, yaml.YAMLError) as e:
+                logger.debug("Could not get workload version: %s", str(e))
+
         self._update(event)
 
     @log_event_handler(logger)
@@ -431,10 +441,13 @@ class TrinoK8SCharm(CharmBase):
 
         truststore_pwd = generate_password()
 
+        # Truststore password is changed with each invocation
+        # so we need to delete it here and it will be regenerated
+        # by the end of this method.
         try:
-            container.remove_path(self.conf_abs_path, recursive=True)
+            container.remove_path(self.truststore_abs_path)
         except PathError as e:
-            logging.debug("Could not remove conf directory: %s", str(e))
+            logging.debug("Could not remove truststore: %s", str(e))
 
         catalog_index = yaml.safe_load(self.state.catalog_config or "")
         if catalog_index is None:
