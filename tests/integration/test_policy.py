@@ -45,7 +45,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=2000,
         )
-        await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
+        await ops_test.model.deploy(POSTGRES_NAME, channel="14/candidate", trust=True)
         await ops_test.model.wait_for_idle(
             apps=[POSTGRES_NAME],
             status="active",
