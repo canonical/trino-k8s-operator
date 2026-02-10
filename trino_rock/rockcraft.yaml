@@ -108,6 +108,7 @@ parts:
       plugin/apache-ranger: usr/lib/trino/plugin/apache-ranger
       plugin/hive: usr/lib/trino/plugin/hive
       plugin/geospatial: usr/lib/trino/plugin/geospatial
+      plugin/resource-group-managers: usr/lib/trino/plugin/resource-group-managers
       trino-cli: usr/lib/trino/bin/trino-cli
     stage:
       - data/trino

@@ -60,6 +60,13 @@ options:
     description: |
       Catalogs for which Trino should be connected.
     type: string
+  resource-groups-config:
+    description: |
+      Resource groups configuration in JSON format defining the resource management rules 
+      for queries. When set, Trino will use the resource-groups manager to control query 
+      execution based on the defined groups and selectors. If not provided, resource groups 
+      will not be enabled.
+    type: string
   oauth-user-mapping:
     description: |
       Optional regex pattern with capture group to determine the username from oauth email.

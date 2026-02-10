@@ -532,6 +532,37 @@ class TrinoK8SCharm(CharmBase):
             content = render(template, env)
             container.push(path, content, make_dirs=True, permissions=0o644)
 
+    def _configure_resource_groups(self, container, env):
+        """Configure resource groups if provided.
+
+        Args:
+            container: The Trino container.
+            env: Environment variables containing resource groups config.
+        """
+        resource_groups_config = env.get("RESOURCE_GROUPS_CONFIG")
+        
+        if resource_groups_config:
+            # Write resource-groups.json file
+            path = self.trino_abs_path.joinpath("resource-groups.json")
+            container.push(
+                path,
+                resource_groups_config,
+                make_dirs=True,
+                permissions=0o644,
+            )
+            logger.info("Resource groups configuration applied")
+        else:
+            # Remove resource-groups.json if it exists and config is not provided
+            resource_groups_path = self.trino_abs_path.joinpath(
+                "resource-groups.json"
+            )
+            try:
+                container.remove_path(resource_groups_path)
+                logger.info("Resource groups configuration removed")
+            except PathError:
+                # File doesn't exist, which is fine
+                pass
+
     def _validate_config_params(self):
         """Validate that configuration is valid.
 
@@ -563,6 +594,14 @@ class TrinoK8SCharm(CharmBase):
                 yaml.safe_load(catalogs)
             except Exception as e:
                 logger.debug(f"Incorrectly formatted catalog-config: {e}")
+                raise
+
+        resource_groups = self.config.get("resource-groups-config")
+        if resource_groups:
+            try:
+                yaml.safe_load(resource_groups)
+            except Exception as e:
+                logger.debug(f"Incorrectly formatted resource-groups-config: {e}")
                 raise
 
     def _validate_relations(self):
@@ -636,6 +675,8 @@ class TrinoK8SCharm(CharmBase):
             "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get(
                 "memory-heap-headroom-per-node"
             ),
+            "RESOURCE_GROUPS_CONFIG": self.state.resource_groups_config
+            or self.config.get("resource-groups-config"),
         }
         return env
 
@@ -662,12 +703,16 @@ class TrinoK8SCharm(CharmBase):
             self.state.discovery_uri = self.config.get("discovery-uri", "")
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
+            self.state.resource_groups_config = self.config.get(
+                "resource-groups-config", ""
+            )
 
         self._configure_catalogs(event)
 
         self.set_java_truststore_password(event)
         env = self._create_environment()
         self._configure_trino(container, env)
+        self._configure_resource_groups(container, env)
 
         try:
             self._update_password_db(event)
