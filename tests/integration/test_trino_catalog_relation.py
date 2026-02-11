@@ -301,13 +301,13 @@ async def test_07a_trino_catalog_internal_url(
 
     # Verify the requirer received the internal service URL
     result_url = action.results.get("trino-url")
-    expected_internal_url = (
-        f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
-    )
+    expected_internal_url = f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
     assert (
         result_url == expected_internal_url
     ), f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
-    logger.info("Verified requirer received internal Trino URL: %s", result_url)
+    logger.info(
+        "Verified requirer received internal Trino URL: %s", result_url
+    )
 
     # Verify the requirer received the username and password
     result_username = action.results.get("trino-username")
@@ -376,7 +376,9 @@ async def test_07b_trino_catalog_external_url_with_nginx(
     assert (
         result_url == expected_external_url
     ), f"Expected external URL '{expected_external_url}', got '{result_url}'"
-    logger.info("Verified requirer received external Trino URL: %s", result_url)
+    logger.info(
+        "Verified requirer received external Trino URL: %s", result_url
+    )
 
     # Clean up: remove nginx relation for subsequent tests
     async with ops_test.fast_forward():
