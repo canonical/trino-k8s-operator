@@ -226,13 +226,18 @@ parts:
     stage:
       - usr/lib/trino/lib/jmx_prometheus_javaagent.jar
 
-  promtail-bin:
-    plugin: dump
-    # Upgraded from v2.7.5 to v3.4.0 to fix CVE-2025-68121
-    source: https://github.com/grafana/loki/releases/download/v3.4.0/promtail-linux-amd64.zip # yamllint disable-line
-    source-type: zip
-    organize:
-      promtail-linux-amd64: opt/promtail/promtail-static-amd64
+  # fix CVE-2025-68121
+  promtail:
+    plugin: go
+    source: https://github.com/grafana/loki.git
+    source-tag: v3.4.0
+    source-type: git
+    build-snaps:
+      - go/1.24/candidate
+    build-packages:
+      - libsystemd-dev
+    override-build: |
+      CGO_ENABLED=0 GOARCH=amd64 go build -mod=vendor -o ${CRAFT_PART_INSTALL}/opt/promtail/promtail-static-amd64 ./clients/cmd/promtail
     stage:
       - opt/promtail/promtail-static-amd64
     permissions:
@@ -244,6 +249,8 @@ parts:
   package-management:
     plugin: nil
     after: [trino, local-files]
+    stage-snaps:
+      - pebble/latest/edge  # fix CVE-2025-68121
     overlay-packages:
       - ca-certificates
       - python-is-python3
