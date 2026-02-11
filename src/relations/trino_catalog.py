@@ -69,12 +69,20 @@ class TrinoCatalogRelationHandler(Object):
         Returns:
             Trino URL or None if not configured
         """
-        external_hostname = self.charm.config.get("external-hostname")
-        if not external_hostname:
-            return None
+        # Use external hostname with HTTPS port when nginx ingress is related
+        nginx_relation = self.charm.model.get_relation("nginx-route")
+        if nginx_relation:
+            external_hostname = self.charm.config.get("external-hostname")
+            if not external_hostname:
+                return None
+            port = TRINO_PORTS["HTTPS"]
+            return f"{external_hostname}:{port}"
 
-        port = TRINO_PORTS["HTTPS"]
-        return f"{external_hostname}:{port}"
+        # Use internal service URL with HTTP port when no nginx ingress
+        host = self.charm.app.name
+        port = TRINO_PORTS["HTTP"]
+        namespace = self.charm.model.name
+        return f"{host}.{namespace}.svc.cluster.local:{port}"
 
     def _get_catalogs(self) -> List[TrinoCatalog]:
         """Get structured catalog information from catalog-config.
