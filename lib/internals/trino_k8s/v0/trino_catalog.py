@@ -5,6 +5,8 @@
 
 This library provides the TrinoCatalogProvider and TrinoCatalogRequirer classes that
 handle the provider and the requirer sides of the trino_catalog interface.
+
+This is an internal library, currently not published to Charmhub.
 """
 
 import json
@@ -16,12 +18,6 @@ from ops.framework import Object
 from ops.model import ModelError, SecretNotFoundError
 
 logger = logging.getLogger(__name__)
-
-# Increment this PATCH version before using `charmcraft publish-lib`
-# or reset to 0 if you are raising the major API version
-LIBID = "26bd3a191e5840aa98864bd5d3564e9f"
-LIBAPI = 0
-LIBPATCH = 1
 
 
 class TrinoCatalog:
