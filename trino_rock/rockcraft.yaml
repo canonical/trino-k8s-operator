@@ -116,6 +116,9 @@ parts:
       - usr/lib/trino/plugin
       - usr/lib/trino/var
       - usr/lib/jvm
+    # Exclude unused vulnerable darwin binaries to fix CVE-2025-68121
+    prime:
+      - "-usr/lib/trino/bin/darwin-*"
     permissions:
       - path: data/trino/var/run
         owner: 584792
@@ -225,7 +228,8 @@ parts:
 
   promtail-bin:
     plugin: dump
-    source: https://github.com/grafana/loki/releases/download/v2.7.5/promtail-linux-amd64.zip # yamllint disable-line
+    # Upgraded from v2.7.5 to v3.4.0 to fix CVE-2025-68121
+    source: https://github.com/grafana/loki/releases/download/v3.4.0/promtail-linux-amd64.zip # yamllint disable-line
     source-type: zip
     organize:
       promtail-linux-amd64: opt/promtail/promtail-static-amd64
