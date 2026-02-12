@@ -15,13 +15,19 @@ from ops.charm import CharmBase
 from ops.framework import Object
 from ops.model import ModelError, SecretNotFoundError
 
-logger = logging.getLogger(__name__)
+# The unique Charmhub library identifier, never change it
+LIBID = "8855efa80c9a407991dafe157a762305"
 
-# Increment this PATCH version before using `charmcraft publish-lib`
-# or reset to 0 if you are raising the major API version
-LIBID = "26bd3a191e5840aa98864bd5d3564e9f"
+# Increment this major API version when introducing breaking changes
 LIBAPI = 0
-LIBPATCH = 1
+
+# Increment this PATCH version before using `charmcraft publish-lib` or reset
+# to 0 if you are raising the major API version
+LIBPATCH = 2
+
+
+
+logger = logging.getLogger(__name__)
 
 
 class TrinoCatalog:

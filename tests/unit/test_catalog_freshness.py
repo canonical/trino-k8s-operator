@@ -87,10 +87,10 @@ class TestCatalogConfigFreshness(TestCase):
                     "on-check-failure": {"up": "ignore"},
                     "environment": {
                         "CATALOG_CONFIG": catalog_config,
-                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",
+                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
-                        "OAUTH_CLIENT_SECRET": "test-client-secret",
+                        "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
                         "WEB_PROXY": "proxy:port",
                         "CHARM_FUNCTION": "all",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
@@ -103,8 +103,8 @@ class TestCatalogConfigFreshness(TestCase):
                         "ACL_ACCESS_MODE": "all",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
-                        "JAVA_TRUSTSTORE_PWD": "truststore_pwd",
-                        "USER_SECRET_ID": "secret:secret-id",
+                        "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
+                        "USER_SECRET_ID": "secret:secret-id",  # nosec
                         "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",

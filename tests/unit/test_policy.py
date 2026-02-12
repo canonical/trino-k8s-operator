@@ -35,7 +35,7 @@ OPENSEARCH_RELATION_CHANGED_DATA = {
 OPENSEARCH_RELATION_BROKEN_DATA: dict = {"opensearch": {}}
 USER_SECRET_CONTENT = {
     "username": "testuser",
-    "password": "testpassword",
+    "password": "testpassword",  # nosec
     "tls-ca": """-----BEGIN CERTIFICATE-----
     MIIC+DCCAeCgAwIBAgIJAKJdWfG2zRAQMA0GCSqGSIb3DQEBCwUAMIGPMQswCQYD
     -----END CERTIFICATE-----
