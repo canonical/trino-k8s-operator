@@ -11,7 +11,7 @@ import logging
 from typing import List, Optional
 
 import yaml
-from internals.trino_k8s.v0.trino_catalog import (
+from charms.trino_k8s.v0.trino_catalog import (
     TrinoCatalog,
     TrinoCatalogProvider,
 )

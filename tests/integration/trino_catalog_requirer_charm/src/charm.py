@@ -10,7 +10,7 @@ Trino catalog information via the trino-catalog relation.
 
 import logging
 
-from internals.trino_k8s.v0.trino_catalog import TrinoCatalogRequirer
+from charms.trino_k8s.v0.trino_catalog import TrinoCatalogRequirer
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import (
