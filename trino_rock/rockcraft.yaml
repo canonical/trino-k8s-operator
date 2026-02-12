@@ -116,9 +116,6 @@ parts:
       - usr/lib/trino/plugin
       - usr/lib/trino/var
       - usr/lib/jvm
-    # Exclude unused vulnerable darwin binaries to fix CVE-2025-68121
-    prime:
-      - "-usr/lib/trino/bin/darwin-*"
     permissions:
       - path: data/trino/var/run
         owner: 584792
@@ -226,18 +223,12 @@ parts:
     stage:
       - usr/lib/trino/lib/jmx_prometheus_javaagent.jar
 
-  # fix CVE-2025-68121
-  promtail:
-    plugin: go
-    source: https://github.com/grafana/loki.git
-    source-tag: v3.4.0
-    source-type: git
-    build-snaps:
-      - go/1.24/candidate
-    build-packages:
-      - libsystemd-dev
-    override-build: |
-      CGO_ENABLED=0 GOARCH=amd64 go build -mod=vendor -o ${CRAFT_PART_INSTALL}/opt/promtail/promtail-static-amd64 ./clients/cmd/promtail
+  promtail-bin:
+    plugin: dump
+    source: https://github.com/grafana/loki/releases/download/v2.7.5/promtail-linux-amd64.zip # yamllint disable-line
+    source-type: zip
+    organize:
+      promtail-linux-amd64: opt/promtail/promtail-static-amd64
     stage:
       - opt/promtail/promtail-static-amd64
     permissions:
@@ -249,8 +240,6 @@ parts:
   package-management:
     plugin: nil
     after: [trino, local-files]
-    stage-snaps:
-      - pebble/latest/edge  # fix CVE-2025-68121
     overlay-packages:
       - ca-certificates
       - python-is-python3
