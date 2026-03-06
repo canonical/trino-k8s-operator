@@ -56,6 +56,7 @@ from literals import (
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
+from relations.postgresql import PostgresqlRelationHandler
 from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
@@ -169,6 +170,7 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
+        self.postgresql_relation_handler = PostgresqlRelationHandler(self)
 
         resources = {
             "memory": {
@@ -224,6 +226,10 @@ class TrinoK8SCharm(CharmBase):
                     self.unit.set_workload_version(meta["version"])
             except (PathError, yaml.YAMLError) as e:
                 logger.debug("Could not get workload version: %s", str(e))
+
+        # The catalogs created by the Postgres relations are also persisted as .properties files.
+        # The files are lost if Trino restarts so their tracked state has to be cleared on startup.
+        self.state.relation_catalogs = {}
 
         self._update(event)
 
@@ -285,6 +291,7 @@ class TrinoK8SCharm(CharmBase):
                 return
 
         self.trino_catalog.update_all_relations()
+        self.postgresql_relation_handler.reconcile()
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -316,6 +323,7 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
+            self.postgresql_relation_handler.reconcile()
             self._restart_trino()
             return
 
@@ -485,7 +493,11 @@ class TrinoK8SCharm(CharmBase):
         for file in container.list_files(
             self.catalog_abs_path, pattern="*.properties"
         ):
-            if Path(file.name).stem in upserted_catalogs:
+            if (
+                Path(file.name).stem in upserted_catalogs
+                or Path(file.name).stem
+                in self.postgresql_relation_handler.get_postgresql_relation_catalogs()
+            ):
                 continue
 
             try:
@@ -559,7 +571,7 @@ class TrinoK8SCharm(CharmBase):
             raise ValueError("Web-proxy value cannot be an empty string")
 
         acl_mode_default = self.config.get("acl-mode-default")
-        if acl_mode_default not in ["all", "none"]:
+        if acl_mode_default not in ["all", "none", "owner"]:
             raise ValueError(
                 f"Invalid acl-mode-default value: {acl_mode_default!r}"
             )
@@ -570,6 +582,16 @@ class TrinoK8SCharm(CharmBase):
                 yaml.safe_load(catalogs)
             except Exception as e:
                 logger.debug(f"Incorrectly formatted catalog-config: {e}")
+                raise
+
+        pg_catalogs = self.config.get("postgresql-catalog-config")
+        if pg_catalogs:
+            try:
+                yaml.safe_load(pg_catalogs)
+            except Exception as e:
+                logger.debug(
+                    f"Incorrectly formatted postgresql-catalog-config: {e}"
+                )
                 raise
 
     def _validate_relations(self):

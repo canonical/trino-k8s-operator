@@ -55,6 +55,9 @@ requires:
     interface: opensearch_client
     optional: true
     limit: 1
+  postgresql:
+    interface: postgresql_client
+    optional: true
 
 provides:
   metrics-endpoint:
