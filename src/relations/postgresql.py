@@ -216,6 +216,7 @@ class PostgresqlRelationHandler(framework.Object):
             self._drop_catalog(name)
 
         # CREATE or UPDATE catalogs
+        failed = set()
         for name, props in wanted_catalogs.items():
             props_hash = self._hash_properties(props)
             tracked_hash = tracked_catalogs.get(name)
@@ -226,12 +227,14 @@ class PostgresqlRelationHandler(framework.Object):
                 self._drop_catalog(name)
             else:
                 logger.info("Creating relation catalog %r", name)
-            self._create_catalog(name, props)
+            if not self._create_catalog(name, props):
+                failed.add(name)
 
-        # Update tracked state with property hashes
+        # Update tracked state excluding catalogs that failed to create
         self.charm.state.relation_catalogs = {
             name: self._hash_properties(props)
             for name, props in wanted_catalogs.items()
+            if name not in failed
         }
 
     def get_postgresql_relation_catalogs(self) -> list:
@@ -593,12 +596,15 @@ class PostgresqlRelationHandler(framework.Object):
                     f"Trino SQL error: {data['error'].get('message', data['error'])}"
                 )
 
-    def _create_catalog(self, name, properties):
+    def _create_catalog(self, name, properties) -> bool:
         """Create a Trino catalog via SQL.
 
         Args:
             name: The catalog name.
             properties: Dict of catalog properties.
+
+        Returns:
+            True if the catalog was created successfully.
         """
         props_sql = ",\n  ".join(
             f"\"{k}\" = '{v}'" for k, v in properties.items()
@@ -610,8 +616,10 @@ class PostgresqlRelationHandler(framework.Object):
         try:
             self._execute_sql(sql)
             logger.info("Created catalog %r", name)
+            return True
         except Exception as e:
             logger.error("Failed to create catalog %r: %s", name, e)
+            return False
 
     def _drop_catalog(self, name):
         """Drop a Trino catalog via SQL.
