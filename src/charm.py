@@ -229,7 +229,8 @@ class TrinoK8SCharm(CharmBase):
 
         # The catalogs created by the Postgres relations are also persisted as .properties files.
         # The files are lost if Trino restarts so their tracked state has to be cleared on startup.
-        self.state.relation_catalogs = {}
+        if self.state.is_ready():
+            self.state.relation_catalogs = {}
 
         self._update(event)
 

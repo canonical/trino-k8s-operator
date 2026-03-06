@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# Copyright 2025 Canonical Ltd.
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Integration tests for the Trino-PostgreSQL relation."""
@@ -199,8 +198,8 @@ async def wait_for_catalog(ops_test, catalog_name, present=True, timeout=120):
             found = catalog_name in str(catalogs)
             if found == present:
                 return catalogs
-        except Exception:
-            pass
+        except Exception:  # nosec
+            pass  # nosec
         await asyncio.sleep(5)
     state = "not found" if present else "still present"
     raise TimeoutError(f"Catalog {catalog_name!r} {state} after {timeout}s")

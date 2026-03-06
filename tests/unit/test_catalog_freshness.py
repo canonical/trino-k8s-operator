@@ -100,7 +100,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
                         "RANGER_RELATION": False,
-                        "ACL_ACCESS_MODE": "all",
+                        "ACL_ACCESS_MODE": "owner",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec

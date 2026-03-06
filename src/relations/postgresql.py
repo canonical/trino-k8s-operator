@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """PostgreSQL relation handler."""
@@ -19,7 +19,7 @@ from log import log_event_handler
 from utils import add_cert_to_truststore
 
 REQUESTED_SECRETS = ["username", "password", "tls", "tls-ca"]
-PASS_ENV_VAR_PREFIX = "PG_PASS_"
+PASS_ENV_VAR_PREFIX = "PG_PASS_"  # nosec
 
 logger = logging.getLogger(__name__)
 
