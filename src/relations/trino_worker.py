@@ -4,6 +4,7 @@
 """Trino worker relation hooks & helpers."""
 
 
+import json
 import logging
 
 from ops.charm import CharmBase
@@ -68,6 +69,12 @@ class TrinoWorker(Object):
         self.charm.state.discovery_uri = event_data.get("discovery-uri")
         self.charm.state.user_secret_id = event_data.get("user-secret-id")
         self.charm.state.catalog_config = event_data.get("catalogs")
+
+        pg_secrets_raw = event_data.get("postgresql-secrets", "{}")
+        try:
+            self.charm.state.postgresql_secrets = json.loads(pg_secrets_raw)
+        except (json.JSONDecodeError, TypeError):
+            self.charm.state.postgresql_secrets = {}
 
         self.charm._update(event)
 

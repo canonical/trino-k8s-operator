@@ -229,7 +229,10 @@ class TrinoK8SCharm(CharmBase):
 
         # The catalogs created by the Postgres relations are also persisted as .properties files.
         # The files are lost if Trino restarts so their tracked state has to be cleared on startup.
-        if self.state.is_ready():
+        if self.state.is_ready() and self.config["charm-function"] in (
+            "coordinator",
+            "all",
+        ):
             self.state.relation_catalogs = {}
 
         self._update(event)
@@ -668,6 +671,12 @@ class TrinoK8SCharm(CharmBase):
                 "memory-heap-headroom-per-node"
             ),
         }
+
+        # Merge PostgreSQL password secrets (set by PostgresqlRelationHandler)
+        pg_secrets = self.state.postgresql_secrets
+        if pg_secrets:
+            env.update(pg_secrets)
+
         return env
 
     def _update(self, event):

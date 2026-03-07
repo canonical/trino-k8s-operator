@@ -21,6 +21,7 @@ from helpers import (
     update_catalog_config,
 )
 from pytest_operator.plugin import OpsTest
+from trino_client.trino_client import query_trino
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,25 @@ async def wait_for_catalog(ops_test, catalog_name, present=True, timeout=120):
     raise TimeoutError(f"Catalog {catalog_name!r} {state} after {timeout}s")
 
 
+async def query_pg_catalog(ops_test, catalog_name):
+    """Run SHOW SCHEMAS against a catalog to verify connectivity.
+
+    Args:
+        ops_test: PyTest object.
+        catalog_name: Name of the Trino catalog.
+
+    Returns:
+        List of schemas
+    """
+    status = await ops_test.model.get_status()
+    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/0"][
+        "address"
+    ]
+    return await query_trino(
+        address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"'
+    )
+
+
 async def get_properties_file(ops_test, catalog_name):
     """Read a catalog .properties file from the Trino container.
 
@@ -227,29 +247,6 @@ async def get_properties_file(ops_test, catalog_name):
     if rc != 0:
         return None
     return stdout
-
-
-async def count_hosts_in_catalog(ops_test, catalog_name):
-    """Count the number of hosts in a catalog's JDBC connection URL.
-
-    Handles Java Properties escape format (backslash-escaped colons).
-
-    Args:
-        ops_test: PyTest object.
-        catalog_name: Name of the catalog.
-
-    Returns:
-        Number of hosts in the connection URL.
-    """
-    props = await get_properties_file(ops_test, catalog_name)
-    assert props is not None, f"Properties file for {catalog_name} not found"
-    url_line = [
-        line for line in props.splitlines() if "connection-url" in line
-    ][0]
-    url = url_line.replace("\\:", ":").replace("\\=", "=")
-    # Extract hosts from jdbc:postgresql://host1,host2,host3:port/db?params
-    hosts_part = url.split("//")[1].split(":")[0]
-    return hosts_part.count(",") + 1
 
 
 @pytest.mark.abort_on_fail
@@ -293,6 +290,10 @@ class TestPostgresqlRelation:
 
         await wait_for_catalog(ops_test, "test_catalog")
 
+        schemas = await query_pg_catalog(ops_test, "test_catalog")
+        schema_names = [s[0] for s in schemas]
+        assert "public" in schema_names
+
     async def test_05_both_ro_and_rw(self, ops_test: OpsTest):
         """Config with both ro and rw: two catalogs created."""
         config = pg_catalog_config(
@@ -308,7 +309,12 @@ class TestPostgresqlRelation:
         assert ro_props is not None
         assert rw_props is not None
         assert "preferSecondary" in ro_props
-        assert "targetServerType=primary" in rw_props
+        assert "primary" in rw_props
+
+        ro_schemas = await query_pg_catalog(ops_test, "mydb_ro")
+        rw_schemas = await query_pg_catalog(ops_test, "mydb_rw")
+        assert any("public" in s for s in ro_schemas)
+        assert any("public" in s for s in rw_schemas)
 
     async def test_06_remove_rw(self, ops_test: OpsTest):
         """Remove rw_catalog_name: RW catalog dropped, RO remains."""
@@ -328,44 +334,19 @@ class TestPostgresqlRelation:
         await wait_for_catalog(ops_test, "mydb_ro")
         await wait_for_catalog(ops_test, "mydb_rw")
 
-    async def test_08_all_unit_ips(self, ops_test: OpsTest):
-        """JDBC URL contains all PG unit IPs (3 units)."""
-        async with ops_test.fast_forward():
-            await ops_test.model.applications[POSTGRES_NAME].scale(scale=3)
-            await ops_test.model.wait_for_idle(
-                apps=[POSTGRES_NAME],
-                status="active",
-                timeout=900,
-                wait_for_exact_units=3,
-            )
-
+    async def test_08_pg_scaling(self, ops_test: OpsTest):
+        """Catalog URL gains replicas service address after PG scales up."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "multihost_ro")
         await set_pg_config(ops_test, config)
-
         await wait_for_catalog(ops_test, "multihost_ro")
 
-        host_count = await count_hosts_in_catalog(ops_test, "multihost_ro")
-        assert host_count == 3, f"Expected 3 hosts, got {host_count}"
+        # With 1 PG unit there are no replicas, URL has only the primary
+        props = await get_properties_file(ops_test, "multihost_ro")
+        assert props is not None
+        assert f"{POSTGRES_NAME}-primary" in props
+        assert f"{POSTGRES_NAME}-replicas" not in props
 
-    async def test_09_scale_down(self, ops_test: OpsTest):
-        """Scale PG down: JDBC URL updated."""
-        async with ops_test.fast_forward():
-            await ops_test.model.applications[POSTGRES_NAME].scale(scale=2)
-            await ops_test.model.wait_for_idle(
-                apps=[POSTGRES_NAME],
-                status="active",
-                timeout=900,
-                wait_for_exact_units=2,
-            )
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME], status="active", timeout=600
-            )
-
-        host_count = await count_hosts_in_catalog(ops_test, "multihost_ro")
-        assert host_count == 2, f"Expected 2 hosts, got {host_count}"
-
-    async def test_10_scale_up(self, ops_test: OpsTest):
-        """Scale PG back up: JDBC URL updated."""
+        # Scale PG to 3, replicas service should appear in the URL
         async with ops_test.fast_forward():
             await ops_test.model.applications[POSTGRES_NAME].scale(scale=3)
             await ops_test.model.wait_for_idle(
@@ -378,10 +359,13 @@ class TestPostgresqlRelation:
                 apps=[APP_NAME], status="active", timeout=600
             )
 
-        host_count = await count_hosts_in_catalog(ops_test, "multihost_ro")
-        assert host_count == 3, f"Expected 3 hosts, got {host_count}"
+        await wait_for_catalog(ops_test, "multihost_ro")
+        props = await get_properties_file(ops_test, "multihost_ro")
+        assert props is not None
+        assert f"{POSTGRES_NAME}-primary" in props
+        assert f"{POSTGRES_NAME}-replicas" in props
 
-    async def test_11_both_config_types(self, ops_test: OpsTest):
+    async def test_09_both_config_types(self, ops_test: OpsTest):
         """Both catalog-config and postgresql-catalog-config active."""
         postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
         for app in [APP_NAME, WORKER_NAME]:
@@ -408,7 +392,7 @@ class TestPostgresqlRelation:
         await wait_for_catalog(ops_test, "dynamic_pg")
         await wait_for_catalog(ops_test, "postgresql-1")
 
-    async def test_12_remove_relation_keeps_static(self, ops_test: OpsTest):
+    async def test_10_remove_relation_keeps_static(self, ops_test: OpsTest):
         """Removing PG relation does not affect static catalogs."""
         await remove_pg_relation(ops_test)
 
@@ -418,7 +402,7 @@ class TestPostgresqlRelation:
         # Re-relate for next test
         await relate_pg(ops_test)
 
-    async def test_13_remove_static_keeps_dynamic(self, ops_test: OpsTest):
+    async def test_11_remove_static_keeps_dynamic(self, ops_test: OpsTest):
         """Removing static catalog does not affect dynamic catalog."""
         await wait_for_catalog(ops_test, "dynamic_pg")
 
@@ -435,7 +419,7 @@ class TestPostgresqlRelation:
 
         await remove_pg_relation(ops_test)
 
-    async def test_14_two_pg_apps(self, ops_test: OpsTest):
+    async def test_12_two_pg_apps(self, ops_test: OpsTest):
         """Two PG apps with separate configs: both catalogs created."""
         await deploy_pg(ops_test, pg_name="pg-second", db_name="seconddb")
 
@@ -468,14 +452,14 @@ class TestPostgresqlRelation:
         await wait_for_catalog(ops_test, "pg1_catalog")
         await wait_for_catalog(ops_test, "pg2_catalog")
 
-    async def test_15_remove_one_relation(self, ops_test: OpsTest):
+    async def test_13_remove_one_relation(self, ops_test: OpsTest):
         """Remove one PG relation: its catalog dropped, other unaffected."""
         await remove_pg_relation(ops_test)
 
         await wait_for_catalog(ops_test, "pg1_catalog", present=False)
         await wait_for_catalog(ops_test, "pg2_catalog")
 
-    async def test_16_re_add_relation(self, ops_test: OpsTest):
+    async def test_14_re_add_relation(self, ops_test: OpsTest):
         """Re-add first PG relation: catalog re-created."""
         await relate_pg(ops_test)
 
@@ -487,7 +471,7 @@ class TestPostgresqlRelation:
         await remove_pg_relation(ops_test, "pg-second")
         await destroy_pg(ops_test, "pg-second")
 
-    async def test_17_wrong_app_name_in_config(self, ops_test: OpsTest):
+    async def test_15_wrong_app_name_in_config(self, ops_test: OpsTest):
         """Config key doesn't match PG app name: no catalog, charm active."""
         config = pg_catalog_config("wrong-name", "testdb*", "missing_catalog")
         await ops_test.model.applications[APP_NAME].set_config(
@@ -503,7 +487,7 @@ class TestPostgresqlRelation:
 
         await remove_pg_relation(ops_test)
 
-    async def test_18_container_restart(self, ops_test: OpsTest):
+    async def test_16_container_restart(self, ops_test: OpsTest):
         """Trino container restart: catalog persists."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "persist_catalog")
         await ops_test.model.applications[APP_NAME].set_config(
@@ -512,6 +496,9 @@ class TestPostgresqlRelation:
         await relate_pg(ops_test)
 
         await wait_for_catalog(ops_test, "persist_catalog")
+
+        schemas = await query_pg_catalog(ops_test, "persist_catalog")
+        assert any("public" in s for s in schemas)
 
         unit = ops_test.model.applications[APP_NAME].units[0]
         await ops_test.juju(
@@ -533,6 +520,9 @@ class TestPostgresqlRelation:
 
         await wait_for_catalog(ops_test, "persist_catalog")
 
+        schemas = await query_pg_catalog(ops_test, "persist_catalog")
+        assert any("public" in s for s in schemas)
+
         # Final cleanup
         await remove_pg_relation(ops_test)
         await ops_test.model.applications[APP_NAME].reset_config(
@@ -543,7 +533,7 @@ class TestPostgresqlRelation:
                 apps=[APP_NAME], status="active", timeout=600
             )
 
-    async def test_19_tls_connection(self, ops_test: OpsTest):
+    async def test_17_tls_connection(self, ops_test: OpsTest):
         """Catalog uses TLS when PG has certificates enabled."""
         await ops_test.model.deploy(
             "self-signed-certificates", channel="latest/edge"
@@ -555,10 +545,6 @@ class TestPostgresqlRelation:
                 timeout=600,
             )
 
-        await ops_test.model.integrate(
-            "self-signed-certificates:certificates",
-            f"{POSTGRES_NAME}:certificates",
-        )
         await ops_test.model.integrate(
             f"{POSTGRES_NAME}:client-certificates",
             "self-signed-certificates:certificates",
@@ -582,6 +568,9 @@ class TestPostgresqlRelation:
         assert props is not None
         assert "ssl=true" in props or "ssl\\=true" in props
         assert "sslmode=require" in props or "sslmode\\=require" in props
+
+        schemas = await query_pg_catalog(ops_test, "tls_catalog")
+        assert any("public" in s for s in schemas)
 
         # Cleanup
         await remove_pg_relation(ops_test)

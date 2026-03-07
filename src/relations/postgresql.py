@@ -195,16 +195,24 @@ class PostgresqlRelationHandler(framework.Object):
         if not self.charm.unit.is_leader():
             return
 
+        if self.charm.config["charm-function"] not in ("coordinator", "all"):
+            return
+
         self._write_databag()
 
         wanted_catalogs, wanted_envs = self._compute_wanted_catalogs()
         tracked_catalogs = self.charm.state.relation_catalogs or {}
 
-        # Ensure password env vars are set before any SQL that references them
-        if wanted_envs and self._sync_password_env_vars(wanted_envs):
-            logger.info(
-                "Pebble replanned to update Postgres password env vars"
-            )
+        # Persist password secrets in state so _create_environment()
+        # includes them in the pebble layer for both coordinator and worker.
+        old_secrets = self.charm.state.postgresql_secrets or {}
+        new_secrets = wanted_envs or {}
+        self.charm.state.postgresql_secrets = new_secrets
+
+        # Propagate secret changes: replan coordinator and notify workers
+        if new_secrets != old_secrets:
+            self._replan_with_updated_env()
+            self.charm.trino_coordinator.update_coordinator_relation_data()
 
         if not self._is_trino_reachable():
             logger.error("Trino not reachable, skipping reconciliation")
@@ -483,48 +491,29 @@ class PostgresqlRelationHandler(framework.Object):
                 "Failed to import TLS cert for relation %s: %s", relation_id, e
             )
 
-    def _sync_password_env_vars(self, needed: dict[str, str]) -> bool:
-        """Ensure pebble env vars contain the required passwords.
-
-        Reads the current pebble plan, checks for missing or changed env vars,
-        and replans (restarts Trino) only when there is a difference.
-        Stale env vars from removed catalogs are ignored (lazy cleanup).
-
-        Args:
-            needed: Mapping of env var name to password value.
-
-        Returns:
-            True if pebble was replanned.
-        """
+    def _replan_with_updated_env(self):
+        """Replan the coordinator so secret changes take effect."""
         container = self.charm.unit.get_container(self.charm.name)
         if not container.can_connect():
-            return False
+            return
 
-        plan = container.get_plan()
-        services = plan.to_dict().get("services", {})
-        current_env = services.get(self.charm.name, {}).get("environment", {})
-
-        updates = {k: v for k, v in needed.items() if current_env.get(k) != v}
-        if not updates:
-            return False
-
-        logger.info("Updating %d password env var(s) in pebble", len(updates))
-        new_env = dict(current_env)
-        new_env.update(updates)
+        env = self.charm._create_environment()
         container.add_layer(
-            "pg-passwords",
+            self.charm.name,
             {
                 "services": {
                     self.charm.name: {
                         "override": "merge",
-                        "environment": new_env,
+                        "environment": env,
                     }
                 }
             },
             combine=True,
         )
         container.replan()
-        return True
+        logger.info(
+            "Replanned to update PostgreSQL password environment variables"
+        )
 
     def _is_trino_reachable(self) -> bool:
         """Check if Trino is reachable via HTTP.
