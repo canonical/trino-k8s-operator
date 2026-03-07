@@ -268,7 +268,7 @@ juju relate trino-k8s ranger-k8s
 ```
 By default Trino has an allow all access control policy. If you're using an alternative to Trino's built-in ACLs (ie Ranger) then you can configure the default Trino policy to default to `none`. This will deny all access in the case that Ranger is unavailable.
 
-### Charmed OpenSearch relation
+## Charmed OpenSearch relation
 [Charmed OpenSearch](https://charmhub.io/opensearch) should be integrated with the Charmed Trino to enable auditing functionality for data access. 
 Pre-requisites:
 - A Charmed Ranger relation has been implemented
@@ -278,14 +278,17 @@ Pre-requisites:
 
 Instructions on implementing the above pre-requisites can be found [here](https://github.com/canonical/ranger-k8s-operator/blob/main/README.md). With additional details on the OpenSearch setup process can be found [here](https://charmhub.io/opensearch/docs/t-overview).
 
-# Consume opensearch offer
+Consume opensearch offer:
+```
 juju consume lxd-controller:admin/opensearch.opensearch
+```
 
-# Finally, relate the applications
+Finally, relate the applications:
+```
 juju relate trino-k8s opensearch
 ```
 
-### Observability
+## Observability
 
 The Trino charm can be related to the
 [Canonical Observability Stack](https://charmhub.io/topics/canonical-observability-stack)
@@ -316,6 +319,132 @@ juju run grafana/0 -m cos get-admin-password --wait 1m
 # Grafana is listening on port 3000 of the app ip address.
 # Dashboard can be accessed under "Trino Server Metrics", make sure to select the juju model which contains your Trino charm.
 ```
+
+## PostgreSQL Integration
+
+This guide describes how to connect Trino to [PostgreSQL](https://charmhub.io/postgresql-k8s), enabling users to query PostgreSQL databases through Trino catalogs. The integration uses the `postgresql_client` relation interface, which automatically creates and maintains Trino catalogs backed by PostgreSQL.
+
+### Prerequisites
+
+1. Trino is deployed with a coordinator and a worker (or as one with `charm-function=all`)
+2. PostgreSQL is deployed from a channel that supports prefix matching (only `16/edge` as of the writing of this doc)
+3. A database already exists in PostgreSQL (the prefix relation discovers existing databases, it does not create them)
+
+### Deploy the charms
+
+```bash
+juju deploy trino-k8s --trust
+juju deploy trino-k8s trino-k8s-worker --config charm-function=worker --trust
+juju relate trino-k8s:trino-coordinator trino-k8s-worker:trino-worker
+
+juju deploy postgresql-k8s --channel=16/edge --trust
+```
+
+### Create the database
+
+The PostgreSQL relation uses prefix matching (`database_prefix: testdb*`) to discover databases. The database must be created beforehand, the simplest way is via `data-integrator`:
+
+```bash
+juju deploy data-integrator --channel=latest/edge --config database-name=testdb
+juju relate postgresql-k8s data-integrator
+```
+
+### Configure the PostgreSQL catalog
+
+Set the `postgresql-catalog-config` on the Trino coordinator. Each top-level key must match the name of a related PostgreSQL app:
+
+```bash
+juju config trino-k8s postgresql-catalog-config="
+postgresql-k8s:
+  database_prefix: testdb*
+  ro_catalog_name: mydb_ro
+"
+```
+
+#### Config fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `database_prefix` | Yes | Must end with `*`. Used for prefix matching against existing PG databases. |
+| `ro_catalog_name` | Yes | Name of the read-only Trino catalog. Routes queries to replicas via `targetServerType=preferSecondary`. |
+| `rw_catalog_name` | No | Name of an optional read-write catalog. Routes queries to the primary via `targetServerType=primary`. |
+| `config` | No | Extra key=value lines added to the catalog properties (e.g., `case-insensitive-name-matching=true`). |
+
+#### Example with all options
+
+```bash
+juju config trino-k8s postgresql-catalog-config="
+postgresql-k8s:
+  database_prefix: testdb*
+  ro_catalog_name: testcatalog
+  rw_catalog_name: testcatalog_developer
+  config: |
+    case-insensitive-name-matching=true
+    decimal-mapping=allow_overflow
+"
+```
+
+### Establish the relation
+
+```bash
+juju relate trino-k8s postgresql-k8s
+```
+
+After the relation is established and PostgreSQL responds with credentials and endpoints, Trino will automatically create the configured catalogs.
+
+### Verify the integration
+
+Check that the catalogs appear in Trino by running `SHOW CATALOGS`.
+
+You can also inspect the catalog properties file:
+
+```bash
+juju ssh --container trino trino-k8s/0 \
+  cat /usr/lib/trino/etc/catalog/mydb_ro.properties
+```
+
+### Coexistence with static catalogs
+
+The `postgresql-catalog-config` (SQL-managed catalogs via relations) and `catalog-config` (static `.properties` catalogs) coexist. Both types of catalogs appear in `SHOW CATALOGS` and are independently queryable.
+
+Removing a static catalog from `catalog-config` does not affect relation-managed catalogs, and vice versa.
+
+### Credential rotation
+
+If PostgreSQL rotates credentials, Trino automatically detects the change and recreates the affected catalogs with the new credentials. No manual intervention is required.
+
+### TLS
+
+SSL parameters are auto-deduced from the PostgreSQL provider's TLS data:
+- **TLS enabled with CA**: `ssl=true&sslmode=require` with CA cert imported into the Java truststore
+- **TLS enabled without CA**: `ssl=true&sslmode=require`
+- **TLS disabled**: `ssl=false`
+
+No manual SSL configuration is needed.
+
+### Troubleshooting
+
+1. Verify the relation exists and both apps are active:
+   ```bash
+   juju status --relations
+   ```
+
+2. Check that the `postgresql-catalog-config` key matches the PG app name exactly:
+   ```bash
+   juju config trino-k8s postgresql-catalog-config
+   ```
+
+3. Check Trino logs for errors:
+   ```bash
+   juju debug-log --include trino-k8s
+   ```
+
+   Common errors:
+   - `Invalid or missing database_prefix`: prefix must end with `*`
+   - `Missing ro_catalog_name`: required field
+   - `No postgresql-catalog-config entry for <app>`: config key doesn't match app name
+   - `Multiple prefix databases returned`: only one database should match the prefix
+
 
 ## Contributing
 Please see the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms and [Contributing](CONTRIBUTING.md) for developer guidance.
