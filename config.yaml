@@ -133,7 +133,7 @@ options:
       Any additional queries beyond this limit will be queued until a running query
       finishes.
     type: int
-    default: 5
+    default: 50
   query-max-cpu-time:
     description: |
       The maximum CPU time a query may consume across the entire cluster.
