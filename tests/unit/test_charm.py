@@ -140,7 +140,7 @@ class TestCharm(TestCase):
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",
                         "WORKER_REQUEST_TIMEOUT": "30s",
-                        "MAX_CONCURRENT_QUERIES": 5,
+                        "MAX_CONCURRENT_QUERIES": 50,
                         "QUERY_MAX_CPU_TIME": None,
                         "QUERY_MAX_MEMORY_PER_NODE": None,
                         "QUERY_MAX_MEMORY": None,
