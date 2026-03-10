@@ -18,7 +18,7 @@ discovery.uri=http://localhost:8080
 
 
 query.max-concurrent-queries={{ MAX_CONCURRENT_QUERIES }}
-{% if QUERY_MAX_CPU_TIME is not none %}
+{% if QUERY_MAX_RUN_TIME is not none %}
 query.max-run-time={{ QUERY_MAX_RUN_TIME }}
 {% endif %}
 {% if QUERY_MAX_CPU_TIME is not none %}
