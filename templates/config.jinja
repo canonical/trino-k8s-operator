@@ -19,6 +19,9 @@ discovery.uri=http://localhost:8080
 
 query.max-concurrent-queries={{ MAX_CONCURRENT_QUERIES }}
 {% if QUERY_MAX_CPU_TIME is not none %}
+query.max-run-time={{ QUERY_MAX_RUN_TIME }}
+{% endif %}
+{% if QUERY_MAX_CPU_TIME is not none %}
 query.max-cpu-time={{ QUERY_MAX_CPU_TIME }}
 {% endif %}
 {% if QUERY_MAX_MEMORY_PER_NODE is not none %}
@@ -61,3 +64,5 @@ http-server.authentication.type=PASSWORD
 
 jmx.rmiregistry.port={{ JMX_PORT }}
 jmx.rmiserver.port={{ JMX_PORT }}
+
+web-ui.preview.enabled={{ WEB_UI_PREVIEW_ENABLED }}

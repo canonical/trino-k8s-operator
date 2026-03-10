@@ -115,6 +115,8 @@ class TestCatalogConfigFreshness(TestCase):
                         "QUERY_MAX_MEMORY": None,
                         "QUERY_MAX_TOTAL_MEMORY": None,
                         "MEMORY_HEAP_HEADROOM_PER_NODE": None,
+                        "QUERY_MAX_RUN_TIME": None,
+                        "WEB_UI_PREVIEW_ENABLED": False,
                     },
                 }
             },

@@ -140,6 +140,12 @@ options:
       Queries exceeding this limit will be killed.
       eg. "1h", "30m", "10s"
     type: string
+  query-max-run-time:
+    description: |
+      The maximum run time for a query to be processed on the cluster.
+      Queries exceeding this limit will be killed.
+      eg. "1h", "30m", "10s"
+    type: string
   query-max-memory-per-node:
     description: |
       The maximum amount of user memory a query may use on any one node.
@@ -183,3 +189,9 @@ options:
       This should be equal to or greater than your requests.
       eg. 1
     type: string
+  web-ui-preview-enabled:
+    description: |
+      Enables a preview version of the web UI. 
+      This is an experimental feature meant for testing and evaluation
+    type: boolean
+    default: false
