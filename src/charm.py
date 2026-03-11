@@ -633,6 +633,7 @@ class TrinoK8SCharm(CharmBase):
             "WORKER_REQUEST_TIMEOUT": self.config["worker-request-timeout"],
             "MAX_CONCURRENT_QUERIES": self.config["max-concurrent-queries"],
             "QUERY_MAX_CPU_TIME": self.config.get("query-max-cpu-time"),
+            "QUERY_MAX_RUN_TIME": self.config.get("query-max-run-time"),
             "QUERY_MAX_MEMORY_PER_NODE": self.config.get(
                 "query-max-memory-per-node"
             ),
