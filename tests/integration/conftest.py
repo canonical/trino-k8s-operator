@@ -3,7 +3,6 @@
 
 """Trino charm integration test config."""
 import logging
-import time
 from pathlib import Path
 
 import pytest
@@ -87,8 +86,6 @@ async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
             raise_on_blocked=False,
             timeout=300,
         )
-
-    time.sleep(60)
     assert (
         ops_test.model.applications[APP_NAME].units[0].workload_status
         == "active"
