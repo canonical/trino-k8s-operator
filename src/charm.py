@@ -644,9 +644,6 @@ class TrinoK8SCharm(CharmBase):
             "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get(
                 "memory-heap-headroom-per-node"
             ),
-            "WEB_UI_PREVIEW_ENABLED": self.config.get(
-                "web-ui-preview-enabled"
-            ),
         }
         return env
 

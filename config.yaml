@@ -189,9 +189,3 @@ options:
       This should be equal to or greater than your requests.
       eg. 1
     type: string
-  web-ui-preview-enabled:
-    description: |
-      Enables a preview version of the web UI. 
-      This is an experimental feature meant for testing and evaluation
-    type: boolean
-    default: false
