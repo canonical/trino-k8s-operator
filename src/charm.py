@@ -10,6 +10,7 @@ develop a new k8s charm using the Operator Framework:
 https://discourse.charmhub.io/t/4208
 """
 
+import json
 import logging
 import subprocess  # nosec B404
 from pathlib import Path
@@ -539,19 +540,42 @@ class TrinoK8SCharm(CharmBase):
             container: The Trino container.
             env: Environment variables containing resource groups config.
         """
-        resource_groups_config = env.get("RESOURCE_GROUPS_CONFIG")
-        
+        resource_groups_config = self.config.get("resource-groups-config")
+
         if resource_groups_config:
+            # Push resource-groups.properties file
+            properties_content = render("resource-groups.jinja", env)
+            properties_path = self.conf_abs_path.joinpath(
+                "resource-groups.properties"
+            )
+            container.push(
+                properties_path,
+                properties_content,
+                make_dirs=True,
+                permissions=0o644,
+            )
+
             # Write resource-groups.json file
             path = self.trino_abs_path.joinpath("resource-groups.json")
             container.push(
                 path,
-                resource_groups_config,
+                json.loads(resource_groups_config),
                 make_dirs=True,
                 permissions=0o644,
             )
             logger.info("Resource groups configuration applied")
         else:
+            # Remove resource-groups.properties if it exists and config is not provided
+            properties_path = self.conf_abs_path.joinpath(
+                "resource-groups.properties"
+            )
+            try:
+                container.remove_path(properties_path)
+                logger.info("Resource groups properties removed")
+            except PathError:
+                # File doesn't exist, which is fine
+                pass
+
             # Remove resource-groups.json if it exists and config is not provided
             resource_groups_path = self.trino_abs_path.joinpath(
                 "resource-groups.json"
@@ -599,9 +623,11 @@ class TrinoK8SCharm(CharmBase):
         resource_groups = self.config.get("resource-groups-config")
         if resource_groups:
             try:
-                yaml.safe_load(resource_groups)
+                json.loads(resource_groups)
             except Exception as e:
-                logger.debug(f"Incorrectly formatted resource-groups-config: {e}")
+                logger.debug(
+                    f"Incorrectly formatted resource-groups-config: {e}"
+                )
                 raise
 
     def _validate_relations(self):
@@ -675,8 +701,9 @@ class TrinoK8SCharm(CharmBase):
             "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get(
                 "memory-heap-headroom-per-node"
             ),
-            "RESOURCE_GROUPS_CONFIG": self.state.resource_groups_config
-            or self.config.get("resource-groups-config"),
+            "RESOURCE_GROUPS_CONFIG": self.config.get(
+                "resource-groups-config"
+            ),
         }
         return env
 
@@ -703,9 +730,6 @@ class TrinoK8SCharm(CharmBase):
             self.state.discovery_uri = self.config.get("discovery-uri", "")
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
-            self.state.resource_groups_config = self.config.get(
-                "resource-groups-config", ""
-            )
 
         self._configure_catalogs(event)
 
