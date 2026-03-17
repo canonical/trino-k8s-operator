@@ -121,7 +121,7 @@ class TestCharm(TestCase):
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": None,
-                        "OAUTH_CLIENT_SECRET": None,
+                        "OAUTH_CLIENT_SECRET": None,  # nosec
                         "WEB_PROXY": None,
                         "CHARM_FUNCTION": "coordinator",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
@@ -141,12 +141,13 @@ class TestCharm(TestCase):
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",
                         "WORKER_REQUEST_TIMEOUT": "30s",
-                        "MAX_CONCURRENT_QUERIES": 5,
+                        "MAX_CONCURRENT_QUERIES": 50,
                         "QUERY_MAX_CPU_TIME": None,
                         "QUERY_MAX_MEMORY_PER_NODE": None,
                         "QUERY_MAX_MEMORY": None,
                         "QUERY_MAX_TOTAL_MEMORY": None,
                         "MEMORY_HEAP_HEADROOM_PER_NODE": None,
+                        "QUERY_MAX_RUN_TIME": None,
                     },
                 }
             },

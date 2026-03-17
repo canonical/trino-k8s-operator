@@ -12,6 +12,7 @@ https://discourse.charmhub.io/t/4208
 
 import json
 import logging
+import socket
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -144,7 +145,13 @@ class TrinoK8SCharm(CharmBase):
         self._prometheus_scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{METRICS_PORT}"]}]}],
+            jobs=[
+                {
+                    "static_configs": [
+                        {"targets": [f"{socket.getfqdn()}:{METRICS_PORT}"]}
+                    ]
+                },
+            ],
             refresh_event=self.on.config_changed,
         )
 
@@ -691,6 +698,7 @@ class TrinoK8SCharm(CharmBase):
             "WORKER_REQUEST_TIMEOUT": self.config["worker-request-timeout"],
             "MAX_CONCURRENT_QUERIES": self.config["max-concurrent-queries"],
             "QUERY_MAX_CPU_TIME": self.config.get("query-max-cpu-time"),
+            "QUERY_MAX_RUN_TIME": self.config.get("query-max-run-time"),
             "QUERY_MAX_MEMORY_PER_NODE": self.config.get(
                 "query-max-memory-per-node"
             ),
