@@ -23,7 +23,6 @@ CONFIG_FILES = {
     "access-control.jinja": "access-control.properties",
     "rules.jinja": "rules.json",
     "jvm.jinja": "jvm.config",
-    "resource-groups.jinja": "resource-groups.properties",
 }
 
 CONF_DIR = "conf"
