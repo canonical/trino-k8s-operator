@@ -140,10 +140,16 @@ options:
       Any additional queries beyond this limit will be queued until a running query
       finishes.
     type: int
-    default: 5
+    default: 50
   query-max-cpu-time:
     description: |
       The maximum CPU time a query may consume across the entire cluster.
+      Queries exceeding this limit will be killed.
+      eg. "1h", "30m", "10s"
+    type: string
+  query-max-run-time:
+    description: |
+      The maximum run time for a query to be processed on the cluster.
       Queries exceeding this limit will be killed.
       eg. "1h", "30m", "10s"
     type: string

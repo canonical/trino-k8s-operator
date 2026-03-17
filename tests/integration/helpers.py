@@ -102,9 +102,10 @@ USER_WITHOUT_ACCESS = "user"
 # Scaling literals
 WORKER_QUERY = "SELECT * FROM system.runtime.nodes"
 
-WORKER_CONFIG = {"charm-function": "worker"}
+WORKER_CONFIG = {"charm-function": "worker", "max-concurrent-queries": 5}
 COORDINATOR_CONFIG = {
     "charm-function": "coordinator",
+    "max-concurrent-queries": 5,
 }
 
 

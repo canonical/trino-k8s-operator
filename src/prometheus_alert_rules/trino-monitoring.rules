@@ -1,0 +1,68 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+#
+# Learn more at: https://juju.is/docs/sdk
+
+groups:
+  - name: trino_k8s
+    rules:
+      - alert: TrinoUnitDown
+        expr: min by (juju_model, juju_unit) (up{juju_application=~".*trino.*"}) == 0
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Trino unit {{ $labels.juju_unit }} is down"
+          description: "The Trino unit {{ $labels.juju_unit }} in the {{ $labels.juju_model }} model has been unreachable for more than 5 minutes."
+
+      - alert: TrinoNodeCountDiscrepancy
+        expr: >
+          (max by (juju_model) (trino_metadata_DiscoveryNodeManager_ActiveNodeCount) 
+          - 
+          min by (juju_model) (trino_metadata_DiscoveryNodeManager_ActiveNodeCount)) 
+          > 0
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trino cluster node count discrepancy in model {{ $labels.juju_model }}"
+          description: "The Trino coordinator and workers in the {{ $labels.juju_model }} model disagree on the total number of active nodes."
+
+      - alert: HighQueuedQueries
+        expr: trino_execution_QueryManager_QueuedQueries > 10
+        for: 10m
+        keep_firing_for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of queued queries in Trino"
+          description: "There have been more than 10 queued queries continuously for the past 10 minutes in the {{ $labels.juju_model }} model."
+
+      - alert: HighFailedQueries
+        expr: >
+          (sum by (juju_model) (trino_execution_QueryManager_InternalFailures_OneMinute_Count) 
+          + 
+          sum by (juju_model) (trino_execution_QueryManager_InsufficientResourcesFailures_OneMinute_Count)) 
+          > 10
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of failed queries in Trino"
+          description: "There have been more than 10 failed queries continuously for the past 5 minutes in the {{ $labels.juju_model }} model."
+
+      - alert: TrinoClusterHeapStarvation
+        expr: >
+          min by (juju_model) (
+            java_lang_Memory_HeapMemoryUsage_used / java_lang_Memory_HeapMemoryUsage_max
+          ) > 0.9
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cluster-wide heap starvation in model {{ $labels.juju_model }}"
+          description: "Every single Trino node in the {{ $labels.juju_model }} model is currently operating at over 90% heap memory capacity. The cluster is severely starved for memory and may begin dropping queries or crashing."

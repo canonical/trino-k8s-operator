@@ -90,7 +90,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                         "LOG_LEVEL": "info",
                         "OAUTH_CLIENT_ID": "test-client-id",
-                        "OAUTH_CLIENT_SECRET": "test-client-secret",
+                        "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
                         "WEB_PROXY": "proxy:port",
                         "CHARM_FUNCTION": "all",
                         "DISCOVERY_URI": "http://trino-k8s:8080",
@@ -105,17 +105,18 @@ class TestCatalogConfigFreshness(TestCase):
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
-                        "USER_SECRET_ID": "secret:secret-id",
+                        "USER_SECRET_ID": "secret:secret-id",  # nosec
                         "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
                         "COORDINATOR_CONNECT_TIMEOUT": "30s",
                         "WORKER_REQUEST_TIMEOUT": "30s",
-                        "MAX_CONCURRENT_QUERIES": 5,
+                        "MAX_CONCURRENT_QUERIES": 50,
                         "QUERY_MAX_CPU_TIME": None,
                         "QUERY_MAX_MEMORY_PER_NODE": None,
                         "QUERY_MAX_MEMORY": None,
                         "QUERY_MAX_TOTAL_MEMORY": None,
                         "MEMORY_HEAP_HEADROOM_PER_NODE": None,
+                        "QUERY_MAX_RUN_TIME": None,
                     },
                 }
             },

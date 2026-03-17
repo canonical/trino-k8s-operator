@@ -7,6 +7,7 @@ type: charm
 parts:
   charm:
     charm-binary-python-packages:
+      - pydantic
       - pydantic-core
     build-packages:
       - libffi-dev
@@ -37,4 +38,6 @@ charm-libs:
   - lib: "nginx_ingress_integrator.nginx_route"
     version: "0"
   - lib: "prometheus_k8s.prometheus_scrape"
+    version: "0"
+  - lib: "trino_k8s.trino_catalog"
     version: "0"

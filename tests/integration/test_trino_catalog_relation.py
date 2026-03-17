@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from helpers import (
     APP_NAME,
+    NGINX_NAME,
     add_juju_secret,
     create_catalog_config,
     get_secret_id_by_label,
@@ -249,10 +250,22 @@ async def test_06_trino_catalog_relation_grant_secret(
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_07_trino_catalog_relation_read_data(
+async def test_07a_trino_catalog_internal_url(
     ops_test: OpsTest,
 ):
-    """Test that the requirer can read catalogs, URL, and credentials from Trino."""
+    """Test that the requirer receives internal service URL when no nginx-route relation."""
+    # Remove external-hostname config to test internal URL path
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[APP_NAME].reset_config(
+            ["external-hostname"]
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
     # Verify the requirer received the catalogs
     action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
         "get-relation-data"
@@ -286,12 +299,15 @@ async def test_07_trino_catalog_relation_read_data(
         catalog_names,
     )
 
-    # Verify the requirer received the URL
+    # Verify the requirer received the internal service URL
     result_url = action.results.get("trino-url")
+    expected_internal_url = f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
     assert (
-        result_url == f"trino.test.com:{TRINO_PORTS['HTTPS']}"
-    ), f"Expected URL 'trino.test.com:{TRINO_PORTS['HTTPS']}', got '{result_url}'"
-    logger.info("Verified requirer received Trino URL: %s", result_url)
+        result_url == expected_internal_url
+    ), f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
+    logger.info(
+        "Verified requirer received internal Trino URL: %s", result_url
+    )
 
     # Verify the requirer received the username and password
     result_username = action.results.get("trino-username")
@@ -307,6 +323,76 @@ async def test_07_trino_catalog_relation_read_data(
         result_username,
         result_password,
     )
+
+
+@pytest.mark.abort_on_fail
+@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
+async def test_07b_trino_catalog_external_url_with_nginx(
+    ops_test: OpsTest,
+):
+    """Test that the requirer receives external URL when nginx-route relation exists."""
+    # Deploy nginx-ingress-integrator
+    async with ops_test.fast_forward():
+        await ops_test.model.deploy(NGINX_NAME, trust=True)
+
+        await ops_test.model.wait_for_idle(
+            apps=[NGINX_NAME],
+            status="waiting",
+            raise_on_blocked=False,
+            timeout=1000,
+        )
+
+    # Relate Trino to nginx-ingress-integrator
+    async with ops_test.fast_forward():
+        await ops_test.model.integrate(APP_NAME, NGINX_NAME)
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
+    # Set external-hostname config
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[APP_NAME].set_config(
+            {"external-hostname": "trino.test.com"}
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
+    # Verify the requirer received the external URL
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+        "get-relation-data"
+    )
+    await action.wait()
+    assert action.status == "completed"
+
+    result_url = action.results.get("trino-url")
+    expected_external_url = f"trino.test.com:{TRINO_PORTS['HTTPS']}"
+    assert (
+        result_url == expected_external_url
+    ), f"Expected external URL '{expected_external_url}', got '{result_url}'"
+    logger.info(
+        "Verified requirer received external Trino URL: %s", result_url
+    )
+
+    # Clean up: remove nginx relation for subsequent tests
+    async with ops_test.fast_forward():
+        await ops_test.juju(
+            "remove-relation",
+            APP_NAME,
+            NGINX_NAME,
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
 
 
 @pytest.mark.abort_on_fail
