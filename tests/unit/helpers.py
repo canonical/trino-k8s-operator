@@ -132,7 +132,7 @@ def simulate_lifecycle_worker(harness):
     harness.handle_exec("trino", ["keytool"], result=0)
     harness.handle_exec("trino", ["htpasswd"], result=0)
     harness.handle_exec(
-        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
     )
     harness.update_config({"charm-function": "worker"})
 
@@ -210,7 +210,7 @@ def simulate_lifecycle_coordinator(harness):
     container = harness.model.unit.get_container("trino")
     harness.handle_exec("trino", ["htpasswd"], result=0)
     harness.handle_exec(
-        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
     )
     harness.charm.on.trino_pebble_ready.emit(container)
 

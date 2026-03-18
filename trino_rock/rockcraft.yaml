@@ -3,7 +3,7 @@
 
 name: trino
 base: ubuntu@24.04
-version: 468-24.04-edge
+version: 479-24.04-edge
 summary: Charmed TrinoROCK OCI
 description: |
   Trino is an ANSI SQL compliant query engine,
@@ -20,8 +20,8 @@ platforms:
 run_user: _daemon_
 
 environment:
-  JAVA_HOME: /usr/lib/jvm/java-23-openjdk-amd64
-  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/trino/bin:/usr/lib/jvm/java-23-openjdk-amd64/bin/ # yamllint disable-line
+  JAVA_HOME: /usr/lib/jvm/java-25-openjdk-amd64
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/trino/bin:/usr/lib/jvm/java-25-openjdk-amd64/bin/ # yamllint disable-line
 
 services:
   trino-server:
@@ -34,24 +34,24 @@ parts:
   trino:
     plugin: nil
     source: https://github.com/trinodb/trino.git
-    source-tag: "468"
+    source-tag: "479"
     source-type: git
     build-packages:
       - curl
       - maven
     build-environment:
-      - JAVA_HOME: /usr/lib/jvm/java-23-openjdk-amd64
-      - JAVA_URL: https://download.java.net/java/GA/jdk23.0.1/c28985cbf10d4e648e4004050f8781aa/11/GPL/openjdk-23.0.1_linux-x64_bin.tar.gz # yamllint disable-line
+      - JAVA_HOME: /usr/lib/jvm/java-25-openjdk-amd64
+      - JAVA_URL: https://download.java.net/java/GA/jdk25.0.1/2fbf10d8c78e40bd87641c434705079d/8/GPL/openjdk-25.0.1_linux-x64_bin.tar.gz # yamllint disable-line
     override-build: |
       # TODO: the following block can be removed when the ubuntu base
       # used for the rock supports the "openjdk-xx-jdk-headless"
       # corresponding to the java version used in Trino
-      curl ${JAVA_URL} --output jdk-23.0.1.tar.gz
+      curl ${JAVA_URL} --output jdk-25.0.1.tar.gz
       mkdir -p ${JAVA_HOME}
       mkdir -p ${CRAFT_PART_INSTALL}${JAVA_HOME}
-      tar -xzf jdk-23.0.1.tar.gz
-      cp -r jdk-23.0.1/* ${JAVA_HOME}
-      cp -r jdk-23.0.1/* ${CRAFT_PART_INSTALL}${JAVA_HOME}
+      tar -xzf jdk-25.0.1.tar.gz
+      cp -r jdk-25.0.1/* ${JAVA_HOME}
+      cp -r jdk-25.0.1/* ${CRAFT_PART_INSTALL}${JAVA_HOME}
       update-alternatives --install \
         /usr/bin/java java ${JAVA_HOME}/bin/java 1
       update-alternatives --install \
@@ -60,7 +60,7 @@ parts:
       update-alternatives --set javac ${JAVA_HOME}/bin/javac
 
       ./mvnw clean install -DskipTests -Dair.check.skip-all=true \
-        -pl '!:trino-server-rpm,!docs'
+        -pl '!docs'
 
       tar -xzf core/trino-server/target/trino-server-*.tar.gz \
         --directory=${CRAFT_PART_INSTALL} \
@@ -68,25 +68,6 @@ parts:
 
       cp client/trino-cli/target/trino-cli-*-executable.jar \
         ${CRAFT_PART_INSTALL}/trino-cli
-
-      # Fix CVE-2025-12383 by replacing jersey 3.1.9 with 3.1.10
-      JERSEY_VERSION="3.1.10"
-      JERSEY_BASE_URL="https://repo1.maven.org/maven2/org/glassfish/jersey"
-      
-      # Download and replace jersey-client
-      curl -L ${JERSEY_BASE_URL}/core/jersey-client/${JERSEY_VERSION}/jersey-client-${JERSEY_VERSION}.jar \
-        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-client-${JERSEY_VERSION}.jar
-      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-client-3.1.9.jar
-      
-      # Download and replace jersey-common
-      curl -L ${JERSEY_BASE_URL}/core/jersey-common/${JERSEY_VERSION}/jersey-common-${JERSEY_VERSION}.jar \
-        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-common-${JERSEY_VERSION}.jar
-      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-common-3.1.9.jar
-      
-      # Download and replace jersey-server
-      curl -L ${JERSEY_BASE_URL}/core/jersey-server/${JERSEY_VERSION}/jersey-server-${JERSEY_VERSION}.jar \
-        -o ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-server-${JERSEY_VERSION}.jar
-      rm -f ${CRAFT_PART_INSTALL}/lib/org.glassfish.jersey.core_jersey-server-3.1.9.jar
 
       mkdir -p \
         ${CRAFT_PART_INSTALL}/data/trino/var/run \
@@ -105,7 +86,7 @@ parts:
       plugin/postgresql: usr/lib/trino/plugin/postgresql
       plugin/prometheus: usr/lib/trino/plugin/prometheus
       plugin/redis: usr/lib/trino/plugin/redis
-      plugin/apache-ranger: usr/lib/trino/plugin/apache-ranger
+      plugin/ranger: usr/lib/trino/plugin/ranger
       plugin/hive: usr/lib/trino/plugin/hive
       plugin/geospatial: usr/lib/trino/plugin/geospatial
       trino-cli: usr/lib/trino/bin/trino-cli
@@ -191,25 +172,6 @@ parts:
       rockcraft.yaml: rockcraft.yaml
     stage:
       - rockcraft.yaml
-
-  # This is a workaround of an issue with ranger groups in trino 468
-  # The issue is tracked here:
-  # https://github.com/trinodb/trino/issues/24887
-  trino-patch:
-    plugin: nil
-    after: [local-files]
-    override-build: |
-      mkdir -p /usr/lib/trino/etc/
-      touch /usr/lib/trino/etc/ranger-trino-security.xml
-      touch /usr/lib/trino/etc/ranger-trino-audit.xml
-      mkdir -p usr/lib/trino/plugin/apache-ranger/conf
-      ln -s /usr/lib/trino/etc/ranger-trino-security.xml \
-        usr/lib/trino/plugin/apache-ranger/conf/ranger-trino-security.xml
-      ln -s /usr/lib/trino/etc/ranger-trino-audit.xml \
-        usr/lib/trino/plugin/apache-ranger/conf/ranger-trino-audit.xml
-      cp -r usr ${CRAFT_PART_INSTALL}/
-    stage:
-      - usr/lib/trino/plugin/apache-ranger/conf
 
   jmx-exporter:
     plugin: maven
