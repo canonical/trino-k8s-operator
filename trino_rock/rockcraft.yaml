@@ -186,20 +186,6 @@ parts:
     stage:
       - usr/lib/trino/lib/jmx_prometheus_javaagent.jar
 
-  promtail-bin:
-    plugin: dump
-    source: https://github.com/grafana/loki/releases/download/v2.7.5/promtail-linux-amd64.zip # yamllint disable-line
-    source-type: zip
-    organize:
-      promtail-linux-amd64: opt/promtail/promtail-static-amd64
-    stage:
-      - opt/promtail/promtail-static-amd64
-    permissions:
-      - path: opt/promtail
-        owner: 584792
-        group: 584792
-        mode: "755"
-
   package-management:
     plugin: nil
     after: [trino, local-files]
