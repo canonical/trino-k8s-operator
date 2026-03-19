@@ -35,7 +35,7 @@ TRINO_CONFIG = {
 async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
     await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", revision=34, trust=True
+        RANGER_NAME, channel="edge", revision=38, trust=True
     )
 
     async with ops_test.fast_forward():

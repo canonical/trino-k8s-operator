@@ -60,6 +60,7 @@ parts:
       update-alternatives --set javac ${JAVA_HOME}/bin/javac
 
       ./mvnw clean install -DskipTests -Dair.check.skip-all=true \
+        -Ddep.ranger.version=2.8.0 \
         -pl '!docs'
 
       tar -xzf core/trino-server/target/trino-server-*.tar.gz \
