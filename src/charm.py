@@ -227,14 +227,6 @@ class TrinoK8SCharm(CharmBase):
             except (PathError, yaml.YAMLError) as e:
                 logger.debug("Could not get workload version: %s", str(e))
 
-        # The catalogs created by the Postgres relations are also persisted as .properties files.
-        # The files are lost if Trino restarts so their tracked state has to be cleared on startup.
-        if self.state.is_ready() and self.config["charm-function"] in (
-            "coordinator",
-            "all",
-        ):
-            self.state.relation_catalogs = {}
-
         self._update(event)
 
     @log_event_handler(logger)
@@ -295,7 +287,7 @@ class TrinoK8SCharm(CharmBase):
                 return
 
         self.trino_catalog.update_all_relations()
-        self.postgresql_relation_handler.reconcile()
+        self.postgresql_relation_handler.reconcile(event)
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -327,7 +319,7 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
-            self.postgresql_relation_handler.reconcile()
+            self.postgresql_relation_handler.reconcile(event)
             self._restart_trino()
             return
 
@@ -562,7 +554,8 @@ class TrinoK8SCharm(CharmBase):
             ValueError: in case of invalid log configuration.
                         in case of web-proxy as empty string.
                         in case of invalid acl-mode-default value.
-            ScannerError: in case of incorrectly formatted catalog-config.
+                        in case of incorrectly formatted catalog-config.
+                        in case of incorrectly formatted postgresql-catalog-config.
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
 
@@ -586,7 +579,7 @@ class TrinoK8SCharm(CharmBase):
                 yaml.safe_load(catalogs)
             except Exception as e:
                 logger.debug(f"Incorrectly formatted catalog-config: {e}")
-                raise
+                raise ValueError("Incorrectly formatted catalog-config")
 
         pg_catalogs = self.config.get("postgresql-catalog-config")
         if pg_catalogs:
@@ -596,7 +589,9 @@ class TrinoK8SCharm(CharmBase):
                 logger.debug(
                     f"Incorrectly formatted postgresql-catalog-config: {e}"
                 )
-                raise
+                raise ValueError(
+                    "Incorrectly formatted postgresql-catalog-config"
+                )
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
@@ -672,8 +667,17 @@ class TrinoK8SCharm(CharmBase):
             ),
         }
 
-        # Merge PostgreSQL password secrets (set by PostgresqlRelationHandler)
-        pg_secrets = self.state.postgresql_secrets
+        # Merge PostgreSQL password env vars (derived at runtime)
+        if self.config["charm-function"] in ("coordinator", "all"):
+            pg_secrets = (
+                self.postgresql_relation_handler.get_postgresql_env_vars()
+            )
+        elif self.config["charm-function"] == "worker":
+            pg_secrets = (
+                self.trino_worker.get_postgresql_secrets_from_coordinator()
+            )
+        else:
+            pg_secrets = {}
         if pg_secrets:
             env.update(pg_secrets)
 

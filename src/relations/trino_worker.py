@@ -70,12 +70,6 @@ class TrinoWorker(Object):
         self.charm.state.user_secret_id = event_data.get("user-secret-id")
         self.charm.state.catalog_config = event_data.get("catalogs")
 
-        pg_secrets_raw = event_data.get("postgresql-secrets", "{}")
-        try:
-            self.charm.state.postgresql_secrets = json.loads(pg_secrets_raw)
-        except (json.JSONDecodeError, TypeError):
-            self.charm.state.postgresql_secrets = {}
-
         self.charm._update(event)
 
     def _on_relation_broken(self, event):
@@ -104,6 +98,24 @@ class TrinoWorker(Object):
         self.charm.state.catalog_config = ""
 
         self.charm._update(event)
+
+    def get_postgresql_secrets_from_coordinator(self) -> dict:
+        """Read PG password env vars from the coordinator relation databag.
+
+        Returns:
+            Dict mapping env var names to password values.
+        """
+        relations = self.charm.model.relations.get(self.relation_name, [])
+        for relation in relations:
+            for app in relation.data:
+                if app == self.charm.app:
+                    continue
+                raw = relation.data[app].get("postgresql-secrets", "{}")
+                try:
+                    return json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    return {}
+        return {}
 
     def _validate(self):
         """Check if the trino worker relation is available.

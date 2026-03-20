@@ -171,7 +171,7 @@ async def set_pg_config(ops_test, config_str):
     )
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, POSTGRES_NAME],
+            apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME],
             status="active",
             timeout=900,
         )
@@ -444,7 +444,7 @@ class TestPostgresqlRelation:
 
         async with ops_test.fast_forward():
             await ops_test.model.wait_for_idle(
-                apps=[APP_NAME, POSTGRES_NAME, "pg-second"],
+                apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME, "pg-second"],
                 status="active",
                 timeout=900,
             )
@@ -513,7 +513,7 @@ class TestPostgresqlRelation:
 
         async with ops_test.fast_forward():
             await ops_test.model.wait_for_idle(
-                apps=[APP_NAME],
+                apps=[APP_NAME, WORKER_NAME],
                 status="active",
                 timeout=600,
             )

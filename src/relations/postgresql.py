@@ -8,8 +8,8 @@ import json
 import logging
 from typing import Callable, Optional
 
-import httpx
 import pydantic
+import requests
 import yaml
 from ops import framework
 from ops.model import SecretNotFoundError
@@ -20,6 +20,7 @@ from utils import add_cert_to_truststore
 
 REQUESTED_SECRETS = ["username", "password", "tls", "tls-ca"]
 PASS_ENV_VAR_PREFIX = "PG_PASS_"  # nosec
+DYNAMIC_CATALOG_MARKER = "dynamic catalog"
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation created event.
         """
-        self.reconcile()
+        self.reconcile(event)
 
     @log_event_handler(logger)
     def _on_relation_changed(self, event):
@@ -170,7 +171,7 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation changed event.
         """
-        self.reconcile()
+        self.reconcile(event)
 
     @log_event_handler(logger)
     def _on_relation_broken(self, event):
@@ -179,18 +180,22 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation broken event.
         """
-        self.reconcile()
+        self.reconcile(event)
 
-    def reconcile(self):
+    def reconcile(self, event=None):
         """Reconcile wanted vs tracked catalog state via CREATE/DROP CATALOG.
 
         Compares what catalogs should exist (from relations and config) against
-        what was previously created (tracked in peer data), then issues
-        CREATE/DROP CATALOG SQL to correct any discrepancies.
+        what currently exists on disk (`.properties` files with the dynamic
+        catalog marker), then issues CREATE/DROP CATALOG SQL to correct
+        discrepancies.
 
-        Before issuing SQL statements, ensures pebble env vars carry the current
-        passwords so that ``${ENV:…}`` references in CREATE CATALOG resolve
-        correctly.  Only restarts Trino when an env var is missing or changed.
+        Before issuing SQL statements, ensures pebble env vars carry the
+        current passwords so that ``${ENV:…}`` references in CREATE CATALOG
+        resolve correctly.  Delegates replanning to ``self.charm._update()``.
+
+        Args:
+            event: The Juju event that triggered reconciliation (optional).
         """
         if not self.charm.unit.is_leader():
             return
@@ -201,18 +206,15 @@ class PostgresqlRelationHandler(framework.Object):
         self._write_databag()
 
         wanted_catalogs, wanted_envs = self._compute_wanted_catalogs()
-        tracked_catalogs = self.charm.state.relation_catalogs or {}
+        self._current_wanted_envs = wanted_envs
+        tracked_catalogs = self._read_tracked_catalogs()
 
-        # Persist password secrets in state so _create_environment()
-        # includes them in the pebble layer for both coordinator and worker.
-        old_secrets = self.charm.state.postgresql_secrets or {}
-        new_secrets = wanted_envs or {}
-        self.charm.state.postgresql_secrets = new_secrets
-
-        # Propagate secret changes: replan coordinator and notify workers
-        if new_secrets != old_secrets:
-            self._replan_with_updated_env()
+        # Replan if password env vars changed so ${ENV:…} references resolve
+        if self._env_vars_changed(wanted_envs):
+            self.charm._update(event)
             self.charm.trino_coordinator.update_coordinator_relation_data()
+
+        self._current_wanted_envs = None
 
         if not self._is_trino_reachable():
             logger.error("Trino not reachable, skipping reconciliation")
@@ -223,36 +225,141 @@ class PostgresqlRelationHandler(framework.Object):
             logger.info("Dropping relation catalog %r", name)
             self._drop_catalog(name)
 
-        # CREATE or UPDATE catalogs
-        failed = set()
+        # CREATE new catalogs and UPDATE changed ones (drop + re-create)
         for name, props in wanted_catalogs.items():
             props_hash = self._hash_properties(props)
             tracked_hash = tracked_catalogs.get(name)
+
+            # Already up-to-date
             if tracked_hash == props_hash:
                 continue
-            if name in tracked_catalogs:
-                logger.info("Updating relation catalog %r", name)
-                self._drop_catalog(name)
-            else:
-                logger.info("Creating relation catalog %r", name)
-            if not self._create_catalog(name, props):
-                failed.add(name)
 
-        # Update tracked state excluding catalogs that failed to create
-        self.charm.state.relation_catalogs = {
-            name: self._hash_properties(props)
-            for name, props in wanted_catalogs.items()
-            if name not in failed
-        }
+            is_update = name in tracked_catalogs
+            action = "Updating" if is_update else "Creating"
+            logger.info("%s relation catalog %r", action, name)
+
+            # Trino has no ALTER CATALOG; drop first then re-create
+            if is_update:
+                self._drop_catalog(name)
+            self._create_catalog(name, props)
 
     def get_postgresql_relation_catalogs(self) -> list:
-        """Return tracked catalog names managed by this handler.
+        """Return catalog names managed by this handler.
+
+        Reads `.properties` files from the catalog directory and returns
+        names of catalogs that contain the dynamic catalog marker.
 
         Returns:
             List of catalog name strings.
         """
-        tracked_catalogs = self.charm.state.relation_catalogs or {}
-        return list(tracked_catalogs.keys())
+        return list(self._read_tracked_catalogs().keys())
+
+    def get_postgresql_env_vars(self) -> dict:
+        """Return password env vars derived from PG relations.
+
+        If called during a ``reconcile()`` run, returns the cached value
+        to avoid recomputing.  Otherwise computes fresh from relations.
+
+        Returns:
+            Dict mapping env var names to password values.
+        """
+        if getattr(self, "_current_wanted_envs", None) is not None:
+            return self._current_wanted_envs
+        if self.charm.config["charm-function"] not in (
+            "coordinator",
+            "all",
+        ):
+            return {}
+        _, env_vars = self._compute_wanted_catalogs()
+        return env_vars
+
+    def _read_tracked_catalogs(self) -> dict:
+        """Read dynamic catalogs from `.properties` files on disk.
+
+        Scans the catalog directory for `.properties` files that contain
+        the ``query.comment-format=dynamic catalog`` marker and returns
+        a dict of catalog names to property hashes.
+
+        Returns:
+            Dict mapping catalog name to SHA-256 hash of its properties.
+        """
+        container = self.charm.unit.get_container(self.charm.name)
+        if not container.can_connect():
+            return {}
+
+        catalog_dir = str(self.charm.catalog_abs_path)
+        try:
+            files = container.list_files(catalog_dir)
+        except Exception:
+            return {}
+
+        tracked = {}
+        for f in files:
+            if not f.name.endswith(".properties"):
+                continue
+            try:
+                raw = container.pull(f"{catalog_dir}/{f.name}").read()
+                props = self._parse_properties(raw)
+                if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
+                    catalog_name = f.name[: -len(".properties")]
+                    tracked[catalog_name] = self._hash_properties(props)
+            except Exception:
+                continue
+        return tracked
+
+    def _env_vars_changed(self, wanted_envs) -> bool:
+        """Check if PG password env vars differ from the current pebble plan.
+
+        Args:
+            wanted_envs: Dict of wanted env var names to values.
+
+        Returns:
+            True if any PG password env var is missing or changed.
+        """
+        container = self.charm.unit.get_container(self.charm.name)
+        if not container.can_connect():
+            return bool(wanted_envs)
+
+        try:
+            plan = container.get_plan().to_dict()
+            services = plan.get("services", {})
+            current_env = services.get(self.charm.name, {}).get(
+                "environment", {}
+            )
+        except Exception:
+            return bool(wanted_envs)
+
+        current_pg = {
+            k: v
+            for k, v in current_env.items()
+            if k.startswith(PASS_ENV_VAR_PREFIX)
+        }
+        return current_pg != (wanted_envs or {})
+
+    @staticmethod
+    def _parse_properties(raw: str) -> dict:
+        """Parse a Java `.properties` file into a dict.
+
+        Handles backslash-escaped colons and equals signs that Trino
+        writes when persisting dynamic catalogs.
+
+        Args:
+            raw: The raw file content.
+
+        Returns:
+            Dict of property key-value pairs.
+        """
+        props = {}
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # Java properties use first unescaped = or : as separator
+            line = line.replace("\\:", ":").replace("\\=", "=")
+            if "=" in line:
+                k, v = line.split("=", 1)
+                props[k.strip()] = v.strip()
+        return props
 
     def _write_databag(self):
         """Write database and requested-secrets for relations missing them."""
@@ -284,12 +391,17 @@ class PostgresqlRelationHandler(framework.Object):
         """
         raw = self.charm.config.get("postgresql-catalog-config")
         if not raw:
+            logger.debug("No postgresql-catalog-config set")
             return None
         config = yaml.safe_load(raw)
         if not isinstance(config, dict):
             return None
         entry = config.get(relation.app.name)
         if entry is None:
+            logger.debug(
+                "No postgresql-catalog-config entry for %r",
+                relation.app.name,
+            )
             return None
         if not self._validate_config_entry(entry, relation.app.name):
             return None
@@ -367,14 +479,22 @@ class PostgresqlRelationHandler(framework.Object):
             # RO catalog (mandatory)
             ro_name = config_entry["ro_catalog_name"]
             catalogs[ro_name] = self._build_catalog_props(
-                pg, database, config_entry, relation.id, "preferSecondary"
+                pg=pg,
+                database=database,
+                config_entry=config_entry,
+                relation_id=relation.id,
+                target_server_type="preferSecondary",
             )
 
             # RW catalog (optional)
             rw_name = config_entry.get("rw_catalog_name")
             if rw_name:
                 catalogs[rw_name] = self._build_catalog_props(
-                    pg, database, config_entry, relation.id, "primary"
+                    pg=pg,
+                    database=database,
+                    config_entry=config_entry,
+                    relation_id=relation.id,
+                    target_server_type="primary",
                 )
 
         return catalogs, env_vars
@@ -422,6 +542,7 @@ class PostgresqlRelationHandler(framework.Object):
             "connection-url": url,
             "connection-user": pg.username,
             "connection-password": f"${{ENV:{_env_var_name(database)}}}",
+            "query.comment-format": DYNAMIC_CATALOG_MARKER,
         }
 
         # Parse extra config lines (key=value format)
@@ -491,30 +612,6 @@ class PostgresqlRelationHandler(framework.Object):
                 "Failed to import TLS cert for relation %s: %s", relation_id, e
             )
 
-    def _replan_with_updated_env(self):
-        """Replan the coordinator so secret changes take effect."""
-        container = self.charm.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            return
-
-        env = self.charm._create_environment()
-        container.add_layer(
-            self.charm.name,
-            {
-                "services": {
-                    self.charm.name: {
-                        "override": "merge",
-                        "environment": env,
-                    }
-                }
-            },
-            combine=True,
-        )
-        container.replan()
-        logger.info(
-            "Replanned to update PostgreSQL password environment variables"
-        )
-
     def _is_trino_reachable(self) -> bool:
         """Check if Trino is reachable via HTTP.
 
@@ -522,7 +619,7 @@ class PostgresqlRelationHandler(framework.Object):
             True if Trino responds to a health check.
         """
         try:
-            resp = httpx.get("http://localhost:8080/v1/info", timeout=5.0)
+            resp = requests.get("http://localhost:8080/v1/info", timeout=5.0)
             return resp.status_code == 200
         except Exception:
             return False
@@ -566,9 +663,9 @@ class PostgresqlRelationHandler(framework.Object):
         user = self._get_trino_user()
         headers = {"X-Trino-User": user}
 
-        resp = httpx.post(
+        resp = requests.post(
             "http://localhost:8080/v1/statement",
-            content=sql,
+            data=sql,
             headers=headers,
             timeout=30.0,
         )
@@ -577,7 +674,7 @@ class PostgresqlRelationHandler(framework.Object):
 
         # Follow nextUri until completion
         while "nextUri" in data:
-            resp = httpx.get(data["nextUri"], headers=headers, timeout=30.0)
+            resp = requests.get(data["nextUri"], headers=headers, timeout=30.0)
             resp.raise_for_status()
             data = resp.json()
             if "error" in data:
@@ -585,30 +682,38 @@ class PostgresqlRelationHandler(framework.Object):
                     f"Trino SQL error: {data['error'].get('message', data['error'])}"
                 )
 
-    def _create_catalog(self, name, properties) -> bool:
+    def _create_catalog(self, name, properties):
         """Create a Trino catalog via SQL.
+
+        Args:
+            name: The catalog name.
+            properties: Dict of catalog properties.
+        """
+        sql = self._build_catalog_sql(name, properties)
+        try:
+            self._execute_sql(sql)
+            logger.info("Created catalog %r", name)
+        except Exception as e:
+            logger.error("Failed to create catalog %r: %s", name, e)
+
+    @staticmethod
+    def _build_catalog_sql(name, properties) -> str:
+        """Build a CREATE CATALOG SQL statement.
 
         Args:
             name: The catalog name.
             properties: Dict of catalog properties.
 
         Returns:
-            True if the catalog was created successfully.
+            The SQL string.
         """
         props_sql = ",\n  ".join(
             f"\"{k}\" = '{v}'" for k, v in properties.items()
         )
-        sql = (
+        return (
             f'CREATE CATALOG "{name}" USING postgresql\n'
             f"WITH (\n  {props_sql}\n)"
         )
-        try:
-            self._execute_sql(sql)
-            logger.info("Created catalog %r", name)
-            return True
-        except Exception as e:
-            logger.error("Failed to create catalog %r: %s", name, e)
-            return False
 
     def _drop_catalog(self, name):
         """Drop a Trino catalog via SQL.

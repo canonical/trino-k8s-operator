@@ -413,6 +413,13 @@ Removing a static catalog from `catalog-config` does not affect relation-managed
 
 If PostgreSQL rotates credentials, Trino automatically detects the change and recreates the affected catalogs with the new credentials. No manual intervention is required.
 
+### Authorization
+
+The charm manages catalogs via Trino's HTTP API on `localhost:8080`. Authentication is bypassed over HTTP (`allow-insecure-over-http=true`), but authorization still applies:
+
+- **Without Ranger**: the file-based ACL (`acl-mode-default=owner`) grants catalog management to the catalog owner. The charm uses the first user from `user-secret-id`, or falls back to the default credentials.
+- **With Ranger**: the user must have `CREATE`/`DROP` catalog permissions configured in Ranger policies.
+
 ### TLS
 
 SSL parameters are auto-deduced from the PostgreSQL provider's TLS data:
