@@ -18,15 +18,19 @@ class TestEnvVarName(TestCase):
     """Tests for the _env_var_name helper."""
 
     def test_simple_name(self):
+        """Verify simple database name is uppercased with prefix."""
         self.assertEqual(_env_var_name("mydb"), "PG_PASS_MYDB")
 
     def test_hyphen_replaced(self):
+        """Verify hyphens are replaced with underscores."""
         self.assertEqual(_env_var_name("my-db"), "PG_PASS_MY_DB")
 
     def test_already_uppercase(self):
+        """Verify already uppercase name is unchanged."""
         self.assertEqual(_env_var_name("MYDB"), "PG_PASS_MYDB")
 
     def test_mixed_case_with_hyphens(self):
+        """Verify mixed case with hyphens is normalized."""
         self.assertEqual(_env_var_name("My-Cool-Db"), "PG_PASS_MY_COOL_DB")
 
 
@@ -34,11 +38,13 @@ class TestParseProperties(TestCase):
     """Tests for _parse_properties static method."""
 
     def test_simple(self):
+        """Verify simple key=value parsing."""
         raw = "key=value\nfoo=bar"
         result = PostgresqlRelationHandler._parse_properties(raw)
         self.assertEqual(result, {"key": "value", "foo": "bar"})
 
     def test_escaped_colon_and_equals(self):
+        """Verify Trino-style escaped colons and equals are unescaped."""
         # Trino escapes : and = in property keys/values
         raw = r"connection\=url\:jdbc\:postgresql\://host\:5432/db"
         # After unescaping: connection=url:jdbc:postgresql://host:5432/db
@@ -50,11 +56,13 @@ class TestParseProperties(TestCase):
         )
 
     def test_comments_and_blanks_skipped(self):
+        """Verify comments and blank lines are ignored."""
         raw = "# comment\n\nkey=value\n  \n# another"
         result = PostgresqlRelationHandler._parse_properties(raw)
         self.assertEqual(result, {"key": "value"})
 
     def test_value_with_equals(self):
+        """Verify values containing equals signs are preserved."""
         raw = "url=jdbc:postgresql://host:5432/db?a=1&b=2"
         result = PostgresqlRelationHandler._parse_properties(raw)
         self.assertEqual(
@@ -62,11 +70,13 @@ class TestParseProperties(TestCase):
         )
 
     def test_whitespace_trimmed(self):
+        """Verify surrounding whitespace is trimmed."""
         raw = "  key  =  value  "
         result = PostgresqlRelationHandler._parse_properties(raw)
         self.assertEqual(result, {"key": "value"})
 
     def test_empty_string(self):
+        """Verify empty input returns empty dict."""
         result = PostgresqlRelationHandler._parse_properties("")
         self.assertEqual(result, {})
 
@@ -75,17 +85,20 @@ class TestHashProperties(TestCase):
     """Tests for _hash_properties static method."""
 
     def test_deterministic(self):
+        """Verify same input produces same hash."""
         props = {"b": "2", "a": "1"}
         h1 = PostgresqlRelationHandler._hash_properties(props)
         h2 = PostgresqlRelationHandler._hash_properties(props)
         self.assertEqual(h1, h2)
 
     def test_order_independent(self):
+        """Verify key insertion order does not affect hash."""
         h1 = PostgresqlRelationHandler._hash_properties({"a": "1", "b": "2"})
         h2 = PostgresqlRelationHandler._hash_properties({"b": "2", "a": "1"})
         self.assertEqual(h1, h2)
 
     def test_different_values_differ(self):
+        """Verify different values produce different hashes."""
         h1 = PostgresqlRelationHandler._hash_properties({"a": "1"})
         h2 = PostgresqlRelationHandler._hash_properties({"a": "2"})
         self.assertNotEqual(h1, h2)
@@ -95,6 +108,7 @@ class TestBuildCatalogSql(TestCase):
     """Tests for _build_catalog_sql static method."""
 
     def test_simple(self):
+        """Verify basic CREATE CATALOG SQL generation."""
         sql = PostgresqlRelationHandler._build_catalog_sql(
             "mycat", {"connection-url": "jdbc:postgresql://host/db"}
         )
@@ -102,6 +116,7 @@ class TestBuildCatalogSql(TestCase):
         self.assertIn("\"connection-url\" = 'jdbc:postgresql://host/db'", sql)
 
     def test_multiple_properties(self):
+        """Verify multiple properties are included in SQL."""
         props = {
             "connection-url": "jdbc:postgresql://host/db",
             "connection-user": "admin",
@@ -111,6 +126,7 @@ class TestBuildCatalogSql(TestCase):
         self.assertIn('"connection-user"', sql)
 
     def test_marker_property_included(self):
+        """Verify dynamic catalog marker is included in SQL."""
         props = {
             "connection-url": "jdbc:postgresql://host/db",
             "query.comment-format": DYNAMIC_CATALOG_MARKER,
@@ -123,6 +139,7 @@ class TestBuildJdbcUrl(TestCase):
     """Tests for _build_jdbc_url (requires minimal mocking)."""
 
     def _make_pg(self, all_endpoints, tls=False, tls_ca=None):
+        """Create a mock PostgresRelationModel."""
         pg = mock.MagicMock()
         pg.all_endpoints = all_endpoints
         pg.tls = tls
@@ -130,6 +147,7 @@ class TestBuildJdbcUrl(TestCase):
         return pg
 
     def _make_handler(self):
+        """Create a mock PostgresqlRelationHandler."""
         handler = mock.MagicMock()
         handler._build_jdbc_url = (
             PostgresqlRelationHandler._build_jdbc_url.__get__(handler)
@@ -138,6 +156,7 @@ class TestBuildJdbcUrl(TestCase):
         return handler
 
     def test_no_tls(self):
+        """Verify JDBC URL without TLS includes ssl=false."""
         handler = self._make_handler()
         pg = self._make_pg("host1,host2:5432")
         url = handler._build_jdbc_url(pg, "mydb", 1, "preferSecondary")
@@ -148,6 +167,7 @@ class TestBuildJdbcUrl(TestCase):
         )
 
     def test_tls_without_ca(self):
+        """Verify TLS without CA cert does not set sslrootcert."""
         handler = self._make_handler()
         pg = self._make_pg("host:5432", tls=True)
         url = handler._build_jdbc_url(pg, "mydb", 1, "primary")
@@ -157,6 +177,7 @@ class TestBuildJdbcUrl(TestCase):
         handler._import_tls_cert.assert_not_called()
 
     def test_tls_with_ca(self):
+        """Verify TLS with CA cert imports cert and sets sslrootcert."""
         handler = self._make_handler()
         pg = self._make_pg("host:5432", tls=True, tls_ca="BEGIN CERT...")
         url = handler._build_jdbc_url(pg, "mydb", 1, "primary")

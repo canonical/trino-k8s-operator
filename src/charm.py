@@ -287,7 +287,7 @@ class TrinoK8SCharm(CharmBase):
                 return
 
         self.trino_catalog.update_all_relations()
-        self.postgresql_relation_handler.reconcile(event)
+        self.postgresql_relation_handler.reconcile_postgresql_catalogs(event)
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -319,7 +319,9 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
-            self.postgresql_relation_handler.reconcile(event)
+            self.postgresql_relation_handler.reconcile_postgresql_catalogs(
+                event
+            )
             self._restart_trino()
             return
 
@@ -579,7 +581,9 @@ class TrinoK8SCharm(CharmBase):
                 yaml.safe_load(catalogs)
             except Exception as e:
                 logger.debug(f"Incorrectly formatted catalog-config: {e}")
-                raise ValueError("Incorrectly formatted catalog-config")
+                raise ValueError(  # pylint: disable=raise-missing-from
+                    "Incorrectly formatted catalog-config"
+                )
 
         pg_catalogs = self.config.get("postgresql-catalog-config")
         if pg_catalogs:
@@ -589,7 +593,7 @@ class TrinoK8SCharm(CharmBase):
                 logger.debug(
                     f"Incorrectly formatted postgresql-catalog-config: {e}"
                 )
-                raise ValueError(
+                raise ValueError(  # pylint: disable=raise-missing-from
                     "Incorrectly formatted postgresql-catalog-config"
                 )
 

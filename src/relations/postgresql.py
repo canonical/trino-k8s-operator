@@ -141,6 +141,7 @@ class PostgresqlRelationHandler(framework.Object):
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
+        self._current_wanted_envs = None
 
         self.framework.observe(
             charm.on[self.relation_name].relation_created,
@@ -162,7 +163,7 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation created event.
         """
-        self.reconcile(event)
+        self.reconcile_postgresql_catalogs(event)
 
     @log_event_handler(logger)
     def _on_relation_changed(self, event):
@@ -171,7 +172,7 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation changed event.
         """
-        self.reconcile(event)
+        self.reconcile_postgresql_catalogs(event)
 
     @log_event_handler(logger)
     def _on_relation_broken(self, event):
@@ -180,9 +181,9 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The relation broken event.
         """
-        self.reconcile(event)
+        self.reconcile_postgresql_catalogs(event)
 
-    def reconcile(self, event=None):
+    def reconcile_postgresql_catalogs(self, event=None):
         """Reconcile wanted vs tracked catalog state via CREATE/DROP CATALOG.
 
         Compares what catalogs should exist (from relations and config) against
@@ -209,6 +210,13 @@ class PostgresqlRelationHandler(framework.Object):
         self._current_wanted_envs = wanted_envs
         tracked_catalogs = self._read_tracked_catalogs()
 
+        # DROP catalogs that should no longer exist before any replan
+        to_drop = set(tracked_catalogs) - set(wanted_catalogs)
+        if to_drop and self._is_trino_reachable():
+            for name in to_drop:
+                logger.info("Dropping relation catalog %r", name)
+                self._drop_catalog(name)
+
         # Replan if password env vars changed so ${ENV:…} references resolve
         if self._env_vars_changed(wanted_envs):
             self.charm._update(event)
@@ -219,11 +227,6 @@ class PostgresqlRelationHandler(framework.Object):
         if not self._is_trino_reachable():
             logger.error("Trino not reachable, skipping reconciliation")
             return
-
-        # DROP catalogs that should no longer exist
-        for name in set(tracked_catalogs) - set(wanted_catalogs):
-            logger.info("Dropping relation catalog %r", name)
-            self._drop_catalog(name)
 
         # CREATE new catalogs and UPDATE changed ones (drop + re-create)
         for name, props in wanted_catalogs.items():
@@ -302,8 +305,9 @@ class PostgresqlRelationHandler(framework.Object):
                 props = self._parse_properties(raw)
                 if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
                     catalog_name = f.name[: -len(".properties")]
+                    props.pop("connector.name", None)
                     tracked[catalog_name] = self._hash_properties(props)
-            except Exception:
+            except Exception:  # nosec B112
                 continue
         return tracked
 
