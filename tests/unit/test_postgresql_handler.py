@@ -7,6 +7,7 @@
 
 from unittest import TestCase, mock
 
+from charm import TrinoK8SCharm
 from relations.postgresql import (
     DYNAMIC_CATALOG_MARKER,
     PostgresqlRelationHandler,
@@ -184,3 +185,88 @@ class TestBuildJdbcUrl(TestCase):
         self.assertIn("ssl=true", url)
         self.assertIn("sslrootcert=/path/to/truststore", url)
         handler._import_tls_cert.assert_called_once_with(1, "BEGIN CERT...")
+
+
+class TestCheckCatalogNameConflicts(TestCase):
+    """Tests for TrinoK8SCharm._check_catalog_name_conflicts."""
+
+    def _call(self, pg_config, static_catalogs=None):
+        """Call _check_catalog_name_conflicts with a mock self."""
+        charm = mock.MagicMock(spec=TrinoK8SCharm)
+        TrinoK8SCharm._check_catalog_name_conflicts(
+            charm, pg_config, static_catalogs or set()
+        )
+
+    def test_no_conflicts(self):
+        """Verify no error when all catalog names are unique."""
+        pg_config = {
+            "pg-app-a": {
+                "database_prefix": "db_a*",
+                "ro_catalog_name": "cat_a_ro",
+                "rw_catalog_name": "cat_a_rw",
+            },
+            "pg-app-b": {
+                "database_prefix": "db_b*",
+                "ro_catalog_name": "cat_b_ro",
+            },
+        }
+        self._call(pg_config)  # should not raise
+
+    def test_duplicate_ro_names(self):
+        """Verify error when two entries share the same ro_catalog_name."""
+        pg_config = {
+            "pg-app-a": {
+                "database_prefix": "db_a*",
+                "ro_catalog_name": "shared_name",
+            },
+            "pg-app-b": {
+                "database_prefix": "db_b*",
+                "ro_catalog_name": "shared_name",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self._call(pg_config)
+        self.assertIn("Duplicate", str(ctx.exception))
+        self.assertIn("shared_name", str(ctx.exception))
+
+    def test_ro_clashes_with_rw(self):
+        """Verify error when ro_catalog_name matches another entry's rw_catalog_name."""
+        pg_config = {
+            "pg-app-a": {
+                "database_prefix": "db_a*",
+                "ro_catalog_name": "clash",
+            },
+            "pg-app-b": {
+                "database_prefix": "db_b*",
+                "ro_catalog_name": "unique",
+                "rw_catalog_name": "clash",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self._call(pg_config)
+        self.assertIn("clash", str(ctx.exception))
+
+    def test_clashes_with_static_catalog(self):
+        """Verify error when a PG catalog name matches a static catalog."""
+        pg_config = {
+            "pg-app": {
+                "database_prefix": "db*",
+                "ro_catalog_name": "static_cat",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self._call(pg_config, static_catalogs={"static_cat"})
+        self.assertIn("clashes with catalog-config", str(ctx.exception))
+
+    def test_rw_clashes_with_static_catalog(self):
+        """Verify error when an rw_catalog_name matches a static catalog."""
+        pg_config = {
+            "pg-app": {
+                "database_prefix": "db*",
+                "ro_catalog_name": "unique_ro",
+                "rw_catalog_name": "static_cat",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self._call(pg_config, static_catalogs={"static_cat"})
+        self.assertIn("clashes with catalog-config", str(ctx.exception))

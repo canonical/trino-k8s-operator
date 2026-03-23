@@ -575,20 +575,25 @@ class TrinoK8SCharm(CharmBase):
                 f"Invalid acl-mode-default value: {acl_mode_default!r}"
             )
 
-        catalogs = self.config.get("catalog-config")
-        if catalogs:
+        catalog_config_raw = self.config.get("catalog-config")
+        static_catalogs = set()
+        if catalog_config_raw:
             try:
-                yaml.safe_load(catalogs)
+                catalog_config = yaml.safe_load(catalog_config_raw)
             except Exception as e:
                 logger.debug(f"Incorrectly formatted catalog-config: {e}")
                 raise ValueError(  # pylint: disable=raise-missing-from
                     "Incorrectly formatted catalog-config"
                 )
+            if isinstance(catalog_config, dict):
+                static_catalogs = set(
+                    catalog_config.get("catalogs", {}).keys()
+                )
 
-        pg_catalogs = self.config.get("postgresql-catalog-config")
-        if pg_catalogs:
+        pg_config_raw = self.config.get("postgresql-catalog-config")
+        if pg_config_raw:
             try:
-                yaml.safe_load(pg_catalogs)
+                pg_config = yaml.safe_load(pg_config_raw)
             except Exception as e:
                 logger.debug(
                     f"Incorrectly formatted postgresql-catalog-config: {e}"
@@ -596,6 +601,40 @@ class TrinoK8SCharm(CharmBase):
                 raise ValueError(  # pylint: disable=raise-missing-from
                     "Incorrectly formatted postgresql-catalog-config"
                 )
+            if isinstance(pg_config, dict):
+                self._check_catalog_name_conflicts(pg_config, static_catalogs)
+
+    def _check_catalog_name_conflicts(self, pg_config, static_catalogs):
+        """Check for duplicate catalog names in postgresql-catalog-config.
+
+        Ensures no two entries share a catalog name and no dynamic catalog
+        name clashes with a static catalog from catalog-config.
+
+        Args:
+            pg_config: Parsed postgresql-catalog-config dict.
+            static_catalogs: Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If a duplicate or clash is found.
+        """
+        seen = set()
+        for entry in pg_config.values():
+            if not isinstance(entry, dict):
+                continue
+            for key in ("ro_catalog_name", "rw_catalog_name"):
+                name = entry.get(key)
+                if not name:
+                    continue
+                if name in seen:
+                    raise ValueError(
+                        f"Duplicate catalog name in postgresql-catalog-config: {name!r}"
+                    )
+                if name in static_catalogs:
+                    raise ValueError(
+                        f"postgresql-catalog-config catalog {name!r} "
+                        f"clashes with catalog-config"
+                    )
+                seen.add(name)
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
