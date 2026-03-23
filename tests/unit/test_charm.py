@@ -132,6 +132,7 @@ class TestCharm(TestCase):
                         "OAUTH_USER_MAPPING": None,
                         "RANGER_RELATION": False,
                         "RESOURCE_GROUPS_CONFIG": None,
+                        "SESSION_PROPERTY_MANAGER_CONFIG": None,
                         "ACL_ACCESS_MODE": "all",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
@@ -240,6 +241,21 @@ class TestCharm(TestCase):
             self.harness.update_config(
                 {"catalog-config": "catalog: incorrect"}
             )
+
+    def test_session_property_manager_invalid_config(self):
+        """The charm blocks when the session property manager JSON is invalid."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        self.harness.update_config(
+            {"session-property-manager-config": '{"group":"broken"'}
+        )
+
+        self.assertIn(
+            "Expecting ',' delimiter",
+            harness.model.unit.status.message,
+        )
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
 
     def test_update_status_up(self):
         """The charm updates the unit status to active based on UP status."""
@@ -408,3 +424,47 @@ class TestCharm(TestCase):
         self.assertEqual(environment["QUERY_MAX_MEMORY"], "10GB")
         self.assertEqual(environment["QUERY_MAX_TOTAL_MEMORY"], "15GB")
         self.assertEqual(environment["MEMORY_HEAP_HEADROOM_PER_NODE"], "1GB")
+
+    def test_session_property_manager_files_created(self):
+        """The charm writes the session property manager files when configured."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        session_property_config = (
+            '[{"group":"global.*","sessionProperties":'
+            '{"query_max_execution_time":"8h"}}]'
+        )
+        harness.update_config(
+            {"session-property-manager-config": session_property_config}
+        )
+
+        container = harness.model.unit.get_container("trino")
+        properties_path = (
+            "/usr/lib/trino/etc/conf/session-property-config.properties"
+        )
+        json_path = "/usr/lib/trino/etc/session-property-config.json"
+
+        self.assertTrue(container.exists(properties_path))
+        self.assertTrue(container.exists(json_path))
+        self.assertEqual(
+            container.pull(json_path).read(), session_property_config
+        )
+
+    def test_session_property_manager_files_removed(self):
+        """The charm removes the session property manager files when unset."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        harness.update_config(
+            {"session-property-manager-config": '[{"user":"admin"}]'}
+        )
+        harness.update_config({"session-property-manager-config": ""})
+
+        container = harness.model.unit.get_container("trino")
+        properties_path = (
+            "/usr/lib/trino/etc/conf/session-property-config.properties"
+        )
+        json_path = "/usr/lib/trino/etc/session-property-config.json"
+
+        self.assertFalse(container.exists(properties_path))
+        self.assertFalse(container.exists(json_path))

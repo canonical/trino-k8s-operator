@@ -101,6 +101,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "OAUTH_USER_MAPPING": None,
                         "RANGER_RELATION": False,
                         "RESOURCE_GROUPS_CONFIG": None,
+                        "SESSION_PROPERTY_MANAGER_CONFIG": None,
                         "ACL_ACCESS_MODE": "all",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",

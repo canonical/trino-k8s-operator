@@ -64,8 +64,13 @@ options:
     description: |
       Resource groups configuration in JSON format defining the resource management rules 
       for queries. When set, Trino will use the resource-groups manager to control query 
-      execution based on the defined groups and selectors. If not provided, resource groups 
-      will not be enabled.
+      execution based on the defined groups and selectors.
+    type: string
+  session-property-manager-config:
+    description: |
+      Session property manager configuration in JSON format defining the match rules
+      and session properties to apply by default. When set, Trino will enable the
+      built-in file-based session property manager.
     type: string
   oauth-user-mapping:
     description: |

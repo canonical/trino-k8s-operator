@@ -540,6 +540,58 @@ class TrinoK8SCharm(CharmBase):
             content = render(template, env)
             container.push(path, content, make_dirs=True, permissions=0o644)
 
+    def _configure_file_based_manager(
+        self,
+        container,
+        env,
+        config_key,
+        template_name,
+        properties_filename,
+        config_filename,
+    ):
+        """Configure a file-based Trino manager from charm config.
+
+        Args:
+            container: The Trino container.
+            env: Environment variables for Jinja templating.
+            config_key: The charm config key holding the JSON configuration.
+            template_name: The template used to render the manager properties.
+            properties_filename: The properties file written under `conf/`.
+            config_filename: The JSON config file written under `TRINO_HOME`.
+        """
+        manager_config = self.config.get(config_key)
+        properties_path = self.conf_abs_path.joinpath(properties_filename)
+        config_path = self.trino_abs_path.joinpath(config_filename)
+
+        if manager_config:
+            properties_content = render(template_name, env)
+            container.push(
+                properties_path,
+                properties_content,
+                make_dirs=True,
+                permissions=0o644,
+            )
+            container.push(
+                config_path,
+                manager_config,
+                make_dirs=True,
+                permissions=0o644,
+            )
+            logger.info("%s configuration applied", config_key)
+            return
+
+        try:
+            container.remove_path(properties_path)
+            logger.info("%s properties removed", config_key)
+        except PathError:
+            pass
+
+        try:
+            container.remove_path(config_path)
+            logger.info("%s configuration removed", config_key)
+        except PathError:
+            pass
+
     def _configure_resource_groups(self, container, env):
         """Configure resource groups if provided.
 
@@ -547,52 +599,31 @@ class TrinoK8SCharm(CharmBase):
             container: The Trino container.
             env: Environment variables containing resource groups config.
         """
-        resource_groups_config = self.config.get("resource-groups-config")
+        self._configure_file_based_manager(
+            container=container,
+            env=env,
+            config_key="resource-groups-config",
+            template_name="resource-groups.jinja",
+            properties_filename="resource-groups.properties",
+            config_filename="resource-groups.json",
+        )
 
-        if resource_groups_config:
-            # Push resource-groups.properties file
-            properties_content = render("resource-groups.jinja", env)
-            properties_path = self.conf_abs_path.joinpath(
-                "resource-groups.properties"
-            )
-            container.push(
-                properties_path,
-                properties_content,
-                make_dirs=True,
-                permissions=0o644,
-            )
+    def _configure_session_property_manager(self, container, env):
+        """Configure the session property manager if provided.
 
-            # Write resource-groups.json file
-            path = self.trino_abs_path.joinpath("resource-groups.json")
-            container.push(
-                path,
-                json.loads(resource_groups_config),
-                make_dirs=True,
-                permissions=0o644,
-            )
-            logger.info("Resource groups configuration applied")
-        else:
-            # Remove resource-groups.properties if it exists and config is not provided
-            properties_path = self.conf_abs_path.joinpath(
-                "resource-groups.properties"
-            )
-            try:
-                container.remove_path(properties_path)
-                logger.info("Resource groups properties removed")
-            except PathError:
-                # File doesn't exist, which is fine
-                pass
-
-            # Remove resource-groups.json if it exists and config is not provided
-            resource_groups_path = self.trino_abs_path.joinpath(
-                "resource-groups.json"
-            )
-            try:
-                container.remove_path(resource_groups_path)
-                logger.info("Resource groups configuration removed")
-            except PathError:
-                # File doesn't exist, which is fine
-                pass
+        Args:
+            container: The Trino container.
+            env: Environment variables containing session property manager
+                config.
+        """
+        self._configure_file_based_manager(
+            container=container,
+            env=env,
+            config_key="session-property-manager-config",
+            template_name="session-property-config.jinja",
+            properties_filename="session-property-config.properties",
+            config_filename="session-property-config.json",
+        )
 
     def _validate_config_params(self):
         """Validate that configuration is valid.
@@ -634,6 +665,19 @@ class TrinoK8SCharm(CharmBase):
             except Exception as e:
                 logger.debug(
                     f"Incorrectly formatted resource-groups-config: {e}"
+                )
+                raise
+
+        session_property_manager = self.config.get(
+            "session-property-manager-config"
+        )
+        if session_property_manager:
+            try:
+                json.loads(session_property_manager)
+            except Exception as e:
+                logger.debug(
+                    "Incorrectly formatted "
+                    f"session-property-manager-config: {e}"
                 )
                 raise
 
@@ -712,6 +756,9 @@ class TrinoK8SCharm(CharmBase):
             "RESOURCE_GROUPS_CONFIG": self.config.get(
                 "resource-groups-config"
             ),
+            "SESSION_PROPERTY_MANAGER_CONFIG": self.config.get(
+                "session-property-manager-config"
+            ),
         }
         return env
 
@@ -745,6 +792,7 @@ class TrinoK8SCharm(CharmBase):
         env = self._create_environment()
         self._configure_trino(container, env)
         self._configure_resource_groups(container, env)
+        self._configure_session_property_manager(container, env)
 
         try:
             self._update_password_db(event)

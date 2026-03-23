@@ -196,6 +196,91 @@ The catalog-config can be applied with the following:
 ```
 juju config trino-k8s catalog-config=@catalog_config.yaml
 ```
+
+### Resource group manager
+
+Trino's built-in file-based resource group manager can be enabled with the
+`resource-groups-config` charm config. The value must be JSON matching the
+resource group manager format documented [here](https://trino.io/docs/current/admin/resource-groups.html).
+
+Example `resource_groups.json`:
+
+```json
+{
+  "rootGroups": [
+    {
+      "name": "global",
+      "softMemoryLimit": "80%",
+      "maxQueued": 1000,
+      "hardConcurrencyLimit": 100,
+      "subGroups": [
+        {
+          "name": "interactive",
+          "softMemoryLimit": "50%",
+          "hardConcurrencyLimit": 50,
+          "maxQueued": 500
+        },
+        {
+          "name": "pipeline",
+          "softMemoryLimit": "30%",
+          "hardConcurrencyLimit": 20,
+          "maxQueued": 100
+        }
+      ]
+    }
+  ],
+  "selectors": [
+    {
+      "user": ".*",
+      "group": "global.interactive"
+    },
+    {
+      "clientTags": ["etl"],
+      "group": "global.pipeline"
+    }
+  ]
+}
+```
+
+Apply it with:
+
+```bash
+juju config trino-k8s resource-groups-config=@resource_groups.json
+```
+
+### Session property manager
+
+Trino's built-in file-based session property manager can be enabled with the
+`session-property-manager-config` charm config. The value must be a JSON array
+of match rules, following the Trino documentation [here](https://trino.io/docs/current/admin/session-property-managers.html).
+
+Example `session_property_manager.json`:
+
+```json
+[
+  {
+    "group": "global.*",
+    "sessionProperties": {
+      "query_max_execution_time": "8h"
+    }
+  },
+  {
+    "group": "global.pipeline.*",
+    "clientTags": ["etl"],
+    "sessionProperties": {
+      "scale_writers": "true",
+      "hive.insert_existing_partitions_behavior": "overwrite"
+    }
+  }
+]
+```
+
+Apply it with:
+
+```bash
+juju config trino-k8s session-property-manager-config=@session_property_manager.json
+```
+
 ### Additional information for Google sheets connector
 For the google sheets connector it is worth noting that the sheet that is connected to Trino is not the sheet with the data, but rather a metadata sheet following [this format](https://docs.google.com/spreadsheets/d/1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM/edit?gid=0#gid=0). This sheet serves the purpose of mapping other google sheets by id to Trino tables.
 
