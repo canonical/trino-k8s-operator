@@ -68,16 +68,9 @@ async def deploy_policy_engine(ops_test: OpsTest):
 
     logger.info("Integrating Ranger and PostgreSQL.")
     await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+    time.sleep(60)
     async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[POSTGRES_NAME, RANGER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            raise_on_error=False,
-            timeout=2000,
-        )
         await resolve_ranger_errors(ops_test)
-
         await ops_test.model.wait_for_idle(
             apps=[POSTGRES_NAME, RANGER_NAME],
             status="active",
@@ -108,10 +101,8 @@ class TestPolicyManager:
                 apps=[APP_NAME],
                 status="active",
                 raise_on_blocked=False,
-                raise_on_error=False,
                 timeout=2000,
             )
-            await resolve_ranger_errors(ops_test)
 
         logger.info("Creating test user.")
         url = await get_unit_url(
@@ -122,21 +113,15 @@ class TestPolicyManager:
         # Integrate Trino and Ranger.
         logger.info("Integrating Trino and Ranger.")
         await ops_test.model.integrate(RANGER_NAME, APP_NAME)
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, RANGER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            raise_on_error=False,
-            timeout=2000,
-        )
-        await resolve_ranger_errors(ops_test)
-
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, RANGER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
+        time.sleep(30)
+        async with ops_test.fast_forward():
+            await resolve_ranger_errors(ops_test)
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME, RANGER_NAME],
+                status="active",
+                raise_on_blocked=False,
+                timeout=2000,
+            )
 
         logging.info("update default policies to authorize the new user")
         await update_policies(url)
