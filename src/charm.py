@@ -556,11 +556,12 @@ class TrinoK8SCharm(CharmBase):
             env: Environment variables for Jinja templating.
             config_key: The charm config key holding the JSON configuration.
             template_name: The template used to render the manager properties.
-            properties_filename: The properties file written under `conf/`.
+            properties_filename: The properties file written under
+                `TRINO_HOME`.
             config_filename: The JSON config file written under `TRINO_HOME`.
         """
         manager_config = self.config.get(config_key)
-        properties_path = self.conf_abs_path.joinpath(properties_filename)
+        properties_path = self.trino_abs_path.joinpath(properties_filename)
         config_path = self.trino_abs_path.joinpath(config_filename)
 
         if manager_config:

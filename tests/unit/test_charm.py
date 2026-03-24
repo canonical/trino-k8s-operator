@@ -6,7 +6,7 @@
 
 """Trino charm unit tests."""
 
-# pylint:disable=protected-access
+# pylint:disable=protected-access,too-many-public-methods
 
 import logging
 from unittest import TestCase, mock
@@ -440,7 +440,7 @@ class TestCharm(TestCase):
 
         container = harness.model.unit.get_container("trino")
         properties_path = (
-            "/usr/lib/trino/etc/conf/session-property-config.properties"
+            "/usr/lib/trino/etc/session-property-config.properties"
         )
         json_path = "/usr/lib/trino/etc/session-property-config.json"
 
@@ -462,9 +462,56 @@ class TestCharm(TestCase):
 
         container = harness.model.unit.get_container("trino")
         properties_path = (
-            "/usr/lib/trino/etc/conf/session-property-config.properties"
+            "/usr/lib/trino/etc/session-property-config.properties"
         )
         json_path = "/usr/lib/trino/etc/session-property-config.json"
+
+        self.assertFalse(container.exists(properties_path))
+        self.assertFalse(container.exists(json_path))
+
+    def test_resource_group_manager_files_created(self):
+        """The charm writes the resource group manager files when configured."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        resource_groups_config = (
+            '{"rootGroups":[{"name":"global","softMemoryLimit":"80%",'
+            '"hardConcurrencyLimit":10,"maxQueued":10}],"selectors":'
+            '[{"user":".*","group":"global"}]}'
+        )
+        harness.update_config(
+            {"resource-groups-config": resource_groups_config}
+        )
+
+        container = harness.model.unit.get_container("trino")
+        properties_path = "/usr/lib/trino/etc/resource-groups.properties"
+        json_path = "/usr/lib/trino/etc/resource-groups.json"
+
+        self.assertTrue(container.exists(properties_path))
+        self.assertTrue(container.exists(json_path))
+        self.assertEqual(
+            container.pull(json_path).read(), resource_groups_config
+        )
+
+    def test_resource_group_manager_files_removed(self):
+        """The charm removes the resource group manager files when unset."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        harness.update_config(
+            {
+                "resource-groups-config": (
+                    '{"rootGroups":[{"name":"global","softMemoryLimit":"80%",'
+                    '"hardConcurrencyLimit":10,"maxQueued":10}],"selectors":'
+                    '[{"user":".*","group":"global"}]}'
+                )
+            }
+        )
+        harness.update_config({"resource-groups-config": ""})
+
+        container = harness.model.unit.get_container("trino")
+        properties_path = "/usr/lib/trino/etc/resource-groups.properties"
+        json_path = "/usr/lib/trino/etc/resource-groups.json"
 
         self.assertFalse(container.exists(properties_path))
         self.assertFalse(container.exists(json_path))
