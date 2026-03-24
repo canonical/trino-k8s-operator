@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, COORDINATOR_CONFIG, NGINX_NAME, WORKER_CONFIG, WORKER_NAME
+from helpers import (
+    APP_NAME,
+    COORDINATOR_CONFIG,
+    NGINX_NAME,
+    WORKER_CONFIG,
+    WORKER_NAME,
+)
 from pytest import FixtureRequest
 from pytest_operator.plugin import OpsTest
 
