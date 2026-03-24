@@ -7,6 +7,7 @@
 import json
 
 import pytest
+import trino.exceptions
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import APP_NAME, TRINO_USER, WORKER_NAME, run_query
 from pytest_operator.plugin import OpsTest
@@ -86,14 +87,14 @@ class TestManagers:
                 ),
             )
 
-            session_rows = await run_query(
-                ops_test,
-                TRINO_USER,
-                "SHOW SESSION LIKE 'query_max_execution_time'",
-            )
-            assert session_rows
-            assert session_rows[0][0] == "query_max_execution_time"
-            assert session_rows[0][1] != "7m"
+            with pytest.raises(trino.exceptions.TrinoUserError) as exc_info:
+                await run_query(
+                    ops_test,
+                    TRINO_USER,
+                    "SHOW SESSION LIKE 'query_max_execution_time'",
+                )
+
+            assert "No matching resource group found" in str(exc_info.value)
 
             await _set_manager_config(
                 ops_test,
