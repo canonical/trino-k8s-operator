@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from helpers import APP_NAME, NGINX_NAME, WORKER_CONFIG, WORKER_NAME
+from helpers import APP_NAME, COORDINATOR_CONFIG, NGINX_NAME, WORKER_CONFIG, WORKER_NAME
 from pytest import FixtureRequest
 from pytest_operator.plugin import OpsTest
 
@@ -47,6 +47,7 @@ async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
             charm,
             resources={"trino-image": charm_image},
             application_name=APP_NAME,
+            config=COORDINATOR_CONFIG,
             num_units=1,
             trust=True,
         )

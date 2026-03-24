@@ -219,10 +219,11 @@ def simulate_lifecycle(harness):
     harness.handle_exec(
         "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
     )
+    harness.handle_exec("trino", ["keytool"], result=0)
     harness.charm.on.trino_pebble_ready.emit(container)
 
     # Add worker and coordinator relation
-    harness.handle_exec("trino", ["keytool"], result=0)
+    harness.update_config({"charm-function": "coordinator"})
     harness.add_relation("trino-coordinator", "trino-k8s-worker")
 
     rel_id = harness.add_relation("policy", "trino-k8s")
