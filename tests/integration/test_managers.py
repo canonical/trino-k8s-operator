@@ -7,7 +7,6 @@
 import json
 
 import pytest
-import trino.exceptions
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import APP_NAME, TRINO_USER, WORKER_NAME, run_query
 from pytest_operator.plugin import OpsTest
@@ -82,10 +81,19 @@ class TestManagers:
             await _set_manager_config(
                 ops_test,
                 resource_groups_config=_resource_groups_config("nobody"),
+                session_property_manager_config=(
+                    SESSION_PROPERTY_MANAGER_CONFIG
+                ),
             )
 
-            with pytest.raises(trino.exceptions.TrinoQueryError):
-                await run_query(ops_test, TRINO_USER, "SELECT 1")
+            session_rows = await run_query(
+                ops_test,
+                TRINO_USER,
+                "SHOW SESSION LIKE 'query_max_execution_time'",
+            )
+            assert session_rows
+            assert session_rows[0][0] == "query_max_execution_time"
+            assert session_rows[0][1] != "7m"
 
             await _set_manager_config(
                 ops_test,
