@@ -109,6 +109,7 @@ parts:
       plugin/hive: usr/lib/trino/plugin/hive
       plugin/geospatial: usr/lib/trino/plugin/geospatial
       plugin/resource-group-managers: usr/lib/trino/plugin/resource-group-managers
+      plugin/session-property-managers: usr/lib/trino/plugin/session-property-managers
       trino-cli: usr/lib/trino/bin/trino-cli
     stage:
       - data/trino
