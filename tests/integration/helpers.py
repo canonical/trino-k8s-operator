@@ -251,6 +251,8 @@ async def get_active_workers(ops_test: OpsTest):
     active_workers = [
         x
         for x in result
+        # Filter by URI and state: workers being removed may still appear
+        # in system.runtime.nodes but with a non-active state.
         if x[1].startswith("http://trino-k8s-worker") and x[4] == "active"
     ]
     return active_workers

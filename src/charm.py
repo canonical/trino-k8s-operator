@@ -56,7 +56,7 @@ from literals import (
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
-from relations.postgresql import PostgresqlRelationHandler
+from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
@@ -170,7 +170,9 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
-        self.postgresql_relation_handler = PostgresqlRelationHandler(self)
+        self.postgresql_catalog_handler = PostgresqlCatalogRelationHandler(
+            self
+        )
 
         resources = {
             "memory": {
@@ -287,7 +289,7 @@ class TrinoK8SCharm(CharmBase):
                 return
 
         self.trino_catalog.update_all_relations()
-        self.postgresql_relation_handler.reconcile_postgresql_catalogs(event)
+        self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -319,7 +321,7 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
-            self.postgresql_relation_handler.reconcile_postgresql_catalogs(
+            self.postgresql_catalog_handler.reconcile_postgresql_catalogs(
                 event
             )
             self._restart_trino()
@@ -494,7 +496,7 @@ class TrinoK8SCharm(CharmBase):
             if (
                 Path(file.name).stem in upserted_catalogs
                 or Path(file.name).stem
-                in self.postgresql_relation_handler.get_postgresql_relation_catalogs()
+                in self.postgresql_catalog_handler.get_postgresql_relation_catalogs()
             ):
                 continue
 
@@ -713,7 +715,7 @@ class TrinoK8SCharm(CharmBase):
         # Merge PostgreSQL password env vars (derived at runtime)
         if self.config["charm-function"] in ("coordinator", "all"):
             pg_secrets = (
-                self.postgresql_relation_handler.get_postgresql_env_vars()
+                self.postgresql_catalog_handler.get_postgresql_env_vars()
             )
         elif self.config["charm-function"] == "worker":
             pg_secrets = (

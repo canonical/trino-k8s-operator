@@ -89,7 +89,7 @@ class TrinoCoordinator(Object):
         coordinator_relations = self.model.relations["trino-coordinator"]
 
         pg_env_vars = (
-            self.charm.postgresql_relation_handler.get_postgresql_env_vars()
+            self.charm.postgresql_catalog_handler.get_postgresql_env_vars()
         )
         relation_data = {
             "discovery-uri": self.charm.config["discovery-uri"],

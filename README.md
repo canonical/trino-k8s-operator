@@ -268,6 +268,20 @@ juju relate trino-k8s ranger-k8s
 ```
 By default Trino has an allow all access control policy. If you're using an alternative to Trino's built-in ACLs (ie Ranger) then you can configure the default Trino policy to default to `none`. This will deny all access in the case that Ranger is unavailable.
 
+## Trino CLI
+
+Trino provides an interactive shell for running queries. The full installation and user guide can be found [here](https://trino.io/docs/current/client/cli.html).
+
+Depending on how the authentication is set up, the CLI can be run as follows:
+
+```
+# username and password authentication
+./trino --server https://trino.example.com --user=exampleusername --password
+
+# or SSO authentication
+./trino --server https://trino.example.com --user=exampleusername --external-authentication
+```
+
 ## Charmed OpenSearch relation
 [Charmed OpenSearch](https://charmhub.io/opensearch) should be integrated with the Charmed Trino to enable auditing functionality for data access. 
 Pre-requisites:
@@ -322,20 +336,18 @@ juju run grafana/0 -m cos get-admin-password --wait 1m
 
 ## PostgreSQL Integration
 
-This guide describes how to connect Trino to [PostgreSQL](https://charmhub.io/postgresql-k8s), enabling users to query PostgreSQL databases through Trino catalogs. The integration uses the `postgresql_client` relation interface, which automatically creates and maintains Trino catalogs backed by PostgreSQL.
+This guide describes how to connect Trino to [PostgreSQL](https://charmhub.io/postgresql-k8s), enabling users to query PostgreSQL databases through Trino catalogs. The integration uses the `postgresql_client` relation interface, which automatically creates and maintains Trino catalogs backed by PostgreSQL. 
 
-### Prerequisites
+This integration depends on the PostgreSQL charm feature that allows to discover existing databases through prefix matching. The feature is available only on the `16/edge` track as of the writing of this doc.
 
-1. Trino is deployed with a coordinator and a worker (or as one with `charm-function=all`)
-2. PostgreSQL is deployed from a channel that supports prefix matching (only `16/edge` as of the writing of this doc)
-3. A database already exists in PostgreSQL (the prefix relation discovers existing databases, it does not create them)
+On Trino's side, [dynamic catalog management](https://trino.io/docs/current/admin/properties-catalog.html) has been enabled to be able to execute CREATE/DROP CATALOG statements that update Trino's catalog list without having to restart the service. 
 
 ### Deploy the charms
 
 ```bash
-juju deploy trino-k8s --trust
-juju deploy trino-k8s trino-k8s-worker --config charm-function=worker --trust
-juju relate trino-k8s:trino-coordinator trino-k8s-worker:trino-worker
+juju deploy trino-k8s trino-coordinator --config charm-function=coordinator --trust
+juju deploy trino-k8s trino-worker --config charm-function=worker --trust
+juju relate trino-coordinator:trino-coordinator trino-worker:trino-worker
 
 juju deploy postgresql-k8s --channel=16/edge --trust
 ```
@@ -354,7 +366,7 @@ juju relate postgresql-k8s data-integrator
 Set the `postgresql-catalog-config` on the Trino coordinator. Each top-level key must match the name of a related PostgreSQL app:
 
 ```bash
-juju config trino-k8s postgresql-catalog-config="
+juju config trino-coordinator postgresql-catalog-config="
 postgresql-k8s:
   database_prefix: testdb*
   ro_catalog_name: mydb_ro
@@ -373,7 +385,7 @@ postgresql-k8s:
 #### Example with all options
 
 ```bash
-juju config trino-k8s postgresql-catalog-config="
+juju config trino-coordinator postgresql-catalog-config="
 postgresql-k8s:
   database_prefix: testdb*
   ro_catalog_name: testcatalog
@@ -387,7 +399,7 @@ postgresql-k8s:
 ### Establish the relation
 
 ```bash
-juju relate trino-k8s postgresql-k8s
+juju relate trino-coordinator postgresql-k8s
 ```
 
 After the relation is established and PostgreSQL responds with credentials and endpoints, Trino will automatically create the configured catalogs.
@@ -399,7 +411,7 @@ Check that the catalogs appear in Trino by running `SHOW CATALOGS`.
 You can also inspect the catalog properties file:
 
 ```bash
-juju ssh --container trino trino-k8s/0 \
+juju ssh --container trino trino-coordinator/0 \
   cat /usr/lib/trino/etc/catalog/mydb_ro.properties
 ```
 
@@ -420,6 +432,8 @@ The charm manages catalogs via Trino's HTTP API on `localhost:8080`. Authenticat
 - **Without Ranger**: the file-based ACL (`acl-mode-default=owner`) grants catalog management to the catalog owner. The charm uses the first user from `user-secret-id`, or falls back to the default credentials.
 - **With Ranger**: the user must have `CREATE`/`DROP` catalog permissions configured in Ranger policies.
 
+Note: The [file-based ACL documentation](https://trino.io/docs/current/security/file-system-access-control.html) does not provide any information on CREATE/DROP CATALOG permissions and the full scope of the "owner" mode is not properly documented either. This could be due to the dynamic catalog management currently being an experimental feature. However, this [issue](https://github.com/trinodb/trino/issues/22022) provides some details on it. 
+
 ### TLS
 
 SSL parameters are auto-deduced from the PostgreSQL provider's TLS data:
@@ -438,12 +452,12 @@ No manual SSL configuration is needed.
 
 2. Check that the `postgresql-catalog-config` key matches the PG app name exactly:
    ```bash
-   juju config trino-k8s postgresql-catalog-config
+   juju config trino-coordinator postgresql-catalog-config
    ```
 
 3. Check Trino logs for errors:
    ```bash
-   juju debug-log --include trino-k8s
+   juju debug-log --include trino-coordinator
    ```
 
    Common errors:

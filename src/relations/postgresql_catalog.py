@@ -11,7 +11,7 @@ from typing import Callable, Optional
 import pydantic
 import requests
 import yaml
-from ops import framework
+from ops import framework, pebble
 from ops.model import SecretNotFoundError
 
 from literals import DEFAULT_CREDENTIALS, POSTGRESQL_RELATION_NAME
@@ -37,7 +37,7 @@ def _env_var_name(database: str) -> str:
     return PASS_ENV_VAR_PREFIX + database.upper().replace("-", "_")
 
 
-class PostgresRelationModel(pydantic.BaseModel):
+class PostgresqlRelationModel(pydantic.BaseModel):
     """Typed representation of the provider's relation databag.
 
     Attributes:
@@ -128,8 +128,8 @@ class PostgresRelationModel(pydantic.BaseModel):
         return wrapped
 
 
-class PostgresqlRelationHandler(framework.Object):
-    """Handler for PostgreSQL relations via the postgresql_client interface."""
+class PostgresqlCatalogRelationHandler(framework.Object):
+    """Handler for PostgreSQL catalog relations via the postgresql_client interface."""
 
     def __init__(self, charm, relation_name=POSTGRESQL_RELATION_NAME):
         """Construct.
@@ -198,9 +198,6 @@ class PostgresqlRelationHandler(framework.Object):
         Args:
             event: The Juju event that triggered reconciliation (optional).
         """
-        if not self.charm.unit.is_leader():
-            return
-
         if self.charm.config["charm-function"] not in ("coordinator", "all"):
             return
 
@@ -208,14 +205,22 @@ class PostgresqlRelationHandler(framework.Object):
 
         wanted_catalogs, wanted_envs = self._compute_wanted_catalogs()
         self._current_wanted_envs = wanted_envs
+
+        if not self._is_trino_reachable():
+            logger.warning(
+                "Trino not reachable, skipping catalog reconciliation"
+            )
+            self._current_wanted_envs = None
+            return
+
         tracked_catalogs = self._read_tracked_catalogs()
 
-        # DROP catalogs that should no longer exist before any replan
+        # DROP catalogs that should no longer exist while Trino is still
+        # running with the current env vars (before any replan/restart).
         to_drop = set(tracked_catalogs) - set(wanted_catalogs)
-        if to_drop and self._is_trino_reachable():
-            for name in to_drop:
-                logger.info("Dropping relation catalog %r", name)
-                self._drop_catalog(name)
+        for name in to_drop:
+            logger.info("Dropping relation catalog %r", name)
+            self._drop_catalog(name)
 
         # Replan if password env vars changed so ${ENV:…} references resolve
         if self._env_vars_changed(wanted_envs):
@@ -225,7 +230,9 @@ class PostgresqlRelationHandler(framework.Object):
         self._current_wanted_envs = None
 
         if not self._is_trino_reachable():
-            logger.error("Trino not reachable, skipping reconciliation")
+            logger.warning(
+                "Trino not reachable after replan, skipping catalog creates"
+            )
             return
 
         # CREATE new catalogs and UPDATE changed ones (drop + re-create)
@@ -260,7 +267,7 @@ class PostgresqlRelationHandler(framework.Object):
     def get_postgresql_env_vars(self) -> dict:
         """Return password env vars derived from PG relations.
 
-        If called during a ``reconcile()`` run, returns the cached value
+        If called during a ``reconcile_postgresql_catalogs()`` run, returns the cached value
         to avoid recomputing.  Otherwise computes fresh from relations.
 
         Returns:
@@ -288,27 +295,46 @@ class PostgresqlRelationHandler(framework.Object):
         """
         container = self.charm.unit.get_container(self.charm.name)
         if not container.can_connect():
+            logger.debug(
+                "Container not connectable, cannot read tracked catalogs"
+            )
             return {}
 
         catalog_dir = str(self.charm.catalog_abs_path)
         try:
             files = container.list_files(catalog_dir)
-        except Exception:
+        except pebble.PathError:
+            logger.debug(
+                "Catalog directory %s does not exist yet", catalog_dir
+            )
+            return {}
+        except pebble.Error:
+            logger.warning(
+                "Failed to list catalog directory %s",
+                catalog_dir,
+                exc_info=True,
+            )
             return {}
 
         tracked = {}
         for f in files:
             if not f.name.endswith(".properties"):
                 continue
+            file_path = f"{catalog_dir}/{f.name}"
             try:
-                raw = container.pull(f"{catalog_dir}/{f.name}").read()
-                props = self._parse_properties(raw)
-                if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
-                    catalog_name = f.name[: -len(".properties")]
-                    props.pop("connector.name", None)
-                    tracked[catalog_name] = self._hash_properties(props)
-            except Exception:  # nosec B112
+                raw = container.pull(file_path).read()
+            except pebble.Error:
+                logger.warning("Failed to read %s", file_path, exc_info=True)
                 continue
+            try:
+                props = self._parse_properties(raw)
+            except Exception:
+                logger.warning("Failed to parse %s", file_path, exc_info=True)
+                continue
+            if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
+                catalog_name = f.name[: -len(".properties")]
+                props.pop("connector.name", None)
+                tracked[catalog_name] = self._hash_properties(props)
         return tracked
 
     def _env_vars_changed(self, wanted_envs) -> bool:
@@ -395,15 +421,19 @@ class PostgresqlRelationHandler(framework.Object):
         """
         raw = self.charm.config.get("postgresql-catalog-config")
         if not raw:
-            logger.debug("No postgresql-catalog-config set")
+            logger.warning(
+                "postgresql-catalog-config is empty, cannot map relation %r",
+                relation.app.name,
+            )
             return None
         config = yaml.safe_load(raw)
         if not isinstance(config, dict):
+            logger.error("postgresql-catalog-config is not a valid YAML")
             return None
         entry = config.get(relation.app.name)
         if entry is None:
-            logger.debug(
-                "No postgresql-catalog-config entry for %r",
+            logger.warning(
+                "No postgresql-catalog-config entry for app %r",
                 relation.app.name,
             )
             return None
@@ -503,22 +533,24 @@ class PostgresqlRelationHandler(framework.Object):
 
         return catalogs, env_vars
 
-    def _load_relation_data(self, relation) -> Optional[PostgresRelationModel]:
+    def _load_relation_data(
+        self, relation
+    ) -> Optional[PostgresqlRelationModel]:
         """Load and validate relation data from the provider's databag.
 
         Args:
             relation: The Juju relation to load data from.
 
         Returns:
-            A PostgresRelationModel if data is available, None otherwise.
+            A PostgresqlRelationModel if data is available, None otherwise.
         """
         if relation.app is None:
             return None
         try:
             return relation.load(
-                PostgresRelationModel,
+                PostgresqlRelationModel,
                 relation.app,
-                decoder=PostgresRelationModel.decode(self.charm),
+                decoder=PostgresqlRelationModel.decode(self.charm),
             )
         except (pydantic.ValidationError, SecretNotFoundError):
             return None
@@ -529,7 +561,7 @@ class PostgresqlRelationHandler(framework.Object):
         """Build catalog properties dict for a single catalog.
 
         Args:
-            pg: The PostgresRelationModel with connection data.
+            pg: The PostgresqlRelationModel with connection data.
             database: The database name.
             config_entry: The config dict for this relation.
             relation_id: The relation ID.
@@ -564,7 +596,7 @@ class PostgresqlRelationHandler(framework.Object):
         """Build JDBC URL with auto-deduced SSL params.
 
         Args:
-            pg: The PostgresRelationModel with connection data.
+            pg: The PostgresqlRelationModel with connection data.
             database: The database name.
             relation_id: The relation ID.
             target_server_type: JDBC targetServerType parameter value.

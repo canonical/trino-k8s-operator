@@ -251,8 +251,8 @@ async def get_properties_file(ops_test, catalog_name):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy")
-class TestPostgresqlRelation:
-    """Integration tests for PostgreSQL relation."""
+class TestPostgresqlCatalogRelation:
+    """Integration tests for PostgreSQL catalog relation."""
 
     async def test_01_missing_database_prefix(self, ops_test: OpsTest):
         """Config without database_prefix: no catalog, charm stays active."""
