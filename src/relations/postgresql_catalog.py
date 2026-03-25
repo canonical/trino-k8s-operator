@@ -1,7 +1,7 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""PostgreSQL relation handler."""
+"""PostgreSQL catalog relation handler."""
 
 import hashlib
 import json

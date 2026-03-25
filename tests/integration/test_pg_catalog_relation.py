@@ -1,7 +1,7 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Integration tests for the Trino-PostgreSQL relation."""
+"""Integration tests for the Trino-PostgreSQL catalog relation."""
 
 import asyncio
 import logging

@@ -1,7 +1,7 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Unit tests for PostgreSQL relation handler pure/static methods."""
+"""Unit tests for PostgreSQL catalog relation handler pure/static methods."""
 
 # pylint:disable=protected-access
 
