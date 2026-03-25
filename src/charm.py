@@ -656,7 +656,7 @@ class TrinoK8SCharm(CharmBase):
             try:
                 yaml.safe_load(catalogs)
             except Exception as e:
-                logger.debug(f"Incorrectly formatted catalog-config: {e}")
+                logger.debug("Incorrectly formatted catalog-config: %s", e)
                 raise
 
         resource_groups = self.config.get("resource-groups-config")
@@ -665,7 +665,7 @@ class TrinoK8SCharm(CharmBase):
                 json.loads(resource_groups)
             except Exception as e:
                 logger.debug(
-                    f"Incorrectly formatted resource-groups-config: {e}"
+                    "Incorrectly formatted resource-groups-config: %s", e
                 )
                 raise
 
