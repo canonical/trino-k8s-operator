@@ -459,8 +459,14 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             )
             return False
 
-        if not entry.get("ro_catalog_name"):
-            logger.error("Missing ro_catalog_name for %s", app_name)
+        if not entry.get("ro_catalog_name") and not entry.get(
+            "rw_catalog_name"
+        ):
+            logger.error(
+                "At least one of ro_catalog_name or rw_catalog_name "
+                "must be set for %s",
+                app_name,
+            )
             return False
 
         return True
@@ -510,17 +516,18 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             database = databases[0]
             env_vars[_env_var_name(database)] = pg.password
 
-            # RO catalog (mandatory)
-            ro_name = config_entry["ro_catalog_name"]
-            catalogs[ro_name] = self._build_catalog_props(
-                pg=pg,
-                database=database,
-                config_entry=config_entry,
-                relation_id=relation.id,
-                target_server_type="preferSecondary",
-            )
+            # RO catalog
+            ro_name = config_entry.get("ro_catalog_name")
+            if ro_name:
+                catalogs[ro_name] = self._build_catalog_props(
+                    pg=pg,
+                    database=database,
+                    config_entry=config_entry,
+                    relation_id=relation.id,
+                    target_server_type="preferSecondary",
+                )
 
-            # RW catalog (optional)
+            # RW catalog
             rw_name = config_entry.get("rw_catalog_name")
             if rw_name:
                 catalogs[rw_name] = self._build_catalog_props(

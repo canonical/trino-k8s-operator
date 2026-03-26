@@ -276,8 +276,8 @@ class TestPostgresqlCatalogRelation:
 
         await wait_for_catalog(ops_test, "test_ro", present=False)
 
-    async def test_03_missing_ro_catalog_name(self, ops_test: OpsTest):
-        """Config with database_prefix but no ro_catalog_name: no catalog."""
+    async def test_03_missing_catalog_names(self, ops_test: OpsTest):
+        """Config with database_prefix but no catalog names: no catalog."""
         config = yaml.dump({POSTGRES_NAME: {"database_prefix": "testdb*"}})
         await set_pg_config(ops_test, config)
 

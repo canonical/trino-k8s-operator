@@ -664,57 +664,75 @@ class TrinoK8SCharm(CharmBase):
                 f"Invalid acl-mode-default value: {acl_mode_default!r}"
             )
 
-        catalog_config_raw = self.config.get("catalog-config")
-        static_catalogs = set()
-        if catalog_config_raw:
-            try:
-                catalog_config = yaml.safe_load(catalog_config_raw)
-            except Exception as e:
-                logger.debug(f"Incorrectly formatted catalog-config: {e}")
-                raise ValueError(  # pylint: disable=raise-missing-from
-                    "Incorrectly formatted catalog-config"
-                )
-            if isinstance(catalog_config, dict):
-                static_catalogs = set(
-                    catalog_config.get("catalogs", {}).keys()
-                )
+        static_catalogs = self._validate_catalog_configs()
+        self._validate_pg_catalog_config(static_catalogs)
+        self._validate_json_config("resource-groups-config")
+        self._validate_json_config("session-property-manager-config")
 
-        pg_config_raw = self.config.get("postgresql-catalog-config")
-        if pg_config_raw:
-            try:
-                pg_config = yaml.safe_load(pg_config_raw)
-            except Exception as e:
-                logger.debug(
-                    f"Incorrectly formatted postgresql-catalog-config: {e}"
-                )
-                raise ValueError(  # pylint: disable=raise-missing-from
-                    "Incorrectly formatted postgresql-catalog-config"
-                )
-            if isinstance(pg_config, dict):
-                self._check_catalog_name_conflicts(pg_config, static_catalogs)
-                
-        resource_groups = self.config.get("resource-groups-config")
-        if resource_groups:
-            try:
-                json.loads(resource_groups)
-            except Exception as e:
-                logger.debug(
-                    "Incorrectly formatted resource-groups-config: %s", e
-                )
-                raise
+    def _validate_catalog_configs(self) -> set:
+        """Parse catalog-config and return the set of static catalog names.
 
-        session_property_manager = self.config.get(
-            "session-property-manager-config"
-        )
-        if session_property_manager:
-            try:
-                json.loads(session_property_manager)
-            except Exception as e:
-                logger.debug(
-                    "Incorrectly formatted "
-                    f"session-property-manager-config: {e}"
-                )
-                raise                
+        Returns:
+            Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If catalog-config is not valid YAML.
+        """
+        raw = self.config.get("catalog-config")
+        if not raw:
+            return set()
+        try:
+            parsed = yaml.safe_load(raw)
+        except Exception as e:
+            logger.debug("Incorrectly formatted catalog-config: %s", e)
+            raise ValueError(  # pylint: disable=raise-missing-from
+                "Incorrectly formatted catalog-config"
+            )
+        if isinstance(parsed, dict):
+            return set(parsed.get("catalogs", {}).keys())
+        return set()
+
+    def _validate_pg_catalog_config(self, static_catalogs) -> None:
+        """Parse postgresql-catalog-config and check for name conflicts.
+
+        Args:
+            static_catalogs: Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If the config is not valid YAML or has conflicts.
+        """
+        raw = self.config.get("postgresql-catalog-config")
+        if not raw:
+            return
+        try:
+            parsed = yaml.safe_load(raw)
+        except Exception as e:
+            logger.debug(
+                "Incorrectly formatted postgresql-catalog-config: %s", e
+            )
+            raise ValueError(  # pylint: disable=raise-missing-from
+                "Incorrectly formatted postgresql-catalog-config"
+            )
+        if isinstance(parsed, dict):
+            self._check_catalog_name_conflicts(parsed, static_catalogs)
+
+    def _validate_json_config(self, config_key) -> None:
+        """Validate that a config value is valid JSON.
+
+        Args:
+            config_key: The config key to validate.
+
+        Raises:
+            JSONDecodeError: If the value is not valid JSON.
+        """
+        raw = self.config.get(config_key)
+        if not raw:
+            return
+        try:
+            json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.debug("Incorrectly formatted %s: %s", config_key, e)
+            raise
 
     def _check_catalog_name_conflicts(self, pg_config, static_catalogs):
         """Check for duplicate catalog names in postgresql-catalog-config.

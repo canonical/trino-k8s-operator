@@ -274,3 +274,34 @@ class TestCheckCatalogNameConflicts(TestCase):
         with self.assertRaises(ValueError) as ctx:
             self._call(pg_config, static_catalogs={"static_cat"})
         self.assertIn("clashes with catalog-config", str(ctx.exception))
+
+    def test_rw_only_no_conflicts(self):
+        """Verify no error when entries only have rw_catalog_name."""
+        pg_config = {
+            "pg-app-a": {
+                "database_prefix": "db_a*",
+                "rw_catalog_name": "cat_a_rw",
+            },
+            "pg-app-b": {
+                "database_prefix": "db_b*",
+                "rw_catalog_name": "cat_b_rw",
+            },
+        }
+        self._call(pg_config)  # should not raise
+
+    def test_duplicate_rw_names(self):
+        """Verify error when two entries share the same rw_catalog_name."""
+        pg_config = {
+            "pg-app-a": {
+                "database_prefix": "db_a*",
+                "rw_catalog_name": "shared_rw",
+            },
+            "pg-app-b": {
+                "database_prefix": "db_b*",
+                "rw_catalog_name": "shared_rw",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self._call(pg_config)
+        self.assertIn("Duplicate", str(ctx.exception))
+        self.assertIn("shared_rw", str(ctx.exception))

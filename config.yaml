@@ -66,8 +66,9 @@ options:
       Each top-level key must match the name of the provider app in the relation.
       Fields:
         database_prefix: (required) prefix to match the database name in PostgreSQL, must end with *
-        ro_catalog_name: (required) name of the read-only catalog, catalog created with targetServerType=preferSecondary
-        rw_catalog_name: (optional) name of the read-write catalog, catalog created with targetServerType=primary
+        ro_catalog_name: name of the read-only catalog, created with targetServerType=preferSecondary
+        rw_catalog_name: name of the read-write catalog, created with targetServerType=primary
+        At least one of ro_catalog_name or rw_catalog_name must be set.
         config: (optional) catalog properties
       Example:
         dbaas-app-name:
@@ -75,6 +76,7 @@ options:
           ro_catalog_name: catalog
           rw_catalog_name: catalog_developer
           config: case-insensitive-name-matching=true
+    type: string
   resource-groups-config:
     description: |
       Resource groups configuration in JSON format defining the resource management rules 
