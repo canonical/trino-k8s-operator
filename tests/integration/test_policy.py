@@ -30,22 +30,24 @@ TRINO_CONFIG = {
 }
 
 
+async def resolve_ranger_errors(ops_test: OpsTest):
+    """Resolve Ranger error state if any.
+
+    Args:
+        ops_test: The OpsTest instance.
+    """
+    for unit in ops_test.model.applications[RANGER_NAME].units:
+        if unit.workload_status == "error":
+            logger.info("Resolving error on %s", unit.name)
+            await unit.resolved(retry=True)
+
+
 @pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-policy", scope="module")
 async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
-    await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", revision=34, trust=True
-    )
-
+    await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
     async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[RANGER_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
-        await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
         await ops_test.model.wait_for_idle(
             apps=[POSTGRES_NAME],
             status="active",
@@ -53,9 +55,22 @@ async def deploy_policy_engine(ops_test: OpsTest):
             timeout=2000,
         )
 
-        logger.info("Integrating Ranger and PostgreSQL.")
-        await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+    await ops_test.model.deploy(
+        RANGER_NAME, channel="edge", revision=38, trust=True
+    )
+    async with ops_test.fast_forward():
+        await ops_test.model.wait_for_idle(
+            apps=[RANGER_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=2000,
+        )
 
+    logger.info("Integrating Ranger and PostgreSQL.")
+    await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+    time.sleep(60)
+    async with ops_test.fast_forward():
+        await resolve_ranger_errors(ops_test)
         await ops_test.model.wait_for_idle(
             apps=[POSTGRES_NAME, RANGER_NAME],
             status="active",
@@ -98,12 +113,16 @@ class TestPolicyManager:
         # Integrate Trino and Ranger.
         logger.info("Integrating Trino and Ranger.")
         await ops_test.model.integrate(RANGER_NAME, APP_NAME)
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, RANGER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
+        time.sleep(30)
+        async with ops_test.fast_forward():
+            await resolve_ranger_errors(ops_test)
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME, RANGER_NAME],
+                status="active",
+                raise_on_blocked=False,
+                timeout=2000,
+            )
+
         logging.info("update default policies to authorize the new user")
         await update_policies(url)
 

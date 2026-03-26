@@ -48,7 +48,7 @@ options:
     description: |
       One of `coordinator`, `worker` or `all` to determine the function of the application.
       `all` will result in a single node deployment, not recommended for production.
-    default: coordinator
+    default: all
     type: string
   discovery-uri:
     description: |

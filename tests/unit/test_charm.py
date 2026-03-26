@@ -357,7 +357,7 @@ class TestCharm(TestCase):
         harness.add_relation("peer", "trino")
 
         harness.handle_exec(
-            "trino", ["/bin/sh"], result="/usr/lib/jvm/java-21-openjdk-amd64/"
+            "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
         )
         harness.handle_exec("trino", ["keytool"], result=0)
         container = harness.model.unit.get_container("trino")
