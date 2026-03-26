@@ -1,3 +1,4 @@
+--only-binary=pluggy
 ops>=2.2.0
 Jinja2==3.1.1
 cryptography==39.0.1
