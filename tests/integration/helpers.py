@@ -142,16 +142,31 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
     Returns:
         catalogs: list of catalogs connected to trino
     """
+    try:
+        catalogs = await run_query(ops_test, user, CATALOG_QUERY, app_name)
+    except trino.exceptions.TrinoUserError:
+        catalogs = []
+    return catalogs
+
+
+async def run_query(ops_test: OpsTest, user, query, app_name=APP_NAME):
+    """Run a SQL query against the Trino coordinator.
+
+    Args:
+        ops_test: PyTest object.
+        user: the user to access Trino with.
+        query: SQL query to execute.
+        app_name: name of the application.
+
+    Returns:
+        Query result rows.
+    """
     status = await ops_test.model.get_status()  # noqa: F821
     address = status["applications"][app_name]["units"][f"{app_name}/{0}"][
         "address"
     ]
     logger.info("executing query on app address: %s", address)
-    try:
-        catalogs = await query_trino(address, user, CATALOG_QUERY)
-    except trino.exceptions.TrinoUserError:
-        catalogs = []
-    return catalogs
+    return await query_trino(address, user, query)
 
 
 async def update_catalog_config(ops_test, catalog_config, user):
