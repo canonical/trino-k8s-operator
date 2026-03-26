@@ -264,7 +264,9 @@ async def get_active_workers(ops_test: OpsTest):
     logger.info("executing query on app address: %s", address)
     result = await query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
     active_workers = [
-        x for x in result if x[1].startswith("http://trino-k8s-worker")
+        x
+        for x in result
+        if x[1].startswith("http://trino-k8s-worker") and x[4] == "active"
     ]
     return active_workers
 
