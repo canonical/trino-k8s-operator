@@ -102,7 +102,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "RANGER_RELATION": False,
                         "RESOURCE_GROUPS_CONFIG": None,
                         "SESSION_PROPERTY_MANAGER_CONFIG": None,
-                        "ACL_ACCESS_MODE": "all",
+                        "ACL_ACCESS_MODE": "owner",
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec

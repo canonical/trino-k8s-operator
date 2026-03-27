@@ -56,7 +56,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
         )
 
     await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", revision=38, trust=True
+        RANGER_NAME, channel="edge", revision=39, trust=True
     )
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(

@@ -5,6 +5,7 @@
 """Literals used by the Trino K8s charm."""
 
 APP_NAME = "trino-k8s"
+POSTGRESQL_RELATION_NAME = "postgresql"
 TRINO_PORTS = {
     "HTTPS": 443,
     "HTTP": 8080,

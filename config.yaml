@@ -60,6 +60,23 @@ options:
     description: |
       Catalogs for which Trino should be connected.
     type: string
+  postgresql-catalog-config:
+    description: |
+      YAML configuration for PostgreSQL catalogs managed via the postgresql relation.
+      Each top-level key must match the name of the provider app in the relation.
+      Fields:
+        database_prefix: (required) prefix to match the database name in PostgreSQL, must end with *
+        ro_catalog_name: name of the read-only catalog, created with targetServerType=preferSecondary
+        rw_catalog_name: name of the read-write catalog, created with targetServerType=primary
+        At least one of ro_catalog_name or rw_catalog_name must be set.
+        config: (optional) catalog properties
+      Example:
+        dbaas-app-name:
+          database_prefix: dbaas*
+          ro_catalog_name: catalog
+          rw_catalog_name: catalog_developer
+          config: case-insensitive-name-matching=true
+    type: string
   resource-groups-config:
     description: |
       Resource groups configuration in JSON format defining the resource management rules 
@@ -79,12 +96,13 @@ options:
     type: string
   acl-mode-default:
     description: |
-      The default ACLs for all Trino catalogs, one of `all` or `none`.
+      The default ACLs for all Trino catalogs, one of `all`, `none` or `owner`.
       `all`: Allow all users access to all catalogs.
       `none`: Deny all users access to all catalogs.
+      `owner`: Allow all users to be owners of all catalogs.
       A Ranger relation will supersede this default.
     type: string
-    default: all
+    default: owner
   acl-user-pattern:
     description: |
       The pattern to match users, for which the policy should be applied.

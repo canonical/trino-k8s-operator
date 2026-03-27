@@ -4,6 +4,7 @@
 """Trino worker relation hooks & helpers."""
 
 
+import json
 import logging
 
 from ops.charm import CharmBase
@@ -61,13 +62,11 @@ class TrinoWorker(Object):
             event.defer()
             return
 
-        if not self.charm.unit.is_leader():
-            return
-
-        event_data = event.relation.data[event.app]
-        self.charm.state.discovery_uri = event_data.get("discovery-uri")
-        self.charm.state.user_secret_id = event_data.get("user-secret-id")
-        self.charm.state.catalog_config = event_data.get("catalogs")
+        if self.charm.unit.is_leader():
+            event_data = event.relation.data[event.app]
+            self.charm.state.discovery_uri = event_data.get("discovery-uri")
+            self.charm.state.user_secret_id = event_data.get("user-secret-id")
+            self.charm.state.catalog_config = event_data.get("catalogs")
 
         self.charm._update(event)
 
@@ -97,6 +96,21 @@ class TrinoWorker(Object):
         self.charm.state.catalog_config = ""
 
         self.charm._update(event)
+
+    def get_postgresql_secrets_from_coordinator(self) -> dict:
+        """Read PG password env vars from the coordinator relation databag.
+
+        Returns:
+            Dict mapping env var names to password values.
+        """
+        relation = self.charm.model.get_relation(self.relation_name)
+        if relation is None or relation.app is None:
+            return {}
+        raw = relation.data[relation.app].get("postgresql-secrets", "{}")
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
 
     def _validate(self):
         """Check if the trino worker relation is available.

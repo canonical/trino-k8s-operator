@@ -57,6 +57,7 @@ from literals import (
 from log import log_event_handler
 from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
+from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
 from relations.trino_worker import TrinoWorker
@@ -170,6 +171,9 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
+        self.postgresql_catalog_handler = PostgresqlCatalogRelationHandler(
+            self
+        )
 
         resources = {
             "memory": {
@@ -286,6 +290,7 @@ class TrinoK8SCharm(CharmBase):
                 return
 
         self.trino_catalog.update_all_relations()
+        self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -317,6 +322,9 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
+            self.postgresql_catalog_handler.reconcile_postgresql_catalogs(
+                event
+            )
             self._restart_trino()
             return
 
@@ -486,7 +494,11 @@ class TrinoK8SCharm(CharmBase):
         for file in container.list_files(
             self.catalog_abs_path, pattern="*.properties"
         ):
-            if Path(file.name).stem in upserted_catalogs:
+            if (
+                Path(file.name).stem in upserted_catalogs
+                or Path(file.name).stem
+                in self.postgresql_catalog_handler.get_postgresql_relation_catalogs()
+            ):
                 continue
 
             try:
@@ -633,7 +645,8 @@ class TrinoK8SCharm(CharmBase):
             ValueError: in case of invalid log configuration.
                         in case of web-proxy as empty string.
                         in case of invalid acl-mode-default value.
-            ScannerError: in case of incorrectly formatted catalog-config.
+                        in case of incorrectly formatted catalog-config.
+                        in case of incorrectly formatted postgresql-catalog-config.
         """
         valid_log_levels = ["info", "debug", "warn", "error"]
 
@@ -646,41 +659,112 @@ class TrinoK8SCharm(CharmBase):
             raise ValueError("Web-proxy value cannot be an empty string")
 
         acl_mode_default = self.config.get("acl-mode-default")
-        if acl_mode_default not in ["all", "none"]:
+        if acl_mode_default not in ["all", "none", "owner"]:
             raise ValueError(
                 f"Invalid acl-mode-default value: {acl_mode_default!r}"
             )
 
-        catalogs = self.config.get("catalog-config")
-        if catalogs:
-            try:
-                yaml.safe_load(catalogs)
-            except Exception as e:
-                logger.debug("Incorrectly formatted catalog-config: %s", e)
-                raise
+        static_catalogs = self._validate_catalog_configs()
+        self._validate_pg_catalog_config(static_catalogs)
+        self._validate_json_config("resource-groups-config")
+        self._validate_json_config("session-property-manager-config")
 
-        resource_groups = self.config.get("resource-groups-config")
-        if resource_groups:
-            try:
-                json.loads(resource_groups)
-            except Exception as e:
-                logger.debug(
-                    "Incorrectly formatted resource-groups-config: %s", e
-                )
-                raise
+    def _validate_catalog_configs(self) -> set:
+        """Parse catalog-config and return the set of static catalog names.
 
-        session_property_manager = self.config.get(
-            "session-property-manager-config"
-        )
-        if session_property_manager:
-            try:
-                json.loads(session_property_manager)
-            except Exception as e:
-                logger.debug(
-                    "Incorrectly formatted "
-                    f"session-property-manager-config: {e}"
-                )
-                raise
+        Returns:
+            Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If catalog-config is not valid YAML.
+        """
+        raw = self.config.get("catalog-config")
+        if not raw:
+            return set()
+        try:
+            parsed = yaml.safe_load(raw)
+        except Exception as e:
+            logger.debug("Incorrectly formatted catalog-config: %s", e)
+            raise ValueError(  # pylint: disable=raise-missing-from
+                "Incorrectly formatted catalog-config"
+            )
+        if isinstance(parsed, dict):
+            return set(parsed.get("catalogs", {}).keys())
+        return set()
+
+    def _validate_pg_catalog_config(self, static_catalogs) -> None:
+        """Parse postgresql-catalog-config and check for name conflicts.
+
+        Args:
+            static_catalogs: Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If the config is not valid YAML or has conflicts.
+        """
+        raw = self.config.get("postgresql-catalog-config")
+        if not raw:
+            return
+        try:
+            parsed = yaml.safe_load(raw)
+        except Exception as e:
+            logger.debug(
+                "Incorrectly formatted postgresql-catalog-config: %s", e
+            )
+            raise ValueError(  # pylint: disable=raise-missing-from
+                "Incorrectly formatted postgresql-catalog-config"
+            )
+        if isinstance(parsed, dict):
+            self._check_catalog_name_conflicts(parsed, static_catalogs)
+
+    def _validate_json_config(self, config_key) -> None:
+        """Validate that a config value is valid JSON.
+
+        Args:
+            config_key: The config key to validate.
+
+        Raises:
+            JSONDecodeError: If the value is not valid JSON.
+        """
+        raw = self.config.get(config_key)
+        if not raw:
+            return
+        try:
+            json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.debug("Incorrectly formatted %s: %s", config_key, e)
+            raise
+
+    def _check_catalog_name_conflicts(self, pg_config, static_catalogs):
+        """Check for duplicate catalog names in postgresql-catalog-config.
+
+        Ensures no two entries share a catalog name and no dynamic catalog
+        name clashes with a static catalog from catalog-config.
+
+        Args:
+            pg_config: Parsed postgresql-catalog-config dict.
+            static_catalogs: Set of catalog names from catalog-config.
+
+        Raises:
+            ValueError: If a duplicate or clash is found.
+        """
+        seen = set()
+        for entry in pg_config.values():
+            if not isinstance(entry, dict):
+                continue
+            for key in ("ro_catalog_name", "rw_catalog_name"):
+                name = entry.get(key)
+                if not name:
+                    continue
+                if name in seen:
+                    raise ValueError(
+                        f"Duplicate catalog name in postgresql-catalog-config: {name!r}"
+                    )
+                if name in static_catalogs:
+                    raise ValueError(
+                        f"postgresql-catalog-config catalog {name!r} "
+                        f"clashes with catalog-config"
+                    )
+                seen.add(name)
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
@@ -761,6 +845,21 @@ class TrinoK8SCharm(CharmBase):
                 "session-property-manager-config"
             ),
         }
+
+        # Merge PostgreSQL password env vars (derived at runtime)
+        if self.config["charm-function"] in ("coordinator", "all"):
+            pg_secrets = (
+                self.postgresql_catalog_handler.get_postgresql_env_vars()
+            )
+        elif self.config["charm-function"] == "worker":
+            pg_secrets = (
+                self.trino_worker.get_postgresql_secrets_from_coordinator()
+            )
+        else:
+            pg_secrets = {}
+        if pg_secrets:
+            env.update(pg_secrets)
+
         return env
 
     def _update(self, event):

@@ -4,6 +4,7 @@
 """Trino coordinator relation hooks & helpers."""
 
 
+import json
 import logging
 
 from ops.charm import CharmBase
@@ -73,6 +74,13 @@ class TrinoCoordinator(Object):
             event.defer()
             return
 
+        self.update_coordinator_relation_data()
+
+    def update_coordinator_relation_data(self):
+        """Write coordinator data to the relation databag for workers."""
+        if not self.charm.state.is_ready():
+            return
+
         if not self.charm.config["charm-function"] == "coordinator":
             return
 
@@ -80,10 +88,14 @@ class TrinoCoordinator(Object):
         # In theory it is not limited but in practice this will have 0 or 1 items
         coordinator_relations = self.model.relations["trino-coordinator"]
 
+        pg_env_vars = (
+            self.charm.postgresql_catalog_handler.get_postgresql_env_vars()
+        )
         relation_data = {
             "discovery-uri": self.charm.config["discovery-uri"],
             "user-secret-id": self.charm.config.get("user-secret-id", ""),
             "catalogs": self.charm.config.get("catalog-config", ""),
+            "postgresql-secrets": json.dumps(pg_env_vars),
         }
 
         for relation in coordinator_relations:
