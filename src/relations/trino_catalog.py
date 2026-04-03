@@ -238,18 +238,19 @@ class TrinoCatalogRelationHandler(Object):
 
         # Create new user and secret
         if relation.app is None:
-            logger.warning(
-                "Relation %s has no app, skipping secret creation",
+            return None, False
+
+        app_name = relation.data[relation.app].get("app_name")
+        if not app_name:
+            logger.debug(
+                "Relation %s: app_name not yet available, deferring secret creation",
                 relation.id,
             )
             return None, False
 
-        app_name = relation.data[relation.app].get(
-            "app_name", relation.app.name
-        )
+        # Create secret with the readable username
         username = f"app-{app_name}-{relation.id}"
         password = generate_password()
-
         secret = self.charm.app.add_secret(
             {"username": username, "password": password},
             label=label,
