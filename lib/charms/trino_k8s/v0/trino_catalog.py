@@ -23,7 +23,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 
 
@@ -223,6 +223,15 @@ class TrinoCatalogRequirer(Object):
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
+
+        self.framework.observe(
+            charm.on[relation_name].relation_created,
+            self._on_relation_created,
+        )
+
+    def _on_relation_created(self, event) -> None:
+        """Publish app name so the provider can build a readable username."""
+        event.relation.data[self.charm.app]["app_name"] = self.charm.app.name
 
     def get_trino_info(self) -> Optional[dict]:
         """Get current Trino connection information.

@@ -244,7 +244,10 @@ class TrinoCatalogRelationHandler(Object):
             )
             return None, False
 
-        username = f"app-{relation.app.name}-{relation.id}"
+        app_name = relation.data[relation.app].get(
+            "app_name", relation.app.name
+        )
+        username = f"app-{app_name}-{relation.id}"
         password = generate_password()
 
         secret = self.charm.app.add_secret(
