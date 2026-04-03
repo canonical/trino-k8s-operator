@@ -255,6 +255,7 @@ class TrinoK8SCharm(CharmBase):
         self.unit.status = WaitingStatus("configuring trino")
         self.trino_coordinator._update_coordinator_relation_data(event)
         self._update(event)
+        self.trino_catalog.reconcile_trino_catalog_relations()
 
     @log_event_handler(logger)
     def _on_update_status(self, event):
@@ -289,8 +290,8 @@ class TrinoK8SCharm(CharmBase):
                 self._restart_trino()
                 return
 
-        self.trino_catalog.update_all_relations()
         self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)
+        self.trino_catalog.reconcile_trino_catalog_relations()
 
         self.unit.status = ActiveStatus("Status check: UP")
 
@@ -325,6 +326,7 @@ class TrinoK8SCharm(CharmBase):
             self.postgresql_catalog_handler.reconcile_postgresql_catalogs(
                 event
             )
+            self.trino_catalog.reconcile_trino_catalog_relations()
             self._restart_trino()
             return
 
@@ -425,7 +427,8 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            event.defer()
+            if event is not None:
+                event.defer()
             return
 
         secret_id = self.state.user_secret_id
@@ -440,9 +443,30 @@ class TrinoK8SCharm(CharmBase):
                 logger.error(f"Error reading secret {secret_id!r}: {e}")
                 raise
         else:
-            credentials = DEFAULT_CREDENTIALS
+            credentials = dict(DEFAULT_CREDENTIALS)
+
+        # Merge per-relation users from trino-catalog relations
+        relation_creds = self.trino_catalog.get_relation_credentials()
+        credentials.update(relation_creds)
 
         add_users_to_password_db(container, credentials, db_path)
+
+    def _update_password_db_and_restart(self):
+        """Update password.db with current credentials and restart Trino.
+
+        Called by the trino-catalog handler when per-relation users change.
+        """
+        container = self.unit.get_container(self.name)
+        if not container.can_connect():
+            return
+
+        try:
+            self._update_password_db(None)
+        except Exception as err:
+            logger.error("Failed to update password.db: %s", err)
+            return
+
+        self._restart_trino()
 
     def _configure_catalogs(self, event):
         """Manage catalog properties files.

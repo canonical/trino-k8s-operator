@@ -17,7 +17,7 @@ from helpers import (
 )
 from pytest_operator.plugin import OpsTest
 
-from literals import TRINO_PORTS, USER_SECRET_LABEL
+from literals import TRINO_PORTS
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ async def test_02_trino_catalog_relation_created(ops_test: OpsTest):
 
         await ops_test.model.wait_for_idle(
             apps=[REQUIRER_APP],
-            status="waiting",  # Requirer will be waiting for Trino data
+            status="active",
             raise_on_blocked=False,
             timeout=1000,
         )
@@ -119,33 +119,44 @@ async def test_02_trino_catalog_relation_created(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_03_trino_catalog_relation_set_url(ops_test: OpsTest):
-    """Test setting the url for Trino but requirer is still waiting for all data."""
-    async with ops_test.fast_forward():
-        await ops_test.model.applications[APP_NAME].set_config(
-            {"external-hostname": "trino.test.com"}
-        )
+async def test_03_auto_generated_credentials(ops_test: OpsTest):
+    """Test that per-relation credentials are auto-generated."""
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+        "get-relation-data"
+    )
+    await action.wait()
+    assert action.status == "completed"
 
-        # Wait for Trino to be ready
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=1000,
-        )
+    # Verify auto-generated username follows pattern app-{app_name}-{relation_id}
+    result_username = action.results.get("trino-username")
+    assert result_username.startswith(
+        f"app-{REQUIRER_APP}-"
+    ), f"Expected username starting with 'app-{REQUIRER_APP}-', got '{result_username}'"
 
-        # Requirer will be waiting for Trino data (it needs all three: catalogs, URL, secret)
-        await ops_test.model.wait_for_idle(
-            apps=[REQUIRER_APP],
-            status="waiting",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
+    # Verify password is a non-empty random string
+    result_password = action.results.get("trino-password")
+    assert (
+        result_password and len(result_password) > 0
+    ), "Expected non-empty auto-generated password"
+
+    # Verify internal URL (no nginx relation at this point)
+    result_url = action.results.get("trino-url")
+    expected_internal_url = f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
+    assert (
+        result_url == expected_internal_url
+    ), f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
+
+    logger.info(
+        "Verified auto-generated credentials: username='%s', URL='%s'",
+        result_username,
+        result_url,
+    )
 
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
 async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
-    """Test setting the catalogs for Trino but requirer is still waiting for all data."""
+    """Test that catalog-config changes propagate to the requirer."""
     # Create catalog secrets
     postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
     mysql_secret_id = await add_juju_secret(ops_test, "mysql")
@@ -183,85 +194,9 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
             timeout=1000,
         )
 
-        # Requirer will be waiting for Trino data (it needs all three: catalogs, URL, secret)
+        # Requirer stays active
         await ops_test.model.wait_for_idle(
             apps=[REQUIRER_APP],
-            status="waiting",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
-
-
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_05_trino_catalog_relation_set_secret(ops_test: OpsTest):
-    """Test granting the user secret to Trino but not to requirer which will be blocked."""
-    # Create user secret for Trino
-    users_secret_data = (
-        "app-requirer-charm: password1\nuser2: password2"  # nosec
-    )
-    user_secret = await ops_test.model.add_secret(
-        name=USER_SECRET_LABEL,
-        data_args=[f"users={users_secret_data}"],
-    )
-    user_secret_id = user_secret.split(":")[-1]
-
-    # Grant and configure Trino with user secret
-    async with ops_test.fast_forward():
-
-        await ops_test.model.grant_secret(USER_SECRET_LABEL, APP_NAME)
-
-        await ops_test.model.applications[APP_NAME].set_config(
-            {"user-secret-id": user_secret_id}
-        )
-
-        # Wait for Trino to be ready
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=1000,
-        )
-
-        # Requirer has all three (catalogs, URL, secret) but hasn't been granted the secret yet
-        await ops_test.model.wait_for_idle(
-            apps=[REQUIRER_APP],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
-
-
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_06_trino_catalog_relation_grant_secret(
-    ops_test: OpsTest,
-):
-    """Test granting secret to the requirer after which it becomes active."""
-    async with ops_test.fast_forward():
-
-        await ops_test.model.grant_secret(USER_SECRET_LABEL, REQUIRER_APP)
-
-        await ops_test.model.wait_for_idle(
-            apps=[REQUIRER_APP],
-            status="active",
-            timeout=1000,
-        )
-
-
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_07a_trino_catalog_internal_url(
-    ops_test: OpsTest,
-):
-    """Test that the requirer receives internal service URL when no nginx-route relation."""
-    # Remove external-hostname config to test internal URL path
-    async with ops_test.fast_forward():
-        await ops_test.model.applications[APP_NAME].reset_config(
-            ["external-hostname"]
-        )
-
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
             status="active",
             timeout=1000,
         )
@@ -299,35 +234,10 @@ async def test_07a_trino_catalog_internal_url(
         catalog_names,
     )
 
-    # Verify the requirer received the internal service URL
-    result_url = action.results.get("trino-url")
-    expected_internal_url = f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
-    assert (
-        result_url == expected_internal_url
-    ), f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
-    logger.info(
-        "Verified requirer received internal Trino URL: %s", result_url
-    )
-
-    # Verify the requirer received the username and password
-    result_username = action.results.get("trino-username")
-    result_password = action.results.get("trino-password")
-    assert (
-        result_username == "app-requirer-charm"
-    ), f"Expected username 'app-requirer-charm', got '{result_username}'"
-    assert (
-        result_password == "password1"  # nosec
-    ), f"Expected password 'password1', got '{result_password}'"
-    logger.info(
-        "Verified requirer received Trino credentials: username='%s', password='%s'",
-        result_username,
-        result_password,
-    )
-
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_07b_trino_catalog_external_url_with_nginx(
+async def test_05_trino_catalog_external_url_with_nginx(
     ops_test: OpsTest,
 ):
     """Test that the requirer receives external URL when nginx-route relation exists."""
@@ -380,7 +290,7 @@ async def test_07b_trino_catalog_external_url_with_nginx(
         "Verified requirer received external Trino URL: %s", result_url
     )
 
-    # Clean up: remove nginx relation for subsequent tests
+    # Clean up: remove nginx relation and reset external-hostname
     async with ops_test.fast_forward():
         await ops_test.juju(
             "remove-relation",
@@ -394,10 +304,21 @@ async def test_07b_trino_catalog_external_url_with_nginx(
             timeout=1000,
         )
 
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[APP_NAME].reset_config(
+            ["external-hostname"]
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_08_catalog_config_propagation(ops_test: OpsTest):
+async def test_06_catalog_config_propagation(ops_test: OpsTest):
     """Test that catalog-config changes propagate to the requirer."""
     # Get catalog secrets
     postgresql_secret_id = await get_secret_id_by_label(
@@ -476,8 +397,8 @@ async def test_08_catalog_config_propagation(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_09_multiple_requirers(ops_test: OpsTest):
-    """Test that multiple requirers can connect to same Trino."""
+async def test_07_multiple_requirers(ops_test: OpsTest):
+    """Test that multiple requirers each get separate auto-generated credentials."""
     # Deploy a second requirer
     requirer_charm = await ops_test.build_charm(REQUIRER_CHARM_PATH)
     requirer_app_2 = "second-requirer"
@@ -503,18 +424,8 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
 
         await ops_test.model.wait_for_idle(
             apps=[requirer_app_2],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
-
-    # Grant secret to second requirer
-    await ops_test.model.grant_secret(USER_SECRET_LABEL, requirer_app_2)
-
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[requirer_app_2],
             status="active",
+            raise_on_blocked=False,
             timeout=1000,
         )
 
@@ -527,6 +438,32 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
     # Should have at least 2 relations
     assert len(trino_catalog_relations) >= 2
 
+    # Verify each requirer got different credentials
+    action_1 = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+        "get-relation-data"
+    )
+    await action_1.wait()
+    action_2 = await ops_test.model.units.get(
+        f"{requirer_app_2}/0"
+    ).run_action("get-relation-data")
+    await action_2.wait()
+
+    username_1 = action_1.results.get("trino-username")
+    username_2 = action_2.results.get("trino-username")
+
+    assert username_1.startswith(f"app-{REQUIRER_APP}-")
+    assert username_2.startswith(f"app-{requirer_app_2}-")
+    assert username_1 != username_2, (
+        f"Each requirer should get a unique username, "
+        f"got '{username_1}' and '{username_2}'"
+    )
+
+    logger.info(
+        "Verified separate credentials: requirer1='%s', requirer2='%s'",
+        username_1,
+        username_2,
+    )
+
     # Clean up second requirer
     async with ops_test.fast_forward():
         await ops_test.model.remove_application(
@@ -536,7 +473,7 @@ async def test_09_multiple_requirers(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_10_relation_broken(ops_test: OpsTest):
+async def test_08_relation_broken(ops_test: OpsTest):
     """Test that relation can be broken cleanly."""
     # Remove the relation
     async with ops_test.fast_forward():
