@@ -301,6 +301,28 @@ class TrinoCatalogRelationHandler(Object):
             trino_credentials_secret_id=secret.id,
         )
 
+    def _parse_exclusions(self) -> dict:
+        """Parse the catalog-exclusions config.
+
+        Returns:
+            Dict mapping app_name to set of excluded catalog names.
+            Empty dict if config is unset or empty.
+        """
+        raw = self.charm.config.get("catalog-exclusions")
+        if not raw:
+            return {}
+        try:
+            parsed = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {
+            app_name: set(catalogs)
+            for app_name, catalogs in parsed.items()
+            if isinstance(catalogs, list)
+        }
+
     def reconcile_trino_catalog_relations(self) -> None:
         """Reconcile all trino-catalog relations.
 
@@ -322,6 +344,7 @@ class TrinoCatalogRelationHandler(Object):
 
         # Get structured catalog information
         catalogs = self._get_catalogs()
+        exclusions = self._parse_exclusions()
 
         users_changed = False
 
@@ -334,11 +357,24 @@ class TrinoCatalogRelationHandler(Object):
             if created:
                 users_changed = True
 
+            # Filter catalogs based on per-app exclusions
+            app_name = (
+                relation.data[relation.app].get("app_name")
+                if relation.app
+                else None
+            )
+            excluded = exclusions.get(app_name, set())
+            filtered_catalogs = (
+                [c for c in catalogs if c.name not in excluded]
+                if excluded
+                else catalogs
+            )
+
             # Update relation databag
             self.provider.update_relation_data(
                 relation=relation,
                 trino_url=url,
-                trino_catalogs=catalogs,
+                trino_catalogs=filtered_catalogs,
                 trino_credentials_secret_id=secret.id,
             )
 

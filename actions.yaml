@@ -3,3 +3,5 @@
 
 restart:
     description: Restart the Trino server.
+list-system-users:
+    description: List all Trino system users.

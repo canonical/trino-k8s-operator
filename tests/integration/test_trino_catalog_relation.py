@@ -237,7 +237,71 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_05_trino_catalog_external_url_with_nginx(
+async def test_05_catalog_exclusions(ops_test: OpsTest):
+    """Test that catalog-exclusions filters catalogs for a specific requirer."""
+    # Exclude one catalog for the requirer app
+    exclusion_config = f"{REQUIRER_APP}:\n  - postgresql-1"
+
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[APP_NAME].set_config(
+            {"catalog-exclusions": exclusion_config}
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
+    # Verify the requirer receives 4 catalogs (postgresql-1 excluded)
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+        "get-relation-data"
+    )
+    await action.wait()
+    assert action.status == "completed"
+
+    catalogs_str = action.results.get("trino-catalogs", "[]")
+    catalogs = ast.literal_eval(catalogs_str)
+    catalog_names = {cat["name"] for cat in catalogs}
+
+    assert (
+        "postgresql-1" not in catalog_names
+    ), f"postgresql-1 should be excluded, but found in {catalog_names}"
+    assert len(catalogs) == 4, f"Expected 4 catalogs, got {len(catalogs)}"
+
+    # Reset exclusions and verify all catalogs are restored
+    async with ops_test.fast_forward():
+        await ops_test.model.applications[APP_NAME].reset_config(
+            ["catalog-exclusions"]
+        )
+
+        await ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=1000,
+        )
+
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+        "get-relation-data"
+    )
+    await action.wait()
+    assert action.status == "completed"
+
+    catalogs_str = action.results.get("trino-catalogs", "[]")
+    catalogs = ast.literal_eval(catalogs_str)
+    catalog_names = {cat["name"] for cat in catalogs}
+
+    assert (
+        "postgresql-1" in catalog_names
+    ), f"postgresql-1 should be restored after clearing exclusions, got {catalog_names}"
+    assert len(catalogs) == 5, f"Expected 5 catalogs, got {len(catalogs)}"
+
+    logger.info("Verified catalog exclusions work correctly")
+
+
+@pytest.mark.abort_on_fail
+@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
+async def test_06_trino_catalog_external_url_with_nginx(
     ops_test: OpsTest,
 ):
     """Test that the requirer receives external URL when nginx-route relation exists."""
@@ -318,7 +382,7 @@ async def test_05_trino_catalog_external_url_with_nginx(
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_06_catalog_config_propagation(ops_test: OpsTest):
+async def test_07_catalog_config_propagation(ops_test: OpsTest):
     """Test that catalog-config changes propagate to the requirer."""
     # Get catalog secrets
     postgresql_secret_id = await get_secret_id_by_label(
@@ -397,7 +461,7 @@ async def test_06_catalog_config_propagation(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_07_multiple_requirers(ops_test: OpsTest):
+async def test_08_multiple_requirers(ops_test: OpsTest):
     """Test that multiple requirers each get separate auto-generated credentials."""
     # Deploy a second requirer
     requirer_charm = await ops_test.build_charm(REQUIRER_CHARM_PATH)
@@ -473,7 +537,7 @@ async def test_07_multiple_requirers(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-async def test_08_relation_broken(ops_test: OpsTest):
+async def test_09_relation_broken(ops_test: OpsTest):
     """Test that relation can be broken cleanly."""
     # Remove the relation
     async with ops_test.fast_forward():

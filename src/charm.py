@@ -10,6 +10,8 @@ develop a new k8s charm using the Operator Framework:
 https://discourse.charmhub.io/t/4208
 """
 
+# pylint: disable=too-many-lines
+
 import json
 import logging
 import socket
@@ -133,6 +135,9 @@ class TrinoK8SCharm(CharmBase):
         )
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
+        self.framework.observe(
+            self.on.list_system_users_action, self._on_list_system_users
+        )
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(
             self.on.peer_relation_changed, self._on_peer_relation_changed
@@ -357,6 +362,38 @@ class TrinoK8SCharm(CharmBase):
         self._restart_trino()
 
         event.set_results({"result": "trino successfully restarted"})
+
+    @log_event_handler(logger)
+    def _on_list_system_users(self, event):
+        """List all Trino users, action handler.
+
+        Args:
+            event: The event triggered by the list-system-users action.
+        """
+        secret_id = self.state.user_secret_id
+        if secret_id:
+            try:
+                content = self._get_secret_content(secret_id)
+                configured_users = list(
+                    yaml.safe_load(content["users"]).keys()
+                )
+            except Exception:
+                configured_users = ["(error reading secret)"]
+        else:
+            configured_users = list(DEFAULT_CREDENTIALS.keys())
+
+        relation_creds = self.trino_catalog.get_relation_credentials()
+
+        event.set_results(
+            {
+                "configured-users": ", ".join(configured_users),
+                "relation-users": (
+                    ", ".join(relation_creds.keys())
+                    if relation_creds
+                    else "(none)"
+                ),
+            }
+        )
 
     def set_java_truststore_password(self, event):
         """Update the truststore password to the randomly generated one.
@@ -690,6 +727,7 @@ class TrinoK8SCharm(CharmBase):
 
         static_catalogs = self._validate_catalog_configs()
         self._validate_pg_catalog_config(static_catalogs)
+        self._validate_catalog_exclusions()
         self._validate_json_config("resource-groups-config")
         self._validate_json_config("session-property-manager-config")
 
@@ -739,6 +777,23 @@ class TrinoK8SCharm(CharmBase):
             )
         if isinstance(parsed, dict):
             self._check_catalog_name_conflicts(parsed, static_catalogs)
+
+    def _validate_catalog_exclusions(self) -> None:
+        """Validate that catalog-exclusions config is valid YAML.
+
+        Raises:
+            ValueError: If the config is not valid YAML.
+        """
+        raw = self.config.get("catalog-exclusions")
+        if not raw:
+            return
+        try:
+            yaml.safe_load(raw)
+        except Exception as e:
+            logger.debug("Incorrectly formatted catalog-exclusions: %s", e)
+            raise ValueError(  # pylint: disable=raise-missing-from
+                "Incorrectly formatted catalog-exclusions"
+            )
 
     def _validate_json_config(self, config_key) -> None:
         """Validate that a config value is valid JSON.
