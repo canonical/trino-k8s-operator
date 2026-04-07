@@ -131,6 +131,7 @@ class TestCharm(TestCase):
                         "METRICS_PORT": 9090,
                         "OAUTH_USER_MAPPING": None,
                         "RANGER_RELATION": False,
+                        "REPOSITORY_NAME": None,
                         "RESOURCE_GROUPS_CONFIG": None,
                         "SESSION_PROPERTY_MANAGER_CONFIG": None,
                         "ACL_ACCESS_MODE": "owner",
