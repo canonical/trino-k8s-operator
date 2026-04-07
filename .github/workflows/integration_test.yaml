@@ -21,3 +21,4 @@ jobs:
       builder-runner-label: "self-hosted-linux-amd64-noble-xlarge"
       microk8s-addons: "dns ingress rbac storage metallb:10.15.119.2-10.15.119.4 registry"
       trivy-severity-config: CRITICAL
+      with-uv: true
