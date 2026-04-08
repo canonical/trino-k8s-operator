@@ -17,8 +17,14 @@ from charms.trino_k8s.v0.trino_catalog import (
 )
 from ops.charm import CharmBase
 from ops.framework import Object
+from ops.model import SecretNotFoundError
 
-from literals import TRINO_PORTS
+from literals import (
+    POSTGRESQL_RELATION_NAME,
+    TRINO_CATALOG_SECRET_PREFIX,
+    TRINO_PORTS,
+)
+from utils import generate_password
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +35,8 @@ class TrinoCatalogRelationHandler(Object):
     Parses catalog-config to extract structured catalog information
     and shares it with requirers via the trino-catalog relation.
 
-    Note: The model-owned secret (user-secret-id) must be manually granted
-    to each requirer application using: juju grant-secret <secret> <requirer-app>.
+    Creates per-relation users and app-owned secrets so credential
+    sharing works across model boundaries (CMR).
     """
 
     def __init__(
@@ -54,6 +60,10 @@ class TrinoCatalogRelationHandler(Object):
             charm.on[self.relation_name].relation_created,
             self._on_relation_created,
         )
+        self.framework.observe(
+            charm.on[self.relation_name].relation_broken,
+            self._on_relation_broken,
+        )
 
     def _on_relation_created(self, event):
         """Handle trino-catalog relation created."""
@@ -61,7 +71,26 @@ class TrinoCatalogRelationHandler(Object):
             event.defer()
             return
 
-        self._update_relation(event)
+        self.reconcile_trino_catalog_relations()
+
+    @staticmethod
+    def _secret_label(relation_id: int) -> str:
+        """Build the label of the secret for the relation."""
+        return f"{TRINO_CATALOG_SECRET_PREFIX}{relation_id}"
+
+    def _on_relation_broken(self, event):
+        """Handle trino-catalog relation broken: clean up the per-relation secret."""
+        label = self._secret_label(event.relation.id)
+        try:
+            secret = self.charm.model.get_secret(label=label)
+            secret.remove_all_revisions()
+            logger.info(
+                "Removed secret for broken relation %s", event.relation.id
+            )
+        except SecretNotFoundError:
+            pass
+
+        self.charm._update_password_db_and_restart()
 
     def _get_url(self) -> Optional[str]:
         """Get the Trino URL from configuration.
@@ -88,7 +117,8 @@ class TrinoCatalogRelationHandler(Object):
         """Get structured catalog information from catalog-config.
 
         Parses the catalog-config YAML to extract catalog name, connector type,
-        and description for each configured catalog.
+        and description for each configured catalog. Also includes PostgreSQL
+        dynamic catalogs from postgresql-catalog-config if the relation exists.
 
         Returns:
             List of TrinoCatalog objects
@@ -97,8 +127,24 @@ class TrinoCatalogRelationHandler(Object):
 
         if not catalog_config_str:
             logger.debug("No catalog-config set")
-            return []
+            catalogs = []
+        else:
+            catalogs = self._get_static_catalogs(catalog_config_str)
 
+        # Include PostgreSQL dynamic catalogs if the relation exists
+        catalogs.extend(self._get_postgresql_catalogs())
+
+        return catalogs
+
+    def _get_static_catalogs(self, catalog_config_str) -> List[TrinoCatalog]:
+        """Parse catalog-config YAML into TrinoCatalog objects.
+
+        Args:
+            catalog_config_str: The raw catalog-config YAML string.
+
+        Returns:
+            List of TrinoCatalog objects
+        """
         try:
             config = yaml.safe_load(catalog_config_str)
         except yaml.YAMLError as e:
@@ -139,8 +185,94 @@ class TrinoCatalogRelationHandler(Object):
 
         return catalog_list
 
+    def _get_postgresql_catalogs(self) -> List[TrinoCatalog]:
+        """Get catalog names from postgresql-catalog-config.
+
+        Only included when the postgresql relation exists.
+
+        Returns:
+            List of TrinoCatalog objects for dynamic PG catalogs.
+        """
+        if not self.charm.model.relations.get(POSTGRESQL_RELATION_NAME):
+            return []
+
+        raw = self.charm.config.get("postgresql-catalog-config")
+        if not raw:
+            return []
+
+        try:
+            config = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            return []
+
+        if not isinstance(config, dict):
+            return []
+
+        catalogs = []
+        for entry in config.values():
+            if not isinstance(entry, dict):
+                continue
+            for key in ("ro_catalog_name", "rw_catalog_name"):
+                name = entry.get(key)
+                if name:
+                    catalogs.append(
+                        TrinoCatalog(name=name, connector="postgresql")
+                    )
+
+        return catalogs
+
+    def _get_relation_secret(self, relation):
+        """Get or create a per-relation user and app-owned secret.
+
+        Args:
+            relation: The Juju relation.
+
+        Returns:
+            Tuple of (secret, created) where created is True if a new secret
+            was made. Returns (None, False) if creation failed.
+        """
+        label = self._secret_label(relation.id)
+
+        # Try to find existing secret by label
+        try:
+            secret = self.charm.model.get_secret(label=label)
+            secret.grant(relation)
+            return secret, False
+        except SecretNotFoundError:
+            pass
+
+        # Create new user and secret
+        if relation.app is None:
+            return None, False
+
+        app_name = relation.data[relation.app].get("app_name")
+        if not app_name:
+            logger.debug(
+                "Relation %s: app_name not yet available, deferring secret creation",
+                relation.id,
+            )
+            return None, False
+
+        # Create secret with the readable username
+        username = f"app-{app_name}-{relation.id}"
+        password = generate_password()
+        secret = self.charm.app.add_secret(
+            {"username": username, "password": password},
+            label=label,
+        )
+        secret.grant(relation)
+
+        logger.info(
+            "Created per-relation user %r for relation %s",
+            username,
+            relation.id,
+        )
+        return secret, True
+
     def _update_relation(self, event) -> None:
         """Update a specific trino-catalog relation.
+
+        Creates a per-relation secret if needed, then updates the databag.
 
         Args:
             event: The relation created event.
@@ -161,45 +293,112 @@ class TrinoCatalogRelationHandler(Object):
         # Get structured catalog information
         catalogs = self._get_catalogs()
 
-        # Get credentials secret ID
-        secret_id = self.charm.config.get("user-secret-id")
-        if not secret_id:
-            logger.debug("Trino user-secret-id not configured")
+        # Get per-relation user and secret
+        secret, _created = self._get_relation_secret(event.relation)
+        if secret is None:
             return
 
         # Update relation via library
-        # Note: The library will put the secret ID in the databag
-        # Admin must grant access: juju grant-secret <secret> <requirer-app>
         self.provider.update_relation_data(
             relation=event.relation,
             trino_url=url,
             trino_catalogs=catalogs,
-            trino_credentials_secret_id=secret_id,
+            trino_credentials_secret_id=secret.id,
         )
 
-    def update_all_relations(self) -> None:
-        """Update all trino-catalog relations."""
+    def _parse_exclusions(self) -> dict:
+        """Parse the catalog-exclusions config.
+
+        Returns:
+            Dict mapping app_name to set of excluded catalog names.
+            Empty dict if config is unset or empty.
+        """
+        raw = self.charm.config.get("catalog-exclusions")
+        if not raw:
+            return {}
+        try:
+            parsed = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {
+            app_name: set(catalogs)
+            for app_name, catalogs in parsed.items()
+            if isinstance(catalogs, list)
+        }
+
+    def reconcile_trino_catalog_relations(self) -> None:
+        """Reconcile all trino-catalog relations.
+
+        Creates per-relation users and app-owned secrets, then updates
+        each relation databag with current URL, catalogs, and secret ID.
+        If new users were created, triggers password.db update and restart.
+        """
+        if not self.charm.state.is_ready():
+            return
+
         if not self.charm.unit.is_leader():
             return
 
         # Get Trino URL
         url = self._get_url()
         if not url:
-            logger.debug("Trino external-hostname not configured")
+            logger.debug("Trino URL not available, skipping reconciliation")
             return
 
         # Get structured catalog information
         catalogs = self._get_catalogs()
+        exclusions = self._parse_exclusions()
 
-        # Get credentials secret ID (model-owned secret)
-        secret_id = self.charm.config.get("user-secret-id")
-        if not secret_id:
-            logger.debug("Trino user-secret-id not configured")
-            return
+        users_changed = False
 
-        # Update all relations via library
-        self.provider.update_all_relations(
-            trino_url=url,
-            trino_catalogs=catalogs,
-            trino_credentials_secret_id=secret_id,
-        )
+        for relation in self.charm.model.relations.get(self.relation_name, []):
+            # Get per-relation user and secret
+            secret, created = self._get_relation_secret(relation)
+            if secret is None:
+                continue
+
+            if created:
+                users_changed = True
+
+            # Filter catalogs based on per-app exclusions
+            app_name = (
+                relation.data[relation.app].get("app_name")
+                if relation.app
+                else None
+            )
+            excluded = exclusions.get(app_name, set())
+            filtered_catalogs = (
+                [c for c in catalogs if c.name not in excluded]
+                if excluded
+                else catalogs
+            )
+
+            # Update relation databag
+            self.provider.update_relation_data(
+                relation=relation,
+                trino_url=url,
+                trino_catalogs=filtered_catalogs,
+                trino_credentials_secret_id=secret.id,
+            )
+
+        if users_changed:
+            self.charm._update_password_db_and_restart()
+
+    def get_relation_credentials(self) -> dict:
+        """Get credentials for all per-relation users.
+
+        Returns:
+            Dict mapping username to password for all active relations.
+        """
+        credentials = {}
+        for relation in self.charm.model.relations.get(self.relation_name, []):
+            label = self._secret_label(relation.id)
+            try:
+                secret = self.charm.model.get_secret(label=label)
+                content = secret.get_content(refresh=True)
+                credentials[content["username"]] = content["password"]
+            except SecretNotFoundError:
+                logger.debug("No secret found for relation %s", relation.id)
+        return credentials

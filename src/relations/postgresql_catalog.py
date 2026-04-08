@@ -173,6 +173,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             event: The relation changed event.
         """
         self.reconcile_postgresql_catalogs(event)
+        self.charm.trino_catalog.reconcile_trino_catalog_relations()
 
     @log_event_handler(logger)
     def _on_relation_broken(self, event):
@@ -182,6 +183,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             event: The relation broken event.
         """
         self.reconcile_postgresql_catalogs(event)
+        self.charm.trino_catalog.reconcile_trino_catalog_relations()
 
     def reconcile_postgresql_catalogs(self, event=None):
         """Reconcile wanted vs tracked catalog state via CREATE/DROP CATALOG.

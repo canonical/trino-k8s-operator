@@ -290,18 +290,15 @@ In order to add this connector, follow the documentation [here](https://trino.io
 The Hive connector is currently intended to enable virtual views (i.e. `CREATE VIEW`) with the use of Hive Metastore. Intended use case for now is for a co-located Hive Metastore deployment to be used where only a URL is needed. Since the only data stored on Hive Metastore is encrypted view definitions, authentication is not necessary for the moment and no credentials are needed.
 
 ### Charm relation
-The `trino-catalog` relation allows external applications to discover and connect to Trino catalogs programmatically. The Trino charm shares connection details including the server URL, available catalogs, and user credentials via Juju secrets.
+The `trino-catalog` relation allows external applications to discover and connect to Trino catalogs programmatically. When a relation is established, Trino automatically creates a per-relation user and shares credentials via a Juju secret granted to the requirer. The server URL and available catalogs are shared via the relation databag.
 
 ```bash
-# Deploy a requirer application
+# Deploy a requirer application and create the relation
 juju deploy <requirer-app>
 juju relate trino-k8s <requirer-app>
-
-# Grant the credentials secret to the requirer
-juju grant-secret trino-user-management <requirer-app>
 ```
 
-**Note:** Credentials must be manually granted using `juju grant-secret`. The requirer application must have a user in the credentials secret matching the format `app-<requirer-charm-name>`.
+No manual secret granting is required. Each requirer gets a unique username in the format `app-<requirer-app-name>-<relation-id>` with an auto-generated password. This works across both same-model and cross-model relations.
 
 ## User management
 By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
