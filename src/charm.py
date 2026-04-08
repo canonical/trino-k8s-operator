@@ -52,7 +52,6 @@ from literals import (
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
-    TRINO_PLUGIN_DIR,
     TRINO_PORTS,
     USER_SECRET_LABEL,
 )
@@ -887,7 +886,6 @@ class TrinoK8SCharm(CharmBase):
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
             "RANGER_RELATION": self.state.ranger_enabled or False,
-            "REPOSITORY_NAME": self.config.get("ranger-service-name"),
             "ACL_ACCESS_MODE": self.config["acl-mode-default"],
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
@@ -1008,9 +1006,7 @@ class TrinoK8SCharm(CharmBase):
             )
 
             # Handle Ranger plugin
-            if self.state.ranger_enabled and not container.exists(
-                f"{TRINO_PLUGIN_DIR}/ranger"
-            ):
+            if self.state.ranger_enabled:
                 # No leadership check required as coordinator
                 # and single node cannot scale.
                 self.policy._configure_ranger_plugin(container)
