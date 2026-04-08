@@ -73,9 +73,14 @@ class TrinoCatalogRelationHandler(Object):
 
         self.reconcile_trino_catalog_relations()
 
+    @staticmethod
+    def _secret_label(relation_id: int) -> str:
+        """Build the label of the secret for the relation."""
+        return f"{TRINO_CATALOG_SECRET_PREFIX}{relation_id}"
+
     def _on_relation_broken(self, event):
         """Handle trino-catalog relation broken: clean up the per-relation secret."""
-        label = f"{TRINO_CATALOG_SECRET_PREFIX}{event.relation.id}"
+        label = self._secret_label(event.relation.id)
         try:
             secret = self.charm.model.get_secret(label=label)
             secret.remove_all_revisions()
@@ -226,7 +231,7 @@ class TrinoCatalogRelationHandler(Object):
             Tuple of (secret, created) where created is True if a new secret
             was made. Returns (None, False) if creation failed.
         """
-        label = f"{TRINO_CATALOG_SECRET_PREFIX}{relation.id}"
+        label = self._secret_label(relation.id)
 
         # Try to find existing secret by label
         try:
@@ -389,7 +394,7 @@ class TrinoCatalogRelationHandler(Object):
         """
         credentials = {}
         for relation in self.charm.model.relations.get(self.relation_name, []):
-            label = f"{TRINO_CATALOG_SECRET_PREFIX}{relation.id}"
+            label = self._secret_label(relation.id)
             try:
                 secret = self.charm.model.get_secret(label=label)
                 content = secret.get_content(refresh=True)

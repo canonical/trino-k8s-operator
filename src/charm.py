@@ -464,8 +464,6 @@ class TrinoK8SCharm(CharmBase):
         """
         container = self.unit.get_container(self.name)
         if not container.can_connect():
-            if event is not None:
-                event.defer()
             return
 
         secret_id = self.state.user_secret_id
@@ -747,9 +745,7 @@ class TrinoK8SCharm(CharmBase):
             parsed = yaml.safe_load(raw)
         except Exception as e:
             logger.debug("Incorrectly formatted catalog-config: %s", e)
-            raise ValueError(  # pylint: disable=raise-missing-from
-                "Incorrectly formatted catalog-config"
-            )
+            raise ValueError("Incorrectly formatted catalog-config") from None
         if isinstance(parsed, dict):
             return set(parsed.get("catalogs", {}).keys())
         return set()
@@ -772,9 +768,9 @@ class TrinoK8SCharm(CharmBase):
             logger.debug(
                 "Incorrectly formatted postgresql-catalog-config: %s", e
             )
-            raise ValueError(  # pylint: disable=raise-missing-from
+            raise ValueError(
                 "Incorrectly formatted postgresql-catalog-config"
-            )
+            ) from None
         if isinstance(parsed, dict):
             self._check_catalog_name_conflicts(parsed, static_catalogs)
 
@@ -791,9 +787,9 @@ class TrinoK8SCharm(CharmBase):
             yaml.safe_load(raw)
         except Exception as e:
             logger.debug("Incorrectly formatted catalog-exclusions: %s", e)
-            raise ValueError(  # pylint: disable=raise-missing-from
+            raise ValueError(
                 "Incorrectly formatted catalog-exclusions"
-            )
+            ) from None
 
     def _validate_json_config(self, config_key) -> None:
         """Validate that a config value is valid JSON.
