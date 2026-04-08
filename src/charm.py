@@ -50,7 +50,6 @@ from literals import (
     PASSWORD_DB,
     RUN_TRINO_COMMAND,
     TRINO_HOME,
-    TRINO_PLUGIN_DIR,
     TRINO_PORTS,
     USER_SECRET_LABEL,
 )
