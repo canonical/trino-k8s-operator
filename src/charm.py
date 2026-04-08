@@ -887,6 +887,7 @@ class TrinoK8SCharm(CharmBase):
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
             "RANGER_RELATION": self.state.ranger_enabled or False,
+            "REPOSITORY_NAME": self.config.get("ranger-service-name"),
             "ACL_ACCESS_MODE": self.config["acl-mode-default"],
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
