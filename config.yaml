@@ -77,6 +77,18 @@ options:
           rw_catalog_name: catalog_developer
           config: case-insensitive-name-matching=true
     type: string
+  catalog-exclusions:
+    description: |
+      YAML mapping of requirer app names to lists of catalog names to exclude
+      from the trino-catalog relation. Each key matches the app_name published
+      by the requirer in the relation databag. Catalogs listed under an app
+      will not be shared with that requirer.
+      Example:
+        superset-k8s:
+          - catalog_developer
+        ranger-k8s:
+          - debug_catalog
+    type: string
   resource-groups-config:
     description: |
       Resource groups configuration in JSON format defining the resource management rules 

@@ -61,6 +61,7 @@ DEFAULT_JVM_OPTIONS = [
     "-XX:+HeapDumpOnOutOfMemoryError",
 ]
 USER_SECRET_LABEL = "trino-user-management"  # nosec
+TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string", "nullable": True},
