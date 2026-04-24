@@ -26,7 +26,6 @@ LIBAPI = 0
 LIBPATCH = 5
 
 
-
 logger = logging.getLogger(__name__)
 
 
