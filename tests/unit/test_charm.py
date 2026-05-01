@@ -25,8 +25,12 @@ from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     DEFAULT_JVM_STRING,
     POSTGRESQL_1_CATALOG_PATH,
+    POSTGRESQL_1_DEVELOPER_CATALOG_PATH,
+    POSTGRESQL_REPLICA_SECRET,
+    POSTGRESQL_REPLICA_SECRET_WITH_PARAMS,
     SERVER_PORT,
     create_catalog_config,
+    create_single_catalog_config,
     make_relation_event,
     simulate_lifecycle_coordinator,
     simulate_lifecycle_worker,
@@ -515,3 +519,87 @@ class TestCharm(TestCase):
 
         self.assertFalse(container.exists(properties_path))
         self.assertFalse(container.exists(json_path))
+
+    def test_per_replica_params_override_backend_params(self):
+        """Per-replica params override backend params in rendered catalog files.
+
+        The rw replica and ro replica must get the targetServerType declared
+        in their respective replica params, not a shared value from the backend.
+        """
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        postgresql_secret_id = harness.add_model_secret(
+            "trino-k8s",
+            {"replicas": POSTGRESQL_REPLICA_SECRET_WITH_PARAMS},
+        )
+        catalog_config = create_single_catalog_config(postgresql_secret_id)
+        harness.update_config({"catalog-config": catalog_config})
+
+        container = harness.model.unit.get_container("trino")
+
+        ro_props = container.pull(POSTGRESQL_1_CATALOG_PATH).read()
+        rw_props = container.pull(POSTGRESQL_1_DEVELOPER_CATALOG_PATH).read()
+
+        self.assertIn("targetServerType=preferSecondary", ro_props)
+        self.assertIn("targetServerType=primary", rw_props)
+        self.assertNotIn("targetServerType=preferSecondary", rw_props)
+
+    def test_backend_params_applied_when_replica_params_absent(self):
+        """Backend params are used for all replicas when no per-replica params are set.
+
+        Verifies the fallback path: replicas without their own params inherit
+        the backend-level params unchanged.
+        """
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        postgresql_secret_id = harness.add_model_secret(
+            "trino-k8s",
+            {"replicas": POSTGRESQL_REPLICA_SECRET},
+        )
+        catalog_config = create_single_catalog_config(
+            postgresql_secret_id,
+            backend_params="ssl=false&targetServerType=primary",
+        )
+        harness.update_config({"catalog-config": catalog_config})
+
+        container = harness.model.unit.get_container("trino")
+
+        ro_props = container.pull(POSTGRESQL_1_CATALOG_PATH).read()
+        rw_props = container.pull(POSTGRESQL_1_DEVELOPER_CATALOG_PATH).read()
+
+        # Both replicas should carry the backend's params unchanged
+        self.assertIn("targetServerType=primary", ro_props)
+        self.assertIn("targetServerType=primary", rw_props)
+
+    def test_replica_params_override_backend_params_when_both_present(self):
+        """Replica params take precedence over backend params when both are declared.
+
+        Verifies the override path: even when the backend has params, each
+        replica's own params replace them entirely for that catalog file.
+        """
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        postgresql_secret_id = harness.add_model_secret(
+            "trino-k8s",
+            {"replicas": POSTGRESQL_REPLICA_SECRET_WITH_PARAMS},
+        )
+        catalog_config = create_single_catalog_config(
+            postgresql_secret_id,
+            backend_params="ssl=false&targetServerType=primary",
+        )
+        harness.update_config({"catalog-config": catalog_config})
+
+        container = harness.model.unit.get_container("trino")
+
+        ro_props = container.pull(POSTGRESQL_1_CATALOG_PATH).read()
+        rw_props = container.pull(POSTGRESQL_1_DEVELOPER_CATALOG_PATH).read()
+
+        # Replica params should win, backend has targetServerType=primary for both,
+        # but replica declares preferSecondary for ro and primary for rw
+        self.assertIn("targetServerType=preferSecondary", ro_props)
+        self.assertNotIn("targetServerType=primary", ro_props)
+        self.assertIn("targetServerType=primary", rw_props)
+        self.assertNotIn("targetServerType=preferSecondary", rw_props)

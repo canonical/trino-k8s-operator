@@ -58,8 +58,9 @@ class SqlCatalog(CatalogBase):
 
             catalog_name = f"{self.name}{suffix}"
             url = self.db_url
-            if self.backend.get("params"):
-                url = f"{url}?{self.backend['params']}"
+            params = replica_info.get("params") or self.backend.get("params")
+            if params:
+                url = f"{url}?{params}"
 
             catalog_content = textwrap.dedent(
                 f"""\
