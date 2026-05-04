@@ -70,6 +70,12 @@ parts:
       cp client/trino-cli/target/trino-cli-*-executable.jar \
         ${CRAFT_PART_INSTALL}/trino-cli
 
+      # Patch ElasticSearch client for OpenSearch compatibility.
+      # See patches/elasticsearch_patch.py for details.
+      export PATH="${JAVA_HOME}/bin:${PATH}"
+      python3 ${CRAFT_PROJECT_DIR}/patches/elasticsearch_patch.py \
+        ${CRAFT_PART_INSTALL}/plugin/ranger
+
       mkdir -p \
         ${CRAFT_PART_INSTALL}/data/trino/var/run \
         ${CRAFT_PART_INSTALL}/data/trino/var/log \
