@@ -67,10 +67,16 @@ rw:
   user: trino
   password: "pwd1" 
   suffix: _developer
+  params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=primary
 ro:
   user: trino_ro
   password: "pwd2"
+  params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=preferSecondary
 ```
+
+Each replica can declare its own `params` to override the backend-level `params` for that catalog file. This is the recommended pattern for controlling JDBC routing per replica where the rw replica targets the primary and the ro replica routes to secondaries. The backend-level `params` is used as a fallback for replicas that do not set their own.
+
+If `params` is omitted from a replica, the backend's `params` applies to that replica unchanged.
 
 For PostgreSQL certificates (`certificates.yaml`):
 ```

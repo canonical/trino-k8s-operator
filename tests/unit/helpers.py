@@ -48,6 +48,18 @@ ro:
   user: trino_ro
   password: pwd2
 """  # nosec
+
+POSTGRESQL_REPLICA_SECRET_WITH_PARAMS = """\
+rw:
+  user: trino
+  password: pwd1
+  suffix: _developer
+  params: ssl=true&targetServerType=primary
+ro:
+  user: trino_ro
+  password: pwd2
+  params: ssl=true&targetServerType=preferSecondary
+"""  # nosec
 MYSQL_REPLICA_SECRET = """\
 ro:
   user: trino_ro
@@ -67,6 +79,9 @@ cert: |
 
 POSTGRESQL_1_CATALOG_PATH = (
     "/usr/lib/trino/etc/catalog/postgresql-1.properties"
+)
+POSTGRESQL_1_DEVELOPER_CATALOG_PATH = (
+    "/usr/lib/trino/etc/catalog/postgresql-1_developer.properties"
 )
 POSTGRESQL_2_CATALOG_PATH = (
     "/usr/lib/trino/etc/catalog/postgresql-2.properties"
@@ -449,4 +464,33 @@ def create_added_catalog_config(
                 bigquery.case-insensitive-name-matching=true
         gsheets:
             connector: gsheets
+    """
+
+
+def create_single_catalog_config(postgresql_secret_id, backend_params=None):
+    """Create a minimal catalog-config with a single postgresql catalog.
+
+    Args:
+        postgresql_secret_id: the juju secret id for postgresql
+        backend_params: optional JDBC params string for the backend. When None,
+            the backend declares no params and replicas must provide their own.
+
+    Returns:
+        catalog configuration string.
+    """
+    params_line = (
+        f"\n            params: {backend_params}" if backend_params else ""
+    )
+    return f"""\
+    catalogs:
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+    backends:
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432{params_line}
+            config: |
+                case-insensitive-name-matching=true
     """

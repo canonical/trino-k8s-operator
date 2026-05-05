@@ -71,9 +71,11 @@ rw:
   user: trino
   password: pwd1
   suffix: _developer
+  params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=primary
 ro:
   user: trino_ro
   password: pwd2
+  params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=preferSecondary
 """  # nosec
 
 MYSQL_REPLICA_SECRET = """\

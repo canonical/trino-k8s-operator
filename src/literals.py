@@ -81,6 +81,7 @@ REPLICA_SCHEMA = {
     "user": {"type": "string"},
     "password": {"type": "string"},
     "suffix": {"type": "string", "nullable": True},
+    "params": {"type": "string", "nullable": True},
 }
 
 BIGQUERY_BACKEND_SCHEMA = {
