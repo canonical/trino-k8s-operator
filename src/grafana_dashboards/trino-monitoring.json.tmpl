@@ -18,9 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": null,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -38,7 +36,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "What has been the history of cluster availability?",
       "fieldConfig": {
@@ -47,7 +45,14 @@
             "mode": "thresholds"
           },
           "custom": {
+            "axisPlacement": "auto",
             "fillOpacity": 70,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
             "lineWidth": 0,
             "spanNulls": false
           },
@@ -60,7 +65,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "green",
@@ -78,7 +83,6 @@
         "x": 0,
         "y": 1
       },
-      "hideTimeOverride": false,
       "id": 3,
       "interval": "1m",
       "options": {
@@ -92,20 +96,22 @@
         "rowHeight": 0.9,
         "showValue": "never",
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "up{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}",
+          "expr": "up{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
           "interval": "",
-          "legendFormat": "{{juju_model}}/{{juju_unit}}",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -116,7 +122,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Is the cluster up?",
       "fieldConfig": {
@@ -148,7 +154,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "green",
@@ -172,6 +178,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -179,20 +186,22 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "up{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "up{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": true,
-          "legendFormat": "{{juju_model}}/{{juju_unit}}",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": false,
           "refId": "A"
         }
@@ -203,7 +212,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "How long has the cluster been up?",
       "fieldConfig": {
@@ -228,7 +237,7 @@
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -248,6 +257,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -255,20 +265,22 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "java_lang_Runtime_Uptime{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "java_lang_Runtime_Uptime{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": true,
-          "legendFormat": "{{juju_model}}/{{juju_unit}}",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": false,
           "refId": "A"
         }
@@ -279,7 +291,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of active worker nodes in the cluster according to the coordinator.",
       "fieldConfig": {
@@ -305,7 +317,7 @@
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -325,6 +337,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -332,18 +345,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_failuredetector_HeartbeatFailureDetector_ActiveCount{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_failuredetector_HeartbeatFailureDetector_ActiveCount{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Count",
           "range": true,
@@ -356,7 +371,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of active worker nodes in the cluster according to each node.",
       "fieldConfig": {
@@ -387,7 +402,7 @@
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -407,6 +422,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -414,20 +430,22 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "(trino_metadata_DiscoveryNodeManager_ActiveNodeCount{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\", juju_unit!=\"$coordinator_unit\"} - 1) OR on(juju_unit)\n(up{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit!=\"$coordinator_unit\"} * 0)",
+          "expr": "(trino_metadata_DiscoveryNodeManager_ActiveNodeCount{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit!~\"$coordinator_unit\",juju_unit=~\"$juju_unit\"} - 1) or on (juju_unit) (up{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit!~\"$coordinator_unit\"} * 0)",
           "instant": false,
-          "legendFormat": "{{juju_model}}/{{juju_unit}}",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -438,7 +456,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Maximum CPU usage among any nodes.",
       "fieldConfig": {
@@ -455,7 +473,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -483,6 +501,8 @@
       },
       "id": 8,
       "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -492,18 +512,19 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "max(java_lang_OperatingSystem_CpuLoad{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"})",
+          "expr": "max(java_lang_OperatingSystem_CpuLoad{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "instant": true,
           "legendFormat": "Usage",
           "range": false,
@@ -516,7 +537,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Maximum memory pool usage among any nodes.",
       "fieldConfig": {
@@ -533,7 +554,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -561,6 +582,8 @@
       },
       "id": 9,
       "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -570,19 +593,19 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "max(trino_memory_MemoryPool_ReservedBytes{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"} / trino_memory_MemoryPool_MaxBytes{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"})",
-          "hide": false,
+          "expr": "max(trino_memory_MemoryPool_ReservedBytes{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"} / trino_memory_MemoryPool_MaxBytes{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "instant": true,
           "legendFormat": "Usage",
           "range": false,
@@ -595,7 +618,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of queries submitted in the past 15 minutes.",
       "fieldConfig": {
@@ -611,7 +634,7 @@
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -631,6 +654,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -638,18 +662,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_execution_QueryManager_SubmittedQueries_FifteenMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_execution_QueryManager_SubmittedQueries_FifteenMinute_Count{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Count",
           "range": true,
@@ -662,7 +688,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of currently running queries.",
       "fieldConfig": {
@@ -678,7 +704,7 @@
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -698,6 +724,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -705,18 +732,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_execution_QueryManager_RunningQueries{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_execution_QueryManager_RunningQueries{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Count",
           "range": true,
@@ -729,7 +758,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of queries failed in the past 15 minutes.",
       "fieldConfig": {
@@ -745,7 +774,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -773,6 +802,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -780,18 +810,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_execution_QueryManager_FailedQueries_FifteenMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_execution_QueryManager_FailedQueries_FifteenMinute_Count{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Count",
           "range": true,
@@ -804,7 +836,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Number of queries currently pending execution.",
       "fieldConfig": {
@@ -820,7 +852,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -852,6 +884,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -859,18 +892,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_execution_QueryManager_QueuedQueries{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_execution_QueryManager_QueuedQueries{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Count",
           "range": true,
@@ -883,7 +918,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${prometheusds}"
       },
       "description": "Maximum amount of time a single query waited in the queue over the past 15 minutes.",
       "fieldConfig": {
@@ -898,7 +933,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "#EAB839",
@@ -930,6 +965,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -937,18 +973,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_execution_QueryManager_QueuedTime_FifteenMinutes_Max{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+          "expr": "trino_execution_QueryManager_QueuedTime_FifteenMinutes_Max{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "Time",
           "range": true,
@@ -961,7 +999,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "${lokids}"
       },
       "description": "History of number of logs from the coordinator by log level.",
       "fieldConfig": {
@@ -970,11 +1008,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -983,6 +1023,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -990,6 +1031,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1007,7 +1049,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1091,19 +1133,20 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "9.5.3",
+      "pluginVersion": "12.4.2",
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "${lokids}"
           },
           "editorMode": "code",
-          "expr": "sum by (level) (\n  count_over_time(\n    {juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"} \n      | regexp `^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z\\s+(?P<level>[A-Z]+)`\n      | level =~ \"DEBUG|INFO|WARN|ERROR\"\n      [$__interval]\n  )\n)",
+          "expr": "sum by(level)(count_over_time({juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"} | regexp \"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}\\\\.\\\\d{3}Z\\\\s+(?P<level>[A-Z]+)\" | level=~\"DEBUG|INFO|WARN|ERROR\"[$__interval]))",
           "legendFormat": "{{level}}",
           "queryType": "range",
           "refId": "A"
@@ -1125,7 +1168,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Breakdown of number of queries by state over the past minute.",
           "fieldConfig": {
@@ -1134,11 +1177,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1147,6 +1192,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1154,6 +1200,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1170,7 +1217,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   }
                 ]
               },
@@ -1193,18 +1241,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_SubmittedQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_SubmittedQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Submitted",
               "range": true,
               "refId": "A"
@@ -1212,11 +1262,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_StartedQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_StartedQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Started",
               "range": true,
               "refId": "B"
@@ -1224,11 +1273,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_AbandonedQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_AbandonedQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Abandoned",
               "range": true,
               "refId": "C"
@@ -1236,11 +1284,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CanceledQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CanceledQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Canceled",
               "range": true,
               "refId": "D"
@@ -1248,11 +1295,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CompletedQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CompletedQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Completed",
               "range": true,
               "refId": "E"
@@ -1260,11 +1306,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_FailedQueries_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_FailedQueries_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Failed",
               "range": true,
               "refId": "H"
@@ -1276,7 +1321,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Breakdown of query failures by reason over the past minute.",
           "fieldConfig": {
@@ -1285,11 +1330,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1298,6 +1345,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1305,6 +1353,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1321,7 +1370,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   }
                 ]
               },
@@ -1344,18 +1394,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExternalFailures_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_ExternalFailures_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "External",
               "range": true,
               "refId": "A"
@@ -1363,11 +1415,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_InternalFailures_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_InternalFailures_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Internal",
               "range": true,
               "refId": "B"
@@ -1375,11 +1426,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_UserErrorFailures_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_UserErrorFailures_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "User Error",
               "range": true,
               "refId": "C"
@@ -1387,11 +1437,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_InsufficientResourcesFailures_OneMinute_Count{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_InsufficientResourcesFailures_OneMinute_Count{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Insufficient Resources",
               "range": true,
               "refId": "D"
@@ -1403,7 +1452,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "History of running and queued queries.",
           "fieldConfig": {
@@ -1412,11 +1461,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1425,6 +1476,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1432,6 +1484,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1448,7 +1501,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   }
                 ]
               },
@@ -1471,18 +1525,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_RunningQueries{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_RunningQueries{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Running",
               "range": true,
               "refId": "A"
@@ -1490,11 +1546,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedQueries{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedQueries{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Queued",
               "range": true,
               "refId": "B"
@@ -1506,7 +1561,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Statistical breakdown of execution timings of queries.",
           "fieldConfig": {
@@ -1515,11 +1570,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1528,6 +1585,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1535,6 +1593,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1551,7 +1610,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   }
                 ]
               },
@@ -1574,18 +1634,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Min{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Min{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Min",
               "range": true,
               "refId": "A"
@@ -1593,11 +1655,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Max{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Max{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Max",
               "range": true,
               "refId": "B"
@@ -1605,11 +1666,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Avg{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_Avg{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Avg",
               "range": true,
               "refId": "C"
@@ -1617,11 +1677,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P50{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P50{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P50",
               "range": true,
               "refId": "D"
@@ -1629,11 +1688,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P95{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P95{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P95",
               "range": true,
               "refId": "E"
@@ -1641,11 +1699,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P99{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ExecutionTime_OneMinute_P99{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P99",
               "range": true,
               "refId": "F"
@@ -1657,7 +1714,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Statistical breakdown of queue wait timings of queries.",
           "fieldConfig": {
@@ -1666,11 +1723,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1679,6 +1738,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1686,6 +1746,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1702,7 +1763,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   }
                 ]
               },
@@ -1725,18 +1787,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Min{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Min{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Min",
               "range": true,
               "refId": "A"
@@ -1744,11 +1808,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Max{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Max{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Max",
               "range": true,
               "refId": "B"
@@ -1756,11 +1819,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Avg{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_Avg{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Avg",
               "range": true,
               "refId": "C"
@@ -1768,11 +1830,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P50{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P50{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P50",
               "range": true,
               "refId": "D"
@@ -1780,11 +1841,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P95{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P95{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P95",
               "range": true,
               "refId": "E"
@@ -1792,11 +1852,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P99{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_QueuedTime_OneMinute_P99{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P99",
               "range": true,
               "refId": "F"
@@ -1822,7 +1881,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Rate of the number of CPU-seconds being consumed per real-world second to the number of CPUs available to the cluster.",
           "fieldConfig": {
@@ -1831,11 +1890,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1844,6 +1905,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1851,6 +1913,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1868,7 +1931,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "#EAB839",
@@ -1892,7 +1956,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 40
+            "y": 24
           },
           "id": 28,
           "options": {
@@ -1903,19 +1967,20 @@
               "showLegend": false
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ConsumedCpuTimeSecs_FiveMinute_Rate{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"} / scalar(sum(java_lang_OperatingSystem_AvailableProcessors{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_application!=\"$coordinator_application\", juju_unit=~\"$units\"}))",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_ConsumedCpuTimeSecs_FiveMinute_Rate{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"} / scalar(sum(java_lang_OperatingSystem_AvailableProcessors{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_application!~\"$coordinator_application\", juju_unit=~\"$juju_unit\"}))",
               "legendFormat": "Saturation",
               "range": true,
               "refId": "A"
@@ -1927,7 +1992,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "System (i.e. pod) CPU usage of each node in the cluster.",
           "fieldConfig": {
@@ -1936,11 +2001,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -1949,6 +2016,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -1956,6 +2024,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -1973,7 +2042,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -1997,7 +2067,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 40
+            "y": 24
           },
           "id": 22,
           "options": {
@@ -2008,19 +2078,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "java_lang_OperatingSystem_CpuLoad{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "java_lang_OperatingSystem_CpuLoad{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2031,7 +2103,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Process CPU usage of each node in the cluster.",
           "fieldConfig": {
@@ -2040,11 +2112,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2053,6 +2127,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2060,6 +2135,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2077,7 +2153,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -2101,7 +2178,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 40
+            "y": 24
           },
           "id": 33,
           "options": {
@@ -2112,19 +2189,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "java_lang_OperatingSystem_ProcessCpuLoad{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "java_lang_OperatingSystem_ProcessCpuLoad{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2135,7 +2214,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Non-free percentage of the memory available to the entire cluster.",
           "fieldConfig": {
@@ -2144,11 +2223,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2157,6 +2238,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2164,6 +2246,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2181,7 +2264,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -2205,7 +2289,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 48
+            "y": 32
           },
           "id": 21,
           "options": {
@@ -2216,18 +2300,20 @@
               "showLegend": false
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "1 - (trino_memory_ClusterMemoryPool_FreeDistributedBytes{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"} / trino_memory_ClusterMemoryPool_TotalDistributedBytes{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"})",
+              "expr": "1 - (trino_memory_ClusterMemoryPool_FreeDistributedBytes{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"} / trino_memory_ClusterMemoryPool_TotalDistributedBytes{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"})",
               "legendFormat": "Saturation",
               "range": true,
               "refId": "A"
@@ -2239,7 +2325,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Memory pool usage of each node in the cluster.",
           "fieldConfig": {
@@ -2248,11 +2334,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2261,6 +2349,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2268,6 +2357,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2285,7 +2375,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -2309,7 +2400,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 48
+            "y": 32
           },
           "id": 23,
           "options": {
@@ -2320,19 +2411,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_memory_MemoryPool_ReservedBytes{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"} / trino_memory_MemoryPool_MaxBytes{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "trino_memory_MemoryPool_ReservedBytes{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"} / trino_memory_MemoryPool_MaxBytes{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2343,7 +2436,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Heap memory usage of each node in the cluster.",
           "fieldConfig": {
@@ -2352,11 +2445,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2365,6 +2460,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2372,6 +2468,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2389,7 +2486,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -2413,7 +2511,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 48
+            "y": 32
           },
           "id": 24,
           "options": {
@@ -2424,19 +2522,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "java_lang_Memory_HeapMemoryUsage_used{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"} / java_lang_Memory_HeapMemoryUsage_max{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "java_lang_Memory_HeapMemoryUsage_used{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"} / java_lang_Memory_HeapMemoryUsage_max{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2447,7 +2547,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Rate of time spent in concurrent GC.",
           "fieldConfig": {
@@ -2456,11 +2556,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "GC-time / sec",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2469,6 +2571,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2476,6 +2579,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2490,7 +2594,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -2506,7 +2611,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 56
+            "y": 40
           },
           "id": 25,
           "options": {
@@ -2517,19 +2622,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "rate(java_lang_G1_Concurrent_GC_CollectionTime{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}[5m])",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "rate(java_lang_G1_Concurrent_GC_CollectionTime{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}[5m])",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2540,7 +2647,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Rate of time spent in young GC.",
           "fieldConfig": {
@@ -2549,11 +2656,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "GC-time / sec",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2562,6 +2671,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2569,6 +2679,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2583,7 +2694,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -2599,7 +2711,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 56
+            "y": 40
           },
           "id": 26,
           "options": {
@@ -2610,19 +2722,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "rate(java_lang_G1_Young_Generation_CollectionTime{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}[5m])",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "rate(java_lang_G1_Young_Generation_CollectionTime{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}[5m])",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2633,7 +2747,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Rate of time spent in old GC.",
           "fieldConfig": {
@@ -2642,11 +2756,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "GC-time / sec",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2655,6 +2771,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2662,6 +2779,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2676,7 +2794,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -2692,7 +2811,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 56
+            "y": 40
           },
           "id": 27,
           "options": {
@@ -2703,19 +2822,21 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "rate(java_lang_G1_Old_Generation_CollectionTime{juju_model=\"$juju_model\", juju_application=~\"$applications\", juju_unit=~\"$units\"}[5m])",
-              "legendFormat": "{{juju_model}}/{{juju_unit}}",
+              "expr": "rate(java_lang_G1_Old_Generation_CollectionTime{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\", juju_unit=~\"$juju_unit\"}[5m])",
+              "legendFormat": "{{juju_model}}.{{juju_unit}}",
               "range": true,
               "refId": "A"
             }
@@ -2726,7 +2847,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Five minute rate of the speed data is being read into cluster.",
           "fieldConfig": {
@@ -2735,11 +2856,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2748,6 +2871,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2755,6 +2879,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2769,7 +2894,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -2785,7 +2911,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 64
+            "y": 48
           },
           "id": 29,
           "options": {
@@ -2796,18 +2922,20 @@
               "showLegend": false
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_ConsumedInputBytes_FiveMinute_Rate{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_ConsumedInputBytes_FiveMinute_Rate{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Read Rate",
               "range": true,
               "refId": "A"
@@ -2819,7 +2947,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Five minute rate of the speed data is being processed per CPU-second.",
           "fieldConfig": {
@@ -2828,11 +2956,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "Bytes / CPU-sec",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2841,6 +2971,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -2848,6 +2979,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2862,7 +2994,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -2878,7 +3011,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 64
+            "y": 48
           },
           "id": 30,
           "options": {
@@ -2889,18 +3022,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Min{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Min{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Min",
               "range": true,
               "refId": "A"
@@ -2908,11 +3043,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Max{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Max{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Max",
               "range": true,
               "refId": "B"
@@ -2920,11 +3054,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Avg{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_Avg{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Avg",
               "range": true,
               "refId": "C"
@@ -2932,11 +3065,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P05{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P05{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P05",
               "range": true,
               "refId": "E"
@@ -2944,11 +3076,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P50{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P50{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P50",
               "range": true,
               "refId": "F"
@@ -2956,11 +3087,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P95{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_CpuInputByteRate_FiveMinutes_P95{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P95",
               "range": true,
               "refId": "D"
@@ -2972,7 +3102,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${prometheusds}"
           },
           "description": "Five minute rate of the speed data is being processed per wall-clock (real-world) second.",
           "fieldConfig": {
@@ -2981,11 +3111,13 @@
                 "mode": "palette-classic"
               },
               "custom": {
+                "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisLabel": "",
                 "axisPlacement": "auto",
                 "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 0,
                 "gradientMode": "none",
@@ -2994,6 +3126,7 @@
                   "tooltip": false,
                   "viz": false
                 },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
@@ -3001,6 +3134,7 @@
                   "type": "linear"
                 },
                 "showPoints": "auto",
+                "showValues": false,
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -3015,7 +3149,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": 0
                   },
                   {
                     "color": "red",
@@ -3031,7 +3166,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 64
+            "y": 48
           },
           "id": 31,
           "options": {
@@ -3042,18 +3177,20 @@
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "none"
             }
           },
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Min{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Min{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Min",
               "range": true,
               "refId": "A"
@@ -3061,11 +3198,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Max{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Max{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Max",
               "range": true,
               "refId": "B"
@@ -3073,11 +3209,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Avg{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_Avg{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "Avg",
               "range": true,
               "refId": "C"
@@ -3085,11 +3220,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P05{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P05{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P05",
               "range": true,
               "refId": "E"
@@ -3097,11 +3231,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P50{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P50{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P50",
               "range": true,
               "refId": "F"
@@ -3109,11 +3242,10 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
+                "uid": "${prometheusds}"
               },
               "editorMode": "code",
-              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P95{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
-              "hide": false,
+              "expr": "trino_execution_QueryManager_WallInputBytesRate_FiveMinutes_P95{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "legendFormat": "P95",
               "range": true,
               "refId": "D"
@@ -3139,14 +3271,18 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "${lokids}"
           },
           "description": "Aggregation of the logs from the coordinator instance where the log level is ERROR.",
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
           "gridPos": {
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 33
+            "y": 81
           },
           "id": 35,
           "options": {
@@ -3164,29 +3300,32 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "${DS_LOKI}"
+                "uid": "${lokids}"
               },
               "editorMode": "builder",
-              "expr": "{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"} |~ `^.+\\s+ERROR\\s+`",
+              "expr": "{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"} |~ `^.+\\s+ERROR\\s+`",
               "queryType": "range",
               "refId": "A"
             }
           ],
           "title": "Coordinator Errors",
-          "transformations": [],
           "type": "logs"
         },
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "${lokids}"
           },
           "description": "Aggregation of unfiltered the logs from the coordinator.",
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
           "gridPos": {
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 41
+            "y": 89
           },
           "id": 36,
           "options": {
@@ -3204,16 +3343,15 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "${DS_LOKI}"
+                "uid": "${lokids}"
               },
               "editorMode": "code",
-              "expr": "{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\", juju_unit=\"$coordinator_unit\"}",
+              "expr": "{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"}",
               "queryType": "range",
               "refId": "A"
             }
           ],
           "title": "Coordinator Logs",
-          "transformations": [],
           "type": "logs"
         }
       ],
@@ -3221,9 +3359,9 @@
       "type": "row"
     }
   ],
+  "preload": false,
   "refresh": "",
-  "schemaVersion": 38,
-  "style": "dark",
+  "schemaVersion": 42,
   "tags": [
     "charm: trino-k8s"
   ],
@@ -3231,60 +3369,57 @@
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": null,
-          "value": null
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
         },
-        "description": "Prometheus source to use for the metrics.",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Data Source",
-        "multi": false,
-        "name": "DS_PROMETHEUS",
+        "includeAll": true,
+        "label": "Prometheus datasource",
+        "multi": true,
+        "name": "prometheusds",
         "options": [],
         "query": "prometheus",
-        "queryValue": "",
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       },
       {
         "current": {
-          "selected": false,
-          "text": null,
-          "value": null
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
         },
-        "description": "Loki instance from which to fetch the logs.",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Log Source",
-        "multi": false,
-        "name": "DS_LOKI",
+        "includeAll": true,
+        "label": "Loki datasource",
+        "multi": true,
+        "name": "lokids",
         "options": [],
         "query": "loki",
-        "queryValue": "",
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       },
       {
+        "allValue": ".*",
         "current": {
-          "selected": false,
-          "text": null,
-          "value": null
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${prometheusds}"
         },
         "definition": "label_values(juju_model)",
         "description": "Juju model in which to find the applications and the units.",
-        "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Model",
-        "multi": false,
+        "multi": true,
         "name": "juju_model",
         "options": [],
         "query": {
@@ -3293,120 +3428,147 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
+        "allValue": ".*",
         "current": {
-          "selected": false,
-          "text": null,
-          "value": null
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "uid": "${prometheusds}"
+        },
+        "definition": "label_values(up{juju_model=~\"$juju_model\"},juju_model_uuid)",
+        "includeAll": true,
+        "label": "Juju model uuid",
+        "multi": true,
+        "name": "juju_model_uuid",
+        "options": [],
+        "query": {
+          "query": "label_values(up{juju_model=~\"$juju_model\"},juju_model_uuid)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "uid": "${prometheusds}"
+        },
+        "definition": "label_values(up{juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
+        "includeAll": true,
+        "label": "Juju application",
+        "multi": true,
+        "name": "juju_application",
+        "options": [],
+        "query": {
+          "query": "label_values(up{juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "uid": "${prometheusds}"
+        },
+        "definition": "label_values(up{juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_application=~\"$juju_application\"},juju_unit)",
+        "includeAll": true,
+        "label": "Juju unit",
+        "multi": true,
+        "name": "juju_unit",
+        "options": [],
+        "query": {
+          "query": "label_values(up{juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_application=~\"$juju_application\"},juju_unit)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${prometheusds}"
         },
-        "definition": "label_values(up{juju_model=\"$juju_model\"},juju_application)",
+        "definition": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
         "description": "Juju applications of which to find the coordinator unit.",
-        "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Coordinator Application",
-        "multi": false,
+        "multi": true,
         "name": "coordinator_application",
         "options": [],
         "query": {
-          "query": "label_values(up{juju_model=\"$juju_model\"},juju_application)",
+          "qryType": 1,
+          "query": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
+        "allValue": ".*",
         "current": {
-          "selected": false,
-          "text": null,
-          "value": null
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${prometheusds}"
         },
-        "definition": "label_values(up{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\"},juju_unit)",
+        "definition": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\"},juju_unit)",
         "description": "Juju unit for the Trino coordinator.",
-        "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Coordinator Unit",
-        "multi": false,
+        "multi": true,
         "name": "coordinator_unit",
         "options": [],
         "query": {
-          "query": "label_values(up{juju_model=\"$juju_model\", juju_application=\"$coordinator_application\"},juju_unit)",
+          "qryType": 1,
+          "query": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\"},juju_unit)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
-      },
-      {
-        "current": {
-          "selected": false,
-          "text": null,
-          "value": null
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "definition": "label_values(up{juju_model=\"$juju_model\"},juju_application)",
-        "description": "Juju applications of which to find the units.",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Application(s)",
-        "multi": true,
-        "name": "applications",
-        "options": [],
-        "query": {
-          "query": "label_values(up{juju_model=\"$juju_model\"},juju_application)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
-      },
-      {
-        "current": {
-          "selected": false,
-          "text": null,
-          "value": null
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "definition": "label_values(up{juju_model=\"$juju_model\", juju_application=~\"$applications\"},juju_unit)",
-        "description": "Juju units to use for the metrics.",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Unit(s)",
-        "multi": true,
-        "name": "units",
-        "options": [],
-        "query": {
-          "query": "label_values(up{juju_model=\"$juju_model\", juju_application=~\"$applications\"},juju_unit)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       }
     ]
@@ -3417,7 +3579,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Trino Operator Overview",
+  "title": "Trino K8s",
   "version": 1,
   "weekStart": "monday"
 }
