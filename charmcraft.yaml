@@ -1,9 +1,76 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
-# This file configures Charmcraft.
-# See https://juju.is/docs/sdk/charmcraft-config for guidance.
 
+name: trino-k8s
 type: charm
+title: Trino K8s Operator
+summary: Kubernetes operator for Trino coordinators and workers
+description: |
+  Trino is a distributed SQL query engine designed to query large data
+  sets distributed over one or more heterogeneous data sources.
+
+maintainers:
+  - Commercial Systems <jaas-crew@lists.canonical.com>
+
+source: https://github.com/canonical/trino-k8s-operator
+docs: https://discourse.charmhub.io/t/trino-server-documentation-overview/11231
+issues: https://github.com/canonical/trino-k8s-operator/issues
+
+containers:
+  trino:
+    resource: trino-image
+    mounts:
+      - storage: policy
+        location: /etc/ranger
+
+resources:
+  trino-image:
+    type: oci-image
+    description: OCI image for trino
+
+storage:
+  policy:
+    type: filesystem
+    location: /etc/ranger
+
+requires:
+  nginx-route:
+    interface: nginx-route
+  policy:
+    interface: ranger_client
+    limit: 1
+  logging:
+    interface: loki_push_api
+    optional: true
+    limit: 1
+  trino-worker:
+    interface: trino_client
+    optional: true
+    limit: 1
+  opensearch:
+    interface: opensearch_client
+    optional: true
+    limit: 1
+  postgresql:
+    interface: postgresql_client
+    optional: true
+
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
+  trino-coordinator:
+    interface: trino_client
+    optional: true
+  trino-catalog:
+    interface: trino_catalog
+    optional: true
+
+peers:
+  peer:
+    interface: trino
+
 parts:
   charm:
     charm-binary-python-packages:
@@ -41,3 +108,237 @@ charm-libs:
     version: "0"
   - lib: "trino_k8s.trino_catalog"
     version: "0"
+
+actions:
+  restart:
+    description: Restart the Trino server.
+  list-system-users:
+    description: List all Trino system users.
+
+config:
+  options:
+    log-level:
+      description: |
+        Trino server logging level. 
+        Valid values: info, debug, warn, error.
+      default: info
+      type: string
+    int-comms-secret:
+      description: |
+        The secret Trino uses to communicate between nodes.
+      type: string
+    google-client-id:
+      description: |
+        Client id from Google Oauth setup
+      type: string
+    google-client-secret:
+      description: |
+        Client password from Google Oauth setup
+      type: string
+    web-proxy:
+      description: |
+        The address of the web proxy. To be used in combination
+        with google-client-id and google-client-secret values.
+      type: string 
+    ranger-service-name:
+      description: |
+        The service name for Trino in Apache Ranger when related. Defaults to relation id.
+      type: string
+    external-hostname:
+      description: |
+          The DNS listing used for external connections. 
+          Will default to the name of the deployed application.
+      type: string
+      default: trino-k8s
+    tls-secret-name:
+      description: |
+          Name of the k8s secret which contains the TLS certificate to be used by ingress.
+      default: "trino-tls"
+      type: string
+    charm-function:
+      description: |
+        One of `coordinator`, `worker` or `all` to determine the function of the application.
+        `all` will result in a single node deployment, not recommended for production.
+      default: all
+      type: string
+    discovery-uri:
+      description: |
+          When using a coordinator and worker this is the host and port of the 
+          coordinator service that the workers announce themselves to.
+      type: string
+      default: http://trino-k8s:8080
+    catalog-config:
+      description: |
+        Catalogs for which Trino should be connected.
+      type: string
+    postgresql-catalog-config:
+      description: |
+        YAML configuration for PostgreSQL catalogs managed via the postgresql relation.
+        Each top-level key must match the name of the provider app in the relation.
+        Fields:
+          database_prefix: (required) prefix to match the database name in PostgreSQL, must end with *
+          ro_catalog_name: name of the read-only catalog, created with targetServerType=preferSecondary
+          rw_catalog_name: name of the read-write catalog, created with targetServerType=primary
+          At least one of ro_catalog_name or rw_catalog_name must be set.
+          config: (optional) catalog properties
+        Example:
+          dbaas-app-name:
+            database_prefix: dbaas*
+            ro_catalog_name: catalog
+            rw_catalog_name: catalog_developer
+            config: case-insensitive-name-matching=true
+      type: string
+    catalog-exclusions:
+      description: |
+        YAML mapping of requirer app names to lists of catalog names to exclude
+        from the trino-catalog relation. Each key matches the app_name published
+        by the requirer in the relation databag. Catalogs listed under an app
+        will not be shared with that requirer.
+        Example:
+          superset-k8s:
+            - catalog_developer
+          ranger-k8s:
+            - debug_catalog
+      type: string
+    resource-groups-config:
+      description: |
+        Resource groups configuration in JSON format defining the resource management rules 
+        for queries. When set, Trino will use the resource-groups manager to control query 
+        execution based on the defined groups and selectors.
+      type: string
+    session-property-manager-config:
+      description: |
+        Session property manager configuration in JSON format defining the match rules
+        and session properties to apply by default. When set, Trino will enable the
+        built-in file-based session property manager.
+      type: string
+    oauth-user-mapping:
+      description: |
+        Optional regex pattern with capture group to determine the username from oauth email.
+        ie. (.*)@.*
+      type: string
+    acl-mode-default:
+      description: |
+        The default ACLs for all Trino catalogs, one of `all`, `none` or `owner`.
+        `all`: Allow all users access to all catalogs.
+        `none`: Deny all users access to all catalogs.
+        `owner`: Allow all users to be owners of all catalogs.
+        A Ranger relation will supersede this default.
+      type: string
+      default: owner
+    acl-user-pattern:
+      description: |
+        The pattern to match users, for which the policy should be applied.
+        The default value `.*` applies to all users.
+      type: string
+      default: .*
+    acl-catalog-pattern:
+      description: |
+        The pattern to match catalog names, for which the policy should be applied.
+        The default value `.*` applies to all catalogs.
+      type: string
+      default: .*
+    user-secret-id:
+      description: |
+        The Juju secret id for the Trino user credentials.
+      type: string
+    additional-jvm-options:
+      description: |
+        Space-separated string of JVM options to be added to the config file.
+        By default the following options are included. 
+        The value of the option can be overwritten by providing the option 
+        with the updated value via this config parameter.
+          "-Xmx2G"
+          "-XX:InitialRAMPercentage=80"
+          "-XX:+ExplicitGCInvokesConcurrent"
+          "-XX:-OmitStackTraceInFastThrow"
+          "-Djdk.attach.allowAttachSelf=true"
+          "-Dfile.encoding=UTF-8"
+          "-XX:+ExitOnOutOfMemoryError"
+          "-XX:+HeapDumpOnOutOfMemoryError"
+      type: string
+    coordinator-request-timeout:
+      description: |
+        Specifies the maximum amount of time the client will wait for a response from
+        the coordinator once a connection has been established. This timeout ensures
+        that client requests do not stall indefinitely if the coordinator is slow to
+        respond.
+      type: string
+      default: "10m"
+    coordinator-connect-timeout:
+      description: |
+        Specifies the maximum amount of time the client will wait for a connection
+        to be established with the coordinator. If the connection cannot be made within
+        this period, the client will give up and raise an error.
+      type: string
+      default: "30s"
+    worker-request-timeout:
+      description: |
+        Specifies the maximum amount of time the coordinator will wait for a response
+        from a worker node after the connection is established. This setting helps
+        manage scenarios where worker nodes are slow to respond, ensuring that
+        the coordinator does not wait indefinitely.
+      type: string
+      default: "30s"
+    max-concurrent-queries:
+      description: |
+        The maximum number of queries that Trino is allowed to run concurrently.
+        Any additional queries beyond this limit will be queued until a running query
+        finishes.
+      type: int
+      default: 50
+    query-max-cpu-time:
+      description: |
+        The maximum CPU time a query may consume across the entire cluster.
+        Queries exceeding this limit will be killed.
+        eg. "1h", "30m", "10s"
+      type: string
+    query-max-run-time:
+      description: |
+        The maximum run time for a query to be processed on the cluster.
+        Queries exceeding this limit will be killed.
+        eg. "1h", "30m", "10s"
+      type: string
+    query-max-memory-per-node:
+      description: |
+        The maximum amount of user memory a query may use on any one node.
+        eg. "1GB", "512MB"
+      type: string
+    query-max-memory:
+      description: |
+        The maximum amount of user memory a query may use across the entire cluster.
+        eg. "5GB", "2GB"
+      type: string
+    query-max-total-memory:
+      description: |
+        The maximum amount of memory (user + system) a query may use across the entire cluster.
+        eg. "10GB", "5GB"
+      type: string
+    memory-heap-headroom-per-node:
+      description: |
+        The amount of heap memory to reserve for operations that are not tracked by Trino's
+        memory management system. This prevents the JVM from running out of memory.
+        eg. "2GB", "1GB"
+      type: string
+    workload-memory-requests:
+      description: |
+        Kubernetes memory resource request for the trino workload container.
+        eg. "1Gi"
+      type: string
+    workload-memory-limits:
+      description: |
+        Kubernetes memory resource request for the trino workload container.
+        This should be equal to or greater than your requests.
+        eg. "1Gi"
+      type: string
+    workload-cpu-requests:
+      description: |
+        Kubernetes cpu resource request for the trino workload container.
+        eg. 1
+      type: string
+    workload-cpu-limits:
+      description: |
+        Kubernetes cpu resource request for the trino workload container.
+        This should be equal to or greater than your requests.
+        eg. 1
+      type: string
