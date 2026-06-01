@@ -45,7 +45,7 @@ project-12345: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 GSHEETS_SECRET = """\
 gsheets-1: |
@@ -62,7 +62,7 @@ gsheets-1: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 POSTGRESQL_REPLICA_SECRET = """\
 rw:
@@ -74,7 +74,7 @@ ro:
   user: trino_ro
   password: pwd2
   params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=preferSecondary
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 MYSQL_REPLICA_SECRET = """\
 ro:
@@ -264,7 +264,7 @@ async def get_active_workers(ops_test: OpsTest):
 
 
 async def simulate_crash_and_restart(ops_test, charm, charm_image):
-    """Simulates the crash of the Trino coordinator.
+    """Simulate the crash of the Trino coordinator.
 
     Args:
         ops_test: PyTest object.
@@ -426,7 +426,7 @@ async def create_catalog_config(
                     bigquery.arrow-serialization.enabled=false
             gsheets:
                 connector: gsheets
-        """
+        """  # noqa: E501
     else:
         catalog_config = f"""\
         catalogs:
@@ -469,7 +469,7 @@ async def create_catalog_config(
                     case-insensitive-name-matching=true
             gsheets:
                 connector: gsheets
-        """
+        """  # noqa: E501
     return catalog_config
 
 

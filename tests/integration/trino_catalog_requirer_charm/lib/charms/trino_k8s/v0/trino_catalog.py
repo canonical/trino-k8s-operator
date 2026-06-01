@@ -1,3 +1,5 @@
+# This file is a copy of lib/charms/trino_k8s/v0/trino_catalog.py and should not be linted independently.
+# ruff: noqa
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 

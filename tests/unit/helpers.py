@@ -21,7 +21,7 @@ gsheets-1: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 BIGQUERY_SECRET = """\
 project-12345: |
@@ -38,7 +38,7 @@ project-12345: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 POSTGRESQL_REPLICA_SECRET = """\
 rw:
   user: trino
@@ -381,7 +381,7 @@ def create_catalog_config(
                 bigquery.case-insensitive-name-matching=true
         gsheets:
             connector: gsheets
-    """
+    """  # noqa: E501
 
 
 def create_added_catalog_config(
@@ -456,7 +456,7 @@ def create_added_catalog_config(
                 bigquery.case-insensitive-name-matching=true
         gsheets:
             connector: gsheets
-    """
+    """  # noqa: E501
 
 
 def create_single_catalog_config(postgresql_secret_id, backend_params=None):

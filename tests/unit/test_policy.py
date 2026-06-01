@@ -114,7 +114,7 @@ class TestPolicy(TestCase):
         harness,
         data,
     ):
-        """Common setup for Openseatch relation changed and broken tests.
+        """Set up common state for Opensearch relation changed and broken tests.
 
         Args:
             mock_get_secret_content: the mocked method for accessing juju secrets.
