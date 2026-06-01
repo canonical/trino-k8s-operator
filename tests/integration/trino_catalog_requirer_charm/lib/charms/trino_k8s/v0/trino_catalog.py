@@ -141,9 +141,7 @@ class TrinoCatalogProvider(Object):
             return False
 
         if not trino_credentials_secret_id:
-            logger.debug(
-                "Trino credentials secret ID not provided, skipping relation update"
-            )
+            logger.debug("Trino credentials secret ID not provided, skipping relation update")
             return False
 
         # Get current values from databag
@@ -178,9 +176,7 @@ class TrinoCatalogProvider(Object):
 
         # If nothing changed, skip update
         if not (url_changed or catalogs_changed or secret_id_changed):
-            logger.debug(
-                "No changes for relation %s, skipping update", relation.id
-            )
+            logger.debug("No changes for relation %s, skipping update", relation.id)
             return True
 
         # Update relation databag
@@ -253,13 +249,9 @@ class TrinoCatalogRequirer(Object):
 
         trino_url = relation_data.get("trino_url")
         trino_catalogs_str = relation_data.get("trino_catalogs")
-        trino_credentials_secret_id = relation_data.get(
-            "trino_credentials_secret_id"
-        )
+        trino_credentials_secret_id = relation_data.get("trino_credentials_secret_id")
 
-        if not all(
-            [trino_url, trino_catalogs_str, trino_credentials_secret_id]
-        ):
+        if not all([trino_url, trino_catalogs_str, trino_credentials_secret_id]):
             return None
 
         try:
@@ -289,9 +281,7 @@ class TrinoCatalogRequirer(Object):
             return None
 
         try:
-            secret = self.charm.model.get_secret(
-                id=trino_info["trino_credentials_secret_id"]
-            )
+            secret = self.charm.model.get_secret(id=trino_info["trino_credentials_secret_id"])
             credentials = secret.get_content(refresh=True)
         except SecretNotFoundError:
             logger.error(

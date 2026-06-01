@@ -28,3 +28,4 @@ jobs:
       juju-channel: 3/stable
       microk8s-addons: "dns ingress rbac storage metallb:10.15.119.2-10.15.119.4 registry"
       trivy-severity-config: CRITICAL
+      with-uv: true

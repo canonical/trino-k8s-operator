@@ -77,15 +77,11 @@ cert: |
   -----END CERTIFICATE-----
 """  # nosec
 
-POSTGRESQL_1_CATALOG_PATH = (
-    "/usr/lib/trino/etc/catalog/postgresql-1.properties"
-)
+POSTGRESQL_1_CATALOG_PATH = "/usr/lib/trino/etc/catalog/postgresql-1.properties"
 POSTGRESQL_1_DEVELOPER_CATALOG_PATH = (
     "/usr/lib/trino/etc/catalog/postgresql-1_developer.properties"
 )
-POSTGRESQL_2_CATALOG_PATH = (
-    "/usr/lib/trino/etc/catalog/postgresql-2.properties"
-)
+POSTGRESQL_2_CATALOG_PATH = "/usr/lib/trino/etc/catalog/postgresql-2.properties"
 MYSQL_CATALOG_PATH = "/usr/lib/trino/etc/catalog/mysql.properties"
 REDSHIFT_CATALOG_PATH = "/usr/lib/trino/etc/catalog/redshift.properties"
 BIGQUERY_CATALOG_PATH = "/usr/lib/trino/etc/catalog/bigquery.properties"
@@ -146,9 +142,7 @@ def simulate_lifecycle_worker(harness):
     # Simulate pebble readiness.
     harness.handle_exec("trino", ["keytool"], result=0)
     harness.handle_exec("trino", ["htpasswd"], result=0)
-    harness.handle_exec(
-        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
-    )
+    harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
     harness.update_config({"charm-function": "worker"})
 
     # Add catalog secrets
@@ -224,9 +218,7 @@ def simulate_lifecycle_coordinator(harness):
     # Simulate pebble readiness.
     container = harness.model.unit.get_container("trino")
     harness.handle_exec("trino", ["htpasswd"], result=0)
-    harness.handle_exec(
-        "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
-    )
+    harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
     harness.handle_exec("trino", ["keytool"], result=0)
     harness.charm.on.trino_pebble_ready.emit(container)
 
@@ -478,9 +470,7 @@ def create_single_catalog_config(postgresql_secret_id, backend_params=None):
     Returns:
         catalog configuration string.
     """
-    params_line = (
-        f"\n            params: {backend_params}" if backend_params else ""
-    )
+    params_line = f"\n            params: {backend_params}" if backend_params else ""
     return f"""\
     catalogs:
         postgresql-1:

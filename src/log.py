@@ -36,15 +36,11 @@ def log_event_handler(logger):
             Returns:
                 Decorated method.
             """
-            logger.info(
-                f"* running {self.__class__.__name__}.{method.__name__}"
-            )
+            logger.info(f"* running {self.__class__.__name__}.{method.__name__}")
             try:
                 return method(self, event)
             finally:
-                logger.info(
-                    f"* completed {self.__class__.__name__}.{method.__name__}"
-                )
+                logger.info(f"* completed {self.__class__.__name__}.{method.__name__}")
 
         return decorated
 

@@ -66,9 +66,7 @@ class TestParseProperties(TestCase):
         """Verify values containing equals signs are preserved."""
         raw = "url=jdbc:postgresql://host:5432/db?a=1&b=2"
         result = PostgresqlCatalogRelationHandler._parse_properties(raw)
-        self.assertEqual(
-            result, {"url": "jdbc:postgresql://host:5432/db?a=1&b=2"}
-        )
+        self.assertEqual(result, {"url": "jdbc:postgresql://host:5432/db?a=1&b=2"})
 
     def test_whitespace_trimmed(self):
         """Verify surrounding whitespace is trimmed."""
@@ -94,12 +92,8 @@ class TestHashProperties(TestCase):
 
     def test_order_independent(self):
         """Verify key insertion order does not affect hash."""
-        h1 = PostgresqlCatalogRelationHandler._hash_properties(
-            {"a": "1", "b": "2"}
-        )
-        h2 = PostgresqlCatalogRelationHandler._hash_properties(
-            {"b": "2", "a": "1"}
-        )
+        h1 = PostgresqlCatalogRelationHandler._hash_properties({"a": "1", "b": "2"})
+        h2 = PostgresqlCatalogRelationHandler._hash_properties({"b": "2", "a": "1"})
         self.assertEqual(h1, h2)
 
     def test_different_values_differ(self):
@@ -154,9 +148,7 @@ class TestBuildJdbcUrl(TestCase):
     def _make_handler(self):
         """Create a mock PostgresqlCatalogRelationHandler."""
         handler = mock.MagicMock()
-        handler._build_jdbc_url = (
-            PostgresqlCatalogRelationHandler._build_jdbc_url.__get__(handler)
-        )
+        handler._build_jdbc_url = PostgresqlCatalogRelationHandler._build_jdbc_url.__get__(handler)
         handler.charm.truststore_abs_path = "/path/to/truststore"
         return handler
 
@@ -167,8 +159,7 @@ class TestBuildJdbcUrl(TestCase):
         url = handler._build_jdbc_url(pg, "mydb", 1, "preferSecondary")
         self.assertEqual(
             url,
-            "jdbc:postgresql://host1,host2:5432/mydb"
-            "?targetServerType=preferSecondary&ssl=false",
+            "jdbc:postgresql://host1,host2:5432/mydb?targetServerType=preferSecondary&ssl=false",
         )
 
     def test_tls_without_ca(self):
@@ -197,9 +188,7 @@ class TestCheckCatalogNameConflicts(TestCase):
     def _call(self, pg_config, static_catalogs=None):
         """Call _check_catalog_name_conflicts with a mock self."""
         charm = mock.MagicMock(spec=TrinoK8SCharm)
-        TrinoK8SCharm._check_catalog_name_conflicts(
-            charm, pg_config, static_catalogs or set()
-        )
+        TrinoK8SCharm._check_catalog_name_conflicts(charm, pg_config, static_catalogs or set())
 
     def test_no_conflicts(self):
         """Verify no error when all catalog names are unique."""

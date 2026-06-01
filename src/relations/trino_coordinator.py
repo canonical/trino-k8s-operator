@@ -3,7 +3,6 @@
 
 """Trino coordinator relation hooks & helpers."""
 
-
 import json
 import logging
 
@@ -24,9 +23,7 @@ class TrinoCoordinator(Object):
         - relation-broken
     """
 
-    def __init__(
-        self, charm: CharmBase, relation_name: str = "trino-coordinator"
-    ) -> None:
+    def __init__(self, charm: CharmBase, relation_name: str = "trino-coordinator") -> None:
         """Construct TrinoRelationHandler object.
 
         Args:
@@ -88,9 +85,7 @@ class TrinoCoordinator(Object):
         # In theory it is not limited but in practice this will have 0 or 1 items
         coordinator_relations = self.model.relations["trino-coordinator"]
 
-        pg_env_vars = (
-            self.charm.postgresql_catalog_handler.get_postgresql_env_vars()
-        )
+        pg_env_vars = self.charm.postgresql_catalog_handler.get_postgresql_env_vars()
         relation_data = {
             "discovery-uri": self.charm.config["discovery-uri"],
             "user-secret-id": self.charm.config.get("user-secret-id", ""),

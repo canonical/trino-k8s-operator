@@ -209,9 +209,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         self._current_wanted_envs = wanted_envs
 
         if not self._is_trino_reachable():
-            logger.warning(
-                "Trino not reachable, skipping catalog reconciliation"
-            )
+            logger.warning("Trino not reachable, skipping catalog reconciliation")
             self._current_wanted_envs = None
             return
 
@@ -232,9 +230,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         self._current_wanted_envs = None
 
         if not self._is_trino_reachable():
-            logger.warning(
-                "Trino not reachable after replan, skipping catalog creates"
-            )
+            logger.warning("Trino not reachable after replan, skipping catalog creates")
             return
 
         # CREATE new catalogs and UPDATE changed ones (drop + re-create)
@@ -297,18 +293,14 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         """
         container = self.charm.unit.get_container(self.charm.name)
         if not container.can_connect():
-            logger.debug(
-                "Container not connectable, cannot read tracked catalogs"
-            )
+            logger.debug("Container not connectable, cannot read tracked catalogs")
             return {}
 
         catalog_dir = str(self.charm.catalog_abs_path)
         try:
             files = container.list_files(catalog_dir)
         except pebble.PathError:
-            logger.debug(
-                "Catalog directory %s does not exist yet", catalog_dir
-            )
+            logger.debug("Catalog directory %s does not exist yet", catalog_dir)
             return {}
         except pebble.Error:
             logger.warning(
@@ -355,17 +347,11 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         try:
             plan = container.get_plan().to_dict()
             services = plan.get("services", {})
-            current_env = services.get(self.charm.name, {}).get(
-                "environment", {}
-            )
+            current_env = services.get(self.charm.name, {}).get("environment", {})
         except Exception:
             return bool(wanted_envs)
 
-        current_pg = {
-            k: v
-            for k, v in current_env.items()
-            if k.startswith(PASS_ENV_VAR_PREFIX)
-        }
+        current_pg = {k: v for k, v in current_env.items() if k.startswith(PASS_ENV_VAR_PREFIX)}
         return current_pg != (wanted_envs or {})
 
     @staticmethod
@@ -461,12 +447,9 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             )
             return False
 
-        if not entry.get("ro_catalog_name") and not entry.get(
-            "rw_catalog_name"
-        ):
+        if not entry.get("ro_catalog_name") and not entry.get("rw_catalog_name"):
             logger.error(
-                "At least one of ro_catalog_name or rw_catalog_name "
-                "must be set for %s",
+                "At least one of ro_catalog_name or rw_catalog_name must be set for %s",
                 app_name,
             )
             return False
@@ -504,9 +487,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 logger.error("No prefix databases for %s", relation.app.name)
                 continue
 
-            databases = [
-                d.strip() for d in pg.prefix_databases.split(",") if d.strip()
-            ]
+            databases = [d.strip() for d in pg.prefix_databases.split(",") if d.strip()]
             if len(databases) != 1:
                 logger.error(
                     "Multiple prefix databases returned for %s: %s",
@@ -542,9 +523,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
 
         return catalogs, env_vars
 
-    def _load_relation_data(
-        self, relation
-    ) -> Optional[PostgresqlRelationModel]:
+    def _load_relation_data(self, relation) -> Optional[PostgresqlRelationModel]:
         """Load and validate relation data from the provider's databag.
 
         Args:
@@ -564,9 +543,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         except (pydantic.ValidationError, SecretNotFoundError):
             return None
 
-    def _build_catalog_props(
-        self, pg, database, config_entry, relation_id, target_server_type
-    ):
+    def _build_catalog_props(self, pg, database, config_entry, relation_id, target_server_type):
         """Build catalog properties dict for a single catalog.
 
         Args:
@@ -579,9 +556,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             Dict of catalog properties.
         """
-        url = self._build_jdbc_url(
-            pg, database, relation_id, target_server_type
-        )
+        url = self._build_jdbc_url(pg, database, relation_id, target_server_type)
 
         properties = {
             "connection-url": url,
@@ -653,9 +628,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 str(self.charm.conf_abs_path),
             )
         except Exception as e:
-            logger.error(
-                "Failed to import TLS cert for relation %s: %s", relation_id, e
-            )
+            logger.error("Failed to import TLS cert for relation %s: %s", relation_id, e)
 
     def _is_trino_reachable(self) -> bool:
         """Check if Trino is reachable via HTTP.
@@ -688,9 +661,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         secret_id = self.charm.state.user_secret_id
         if secret_id:
             try:
-                credentials = yaml.safe_load(
-                    self.charm._get_secret_content(secret_id)["users"]
-                )
+                credentials = yaml.safe_load(self.charm._get_secret_content(secret_id)["users"])
                 return next(iter(credentials))
             except Exception:
                 logger.error("Could not read user secret, using default creds")
@@ -752,13 +723,8 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             The SQL string.
         """
-        props_sql = ",\n  ".join(
-            f"\"{k}\" = '{v}'" for k, v in properties.items()
-        )
-        return (
-            f'CREATE CATALOG "{name}" USING postgresql\n'
-            f"WITH (\n  {props_sql}\n)"
-        )
+        props_sql = ",\n  ".join(f"\"{k}\" = '{v}'" for k, v in properties.items())
+        return f'CREATE CATALOG "{name}" USING postgresql\nWITH (\n  {props_sql}\n)'
 
     def _drop_catalog(self, name):
         """Drop a Trino catalog via SQL.

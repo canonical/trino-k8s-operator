@@ -60,9 +60,7 @@ def pg_catalog_config(
     return yaml.dump({app_name: entry})
 
 
-async def deploy_pg(
-    ops_test, pg_name=POSTGRES_NAME, db_name="testdb", units=1
-):
+async def deploy_pg(ops_test, pg_name=POSTGRES_NAME, db_name="testdb", units=1):
     """Deploy PostgreSQL and a data-integrator to create a database.
 
     The DI is needed because PG's prefix matching only discovers existing
@@ -129,9 +127,7 @@ async def destroy_pg(ops_test, pg_name):
     di_name = f"di-{pg_name}"
     await ops_test.model.applications[di_name].destroy()
     await ops_test.model.applications[pg_name].destroy()
-    await ops_test.model.block_until(
-        lambda: pg_name not in ops_test.model.applications
-    )
+    await ops_test.model.block_until(lambda: pg_name not in ops_test.model.applications)
 
 
 async def relate_pg(ops_test, pg_name=POSTGRES_NAME):
@@ -154,9 +150,7 @@ async def remove_pg_relation(ops_test, pg_name=POSTGRES_NAME):
     """
     await ops_test.juju("remove-relation", APP_NAME, pg_name)
     async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME], status="active", timeout=600
-        )
+        await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
 
 
 async def set_pg_config(ops_test, config_str):
@@ -166,9 +160,7 @@ async def set_pg_config(ops_test, config_str):
         ops_test: PyTest object.
         config_str: YAML config string.
     """
-    await ops_test.model.applications[APP_NAME].set_config(
-        {PG_CONFIG_KEY: config_str}
-    )
+    await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config_str})
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME],
@@ -217,12 +209,8 @@ async def query_pg_catalog(ops_test, catalog_name):
         List of schemas
     """
     status = await ops_test.model.get_status()
-    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/0"][
-        "address"
-    ]
-    return await query_trino(
-        address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"'
-    )
+    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/0"]["address"]
+    return await query_trino(address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"')
 
 
 async def get_properties_file(ops_test, catalog_name):
@@ -257,17 +245,12 @@ class TestPostgresqlCatalogRelation:
     async def test_01_missing_database_prefix(self, ops_test: OpsTest):
         """Config without database_prefix: no catalog, charm stays active."""
         config = yaml.dump({POSTGRES_NAME: {"ro_catalog_name": "test_ro"}})
-        await ops_test.model.applications[APP_NAME].set_config(
-            {PG_CONFIG_KEY: config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
         await deploy_pg(ops_test)
         await relate_pg(ops_test)
 
         await wait_for_catalog(ops_test, "test_ro", present=False)
-        assert (
-            ops_test.model.applications[APP_NAME].units[0].workload_status
-            == "active"
-        )
+        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
     async def test_02_prefix_without_asterisk(self, ops_test: OpsTest):
         """Config with database_prefix missing *: no catalog."""
@@ -296,9 +279,7 @@ class TestPostgresqlCatalogRelation:
 
     async def test_05_both_ro_and_rw(self, ops_test: OpsTest):
         """Config with both ro and rw: two catalogs created."""
-        config = pg_catalog_config(
-            POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw"
-        )
+        config = pg_catalog_config(POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw")
         await set_pg_config(ops_test, config)
 
         await wait_for_catalog(ops_test, "mydb_ro")
@@ -326,9 +307,7 @@ class TestPostgresqlCatalogRelation:
 
     async def test_07_add_rw(self, ops_test: OpsTest):
         """Add rw_catalog_name: RW catalog appears alongside RO."""
-        config = pg_catalog_config(
-            POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw"
-        )
+        config = pg_catalog_config(POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw")
         await set_pg_config(ops_test, config)
 
         await wait_for_catalog(ops_test, "mydb_ro")
@@ -355,9 +334,7 @@ class TestPostgresqlCatalogRelation:
                 timeout=900,
                 wait_for_exact_units=3,
             )
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME], status="active", timeout=600
-            )
+            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
 
         await wait_for_catalog(ops_test, "multihost_ro")
         props = await get_properties_file(ops_test, "multihost_ro")
@@ -406,13 +383,9 @@ class TestPostgresqlCatalogRelation:
         """Removing static catalog does not affect dynamic catalog."""
         await wait_for_catalog(ops_test, "dynamic_pg")
 
-        await ops_test.model.applications[APP_NAME].reset_config(
-            ["catalog-config"]
-        )
+        await ops_test.model.applications[APP_NAME].reset_config(["catalog-config"])
         async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME], status="active", timeout=600
-            )
+            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
 
         await wait_for_catalog(ops_test, "postgresql-1", present=False)
         await wait_for_catalog(ops_test, "dynamic_pg")
@@ -435,9 +408,7 @@ class TestPostgresqlCatalogRelation:
                 },
             }
         )
-        await ops_test.model.applications[APP_NAME].set_config(
-            {PG_CONFIG_KEY: config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
 
         await ops_test.model.integrate(APP_NAME, POSTGRES_NAME)
         await ops_test.model.integrate(APP_NAME, "pg-second")
@@ -474,25 +445,18 @@ class TestPostgresqlCatalogRelation:
     async def test_15_wrong_app_name_in_config(self, ops_test: OpsTest):
         """Config key doesn't match PG app name: no catalog, charm active."""
         config = pg_catalog_config("wrong-name", "testdb*", "missing_catalog")
-        await ops_test.model.applications[APP_NAME].set_config(
-            {PG_CONFIG_KEY: config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
         await relate_pg(ops_test)
 
         await wait_for_catalog(ops_test, "missing_catalog", present=False)
-        assert (
-            ops_test.model.applications[APP_NAME].units[0].workload_status
-            == "active"
-        )
+        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
         await remove_pg_relation(ops_test)
 
     async def test_16_container_restart(self, ops_test: OpsTest):
         """Trino container restart: catalog persists."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "persist_catalog")
-        await ops_test.model.applications[APP_NAME].set_config(
-            {PG_CONFIG_KEY: config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
         await relate_pg(ops_test)
 
         await wait_for_catalog(ops_test, "persist_catalog")
@@ -525,19 +489,13 @@ class TestPostgresqlCatalogRelation:
 
         # Final cleanup
         await remove_pg_relation(ops_test)
-        await ops_test.model.applications[APP_NAME].reset_config(
-            [PG_CONFIG_KEY]
-        )
+        await ops_test.model.applications[APP_NAME].reset_config([PG_CONFIG_KEY])
         async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME], status="active", timeout=600
-            )
+            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
 
     async def test_17_tls_connection(self, ops_test: OpsTest):
         """Catalog uses TLS when PG has certificates enabled."""
-        await ops_test.model.deploy(
-            "self-signed-certificates", channel="latest/edge"
-        )
+        await ops_test.model.deploy("self-signed-certificates", channel="latest/edge")
         async with ops_test.fast_forward():
             await ops_test.model.wait_for_idle(
                 apps=["self-signed-certificates"],
@@ -557,9 +515,7 @@ class TestPostgresqlCatalogRelation:
             )
 
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "tls_catalog")
-        await ops_test.model.applications[APP_NAME].set_config(
-            {PG_CONFIG_KEY: config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
         await relate_pg(ops_test)
 
         await wait_for_catalog(ops_test, "tls_catalog")
@@ -574,6 +530,4 @@ class TestPostgresqlCatalogRelation:
 
         # Cleanup
         await remove_pg_relation(ops_test)
-        await ops_test.model.applications[APP_NAME].reset_config(
-            [PG_CONFIG_KEY]
-        )
+        await ops_test.model.applications[APP_NAME].reset_config([PG_CONFIG_KEY])

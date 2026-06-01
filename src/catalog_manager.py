@@ -44,9 +44,9 @@ class CatalogBase(ABC):
         container = self.charm.unit.get_container(self.charm.name)
 
         for key, value in catalogs.items():
-            config = value.replace(
-                "{SSL_PATH}", str(self.charm.truststore_abs_path)
-            ).replace("{SSL_PWD}", self.truststore_pwd)
+            config = value.replace("{SSL_PATH}", str(self.charm.truststore_abs_path)).replace(
+                "{SSL_PWD}", self.truststore_pwd
+            )
 
             container.push(
                 self.charm.catalog_abs_path.joinpath(f"{key}.properties"),
@@ -79,9 +79,7 @@ class CatalogBase(ABC):
                     self.truststore_pwd,
                     str(self.charm.conf_abs_path),
                 )
-                container.remove_path(
-                    self.charm.conf_abs_path.joinpath(f"{name}.crt")
-                )
+                container.remove_path(self.charm.conf_abs_path.joinpath(f"{name}.crt"))
             except Exception as e:
                 logger.error(f"Failed to add {name} cert: {e}")
 
@@ -141,9 +139,7 @@ class CatalogBase(ABC):
             catalogs = self._create_properties(secret_content)
             self._add_catalog(catalogs)
             connector = self.backend["connector"]
-            logger.info(
-                f"{connector} catalog {self.name!r} added successfully"
-            )
+            logger.info(f"{connector} catalog {self.name!r} added successfully")
             return list(catalogs.keys())
         except Exception as e:
             logger.error(f"Unable to add catalog {self.name!r}: {e}")
@@ -183,8 +179,8 @@ class BigqueryCatalog(CatalogBase):
 
         catalog_content = textwrap.dedent(
             f"""\
-            connector.name={self.backend['connector']}
-            bigquery.project-id={self.info['project']}
+            connector.name={self.backend["connector"]}
+            bigquery.project-id={self.info["project"]}
             bigquery.credentials-file={sa_creds_path}
             """
         )
@@ -227,8 +223,8 @@ class GsheetCatalog(CatalogBase):
 
         catalog_content = textwrap.dedent(
             f"""\
-            connector.name={self.backend['connector']}
-            gsheets.metadata-sheet-id={self.info['metasheet-id']}
+            connector.name={self.backend["connector"]}
+            gsheets.metadata-sheet-id={self.info["metasheet-id"]}
             gsheets.credentials-path={sa_creds_path}
             """
         )
@@ -257,8 +253,8 @@ class HiveCatalog(CatalogBase):
 
         catalog_content = textwrap.dedent(
             f"""\
-            connector.name={self.backend['connector']}
-            hive.metastore.uri={self.backend['url']}
+            connector.name={self.backend["connector"]}
+            hive.metastore.uri={self.backend["url"]}
             """
         )
         catalog[self.name] = catalog_content

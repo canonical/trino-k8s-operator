@@ -73,9 +73,12 @@ peers:
 
 parts:
   charm:
-    charm-binary-python-packages:
-      - pydantic
-      - pydantic-core
+    plugin: uv
+    source: .
+    uv-groups:
+      - charmlibs-pydeps
+    build-snaps:
+      - astral-uv
     build-packages:
       - libffi-dev
       - libssl-dev

@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 class TestCatalogUpdates:
     """Integration tests for catalog changes in Trino charm."""
 
-    async def test_catalog_config_updates_after_relation_break(
-        self, ops_test: OpsTest
-    ):
+    async def test_catalog_config_updates_after_relation_break(self, ops_test: OpsTest):
         """Test that the worker picks up updated catalog-config after relation re-establishment."""
         # Step 1: create and apply catalog config with BigQuery
         postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
@@ -63,9 +61,7 @@ class TestCatalogUpdates:
         await ops_test.model.applications[APP_NAME].remove_relation(
             f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker"
         )
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME], timeout=600
-        )
+        await ops_test.model.wait_for_idle(apps=[APP_NAME, WORKER_NAME], timeout=600)
 
         # Step 3: Update catalog config to remove bigquery (DO NOT use config-changed after this)
         updated_catalog_config = await create_catalog_config(
@@ -96,9 +92,9 @@ class TestCatalogUpdates:
 
         # Step 5: Check the catalogs (expect bigquery to be removed)
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
-        assert "bigquery" not in str(
-            catalogs
-        ), "BigQuery should be removed after relation re-establishment"
+        assert "bigquery" not in str(catalogs), (
+            "BigQuery should be removed after relation re-establishment"
+        )
         assert "postgresql-1" in str(catalogs)
         assert "mysql" in str(catalogs)
         assert "redshift" in str(catalogs)

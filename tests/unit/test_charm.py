@@ -165,9 +165,7 @@ class TestCharm(TestCase):
         self.assertEqual(got_plan["services"], want_plan["services"])
 
         # The service was started.
-        service = harness.model.unit.get_container("trino").get_service(
-            "trino"
-        )
+        service = harness.model.unit.get_container("trino").get_service("trino")
         self.assertTrue(service.is_running())
 
         # The ActiveStatus is set with no message.
@@ -186,14 +184,10 @@ class TestCharm(TestCase):
 
         simulate_lifecycle_coordinator(harness)
 
-        nginx_route_relation_id = harness.add_relation(
-            "nginx-route", "ingress"
-        )
+        nginx_route_relation_id = harness.add_relation("nginx-route", "ingress")
         harness.charm._require_nginx_route()
 
-        assert harness.get_relation_data(
-            nginx_route_relation_id, harness.charm.app
-        ) == {
+        assert harness.get_relation_data(nginx_route_relation_id, harness.charm.app) == {
             "service-namespace": harness.charm.model.name,
             "service-hostname": harness.charm.app.name,
             "service-name": harness.charm.app.name,
@@ -212,9 +206,9 @@ class TestCharm(TestCase):
 
         # The change is not applied to the plan.
         want_log_level = "info"
-        got_log_level = harness.get_container_pebble_plan("trino").to_dict()[
-            "services"
-        ]["trino"]["environment"]["LOG_LEVEL"]
+        got_log_level = harness.get_container_pebble_plan("trino").to_dict()["services"]["trino"][
+            "environment"
+        ]["LOG_LEVEL"]
         self.assertEqual(got_log_level, want_log_level)
 
         # The BlockStatus is set with a message.
@@ -242,18 +236,14 @@ class TestCharm(TestCase):
         simulate_lifecycle_coordinator(harness)
 
         with self.assertRaises(KeyError):
-            self.harness.update_config(
-                {"catalog-config": "catalog: incorrect"}
-            )
+            self.harness.update_config({"catalog-config": "catalog: incorrect"})
 
     def test_session_property_manager_invalid_config(self):
         """The charm blocks when the session property manager JSON is invalid."""
         harness = self.harness
         simulate_lifecycle_coordinator(harness)
 
-        self.harness.update_config(
-            {"session-property-manager-config": '{"group":"broken"'}
-        )
+        self.harness.update_config({"session-property-manager-config": '{"group":"broken"'})
 
         self.assertIn(
             "Expecting ',' delimiter",
@@ -272,9 +262,7 @@ class TestCharm(TestCase):
         container.get_check.return_value.status = CheckStatus.UP
         harness.charm.on.update_status.emit()
 
-        self.assertEqual(
-            harness.model.unit.status, ActiveStatus("Status check: UP")
-        )
+        self.assertEqual(harness.model.unit.status, ActiveStatus("Status check: UP"))
 
     def test_update_status_down(self):
         """The charm updates the unit status to maintenance based on DOWN status."""
@@ -287,9 +275,7 @@ class TestCharm(TestCase):
         container.get_check.return_value.status = CheckStatus.DOWN
         harness.charm.on.update_status.emit()
 
-        self.assertEqual(
-            harness.model.unit.status, MaintenanceStatus("Status check: DOWN")
-        )
+        self.assertEqual(harness.model.unit.status, MaintenanceStatus("Status check: DOWN"))
 
     def test_incomplete_pebble_plan(self):
         """The charm re-applies the pebble plan if incomplete."""
@@ -377,9 +363,7 @@ class TestCharm(TestCase):
         harness = self.harness
         harness.add_relation("peer", "trino")
 
-        harness.handle_exec(
-            "trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/"
-        )
+        harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
         harness.handle_exec("trino", ["keytool"], result=0)
         container = harness.model.unit.get_container("trino")
         harness.handle_exec("trino", ["htpasswd"], result=0)
@@ -388,10 +372,7 @@ class TestCharm(TestCase):
 
         # There is a valid pebble plan.
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        assert (
-            got_plan["services"]["trino"]["environment"]["CHARM_FUNCTION"]
-            == "all"
-        )
+        assert got_plan["services"]["trino"]["environment"]["CHARM_FUNCTION"] == "all"
 
         # The MaintenanceStatus is set.
         self.assertEqual(
@@ -435,39 +416,28 @@ class TestCharm(TestCase):
         simulate_lifecycle_coordinator(harness)
 
         session_property_config = (
-            '[{"group":"global.*","sessionProperties":'
-            '{"query_max_execution_time":"8h"}}]'
+            '[{"group":"global.*","sessionProperties":{"query_max_execution_time":"8h"}}]'
         )
-        harness.update_config(
-            {"session-property-manager-config": session_property_config}
-        )
+        harness.update_config({"session-property-manager-config": session_property_config})
 
         container = harness.model.unit.get_container("trino")
-        properties_path = (
-            "/usr/lib/trino/etc/session-property-config.properties"
-        )
+        properties_path = "/usr/lib/trino/etc/session-property-config.properties"
         json_path = "/usr/lib/trino/etc/session-property-config.json"
 
         self.assertTrue(container.exists(properties_path))
         self.assertTrue(container.exists(json_path))
-        self.assertEqual(
-            container.pull(json_path).read(), session_property_config
-        )
+        self.assertEqual(container.pull(json_path).read(), session_property_config)
 
     def test_session_property_manager_files_removed(self):
         """The charm removes the session property manager files when unset."""
         harness = self.harness
         simulate_lifecycle_coordinator(harness)
 
-        harness.update_config(
-            {"session-property-manager-config": '[{"user":"admin"}]'}
-        )
+        harness.update_config({"session-property-manager-config": '[{"user":"admin"}]'})
         harness.update_config({"session-property-manager-config": ""})
 
         container = harness.model.unit.get_container("trino")
-        properties_path = (
-            "/usr/lib/trino/etc/session-property-config.properties"
-        )
+        properties_path = "/usr/lib/trino/etc/session-property-config.properties"
         json_path = "/usr/lib/trino/etc/session-property-config.json"
 
         self.assertFalse(container.exists(properties_path))
@@ -483,9 +453,7 @@ class TestCharm(TestCase):
             '"hardConcurrencyLimit":10,"maxQueued":10}],"selectors":'
             '[{"user":".*","group":"global"}]}'
         )
-        harness.update_config(
-            {"resource-groups-config": resource_groups_config}
-        )
+        harness.update_config({"resource-groups-config": resource_groups_config})
 
         container = harness.model.unit.get_container("trino")
         properties_path = "/usr/lib/trino/etc/resource-groups.properties"
@@ -493,9 +461,7 @@ class TestCharm(TestCase):
 
         self.assertTrue(container.exists(properties_path))
         self.assertTrue(container.exists(json_path))
-        self.assertEqual(
-            container.pull(json_path).read(), resource_groups_config
-        )
+        self.assertEqual(container.pull(json_path).read(), resource_groups_config)
 
     def test_resource_group_manager_files_removed(self):
         """The charm removes the resource group manager files when unset."""

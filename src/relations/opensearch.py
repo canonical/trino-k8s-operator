@@ -62,9 +62,7 @@ class OpensearchRelationHandler(framework.Object):
             )
             return
 
-        self.charm.unit.status = WaitingStatus(
-            f"handling {self.relation_name} change"
-        )
+        self.charm.unit.status = WaitingStatus(f"handling {self.relation_name} change")
         self.update(event)
 
     @log_event_handler(logger)
@@ -96,9 +94,7 @@ class OpensearchRelationHandler(framework.Object):
 
         certificate = self.charm.state.opensearch_certificate
 
-        out, _ = container.exec(
-            ["/bin/sh", "-c", "echo $JAVA_HOME"]
-        ).wait_output()
+        out, _ = container.exec(["/bin/sh", "-c", "echo $JAVA_HOME"]).wait_output()
         java_home = out.strip()
 
         if certificate and not relation_broken:

@@ -55,9 +55,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
             timeout=2000,
         )
 
-    await ops_test.model.deploy(
-        RANGER_NAME, channel="edge", revision=39, trust=True
-    )
+    await ops_test.model.deploy(RANGER_NAME, channel="edge", revision=39, trust=True)
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
             apps=[RANGER_NAME],
@@ -84,9 +82,7 @@ async def deploy_policy_engine(ops_test: OpsTest):
 class TestPolicyManager:
     """Integration test for Ranger policy enforcement."""
 
-    async def test_policy_enforcement(
-        self, ops_test, charm: str, charm_image: str
-    ):
+    async def test_policy_enforcement(self, ops_test, charm: str, charm_image: str):
         """Test Ranger integration."""
         await ops_test.model.deploy(
             charm,
@@ -105,9 +101,7 @@ class TestPolicyManager:
             )
 
         logger.info("Creating test user.")
-        url = await get_unit_url(
-            ops_test, application=RANGER_NAME, unit=0, port=6080
-        )
+        url = await get_unit_url(ops_test, application=RANGER_NAME, unit=0, port=6080)
         await create_user(url)
 
         # Integrate Trino and Ranger.
