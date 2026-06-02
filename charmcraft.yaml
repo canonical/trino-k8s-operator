@@ -9,13 +9,6 @@ description: |
   Trino is a distributed SQL query engine designed to query large data
   sets distributed over one or more heterogeneous data sources.
 
-maintainers:
-  - Commercial Systems <jaas-crew@lists.canonical.com>
-
-source: https://github.com/canonical/trino-k8s-operator
-docs: https://discourse.charmhub.io/t/trino-server-documentation-overview/11231
-issues: https://github.com/canonical/trino-k8s-operator/issues
-
 containers:
   trino:
     resource: trino-image
