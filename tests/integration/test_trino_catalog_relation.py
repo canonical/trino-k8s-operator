@@ -25,7 +25,6 @@ REQUIRER_APP = "requirer-app"
 REQUIRER_CHARM_PATH = "tests/integration/trino_catalog_requirer_charm"
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-requirer", scope="module")
 async def deploy_requirer(ops_test: OpsTest):
     """Deploy the requirer charm once for all tests in this module."""
@@ -48,7 +47,6 @@ async def deploy_requirer(ops_test: OpsTest):
         )
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-trino", scope="module")
 async def deploy_trino(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the trino charm once for all tests in this module."""

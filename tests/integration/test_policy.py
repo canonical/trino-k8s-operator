@@ -42,7 +42,6 @@ async def resolve_ranger_errors(ops_test: OpsTest):
             await unit.resolved(retry=True)
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-policy", scope="module")
 async def deploy_policy_engine(ops_test: OpsTest):
     """Add Ranger relation and apply group configuration."""
