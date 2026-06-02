@@ -10,11 +10,12 @@ on:
 
 jobs:
   integration-tests:
+    uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
+    secrets: inherit
     permissions:
       contents: read
       packages: write
-    uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
-    secrets: inherit
+      pull-requests: write
     with:
       runs-on: "self-hosted-linux-amd64-noble-xlarge"
       channel: 1.34-strict/stable

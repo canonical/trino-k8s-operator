@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".."))
-METADATA = yaml.safe_load(Path(f"{BASE_DIR}/metadata.yaml").read_text())
+METADATA = yaml.safe_load(Path(f"{BASE_DIR}/charmcraft.yaml").read_text())
 
 # Charm name literals
 APP_NAME = METADATA["name"]
