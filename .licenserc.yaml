@@ -37,4 +37,5 @@ header:
     - 'lib/**'
     - 'trino-tls.svg'
     - 'trino_rock/local-files/**'
+    - 'uv.lock'
   comment: on-failure
