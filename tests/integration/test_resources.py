@@ -16,7 +16,6 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-resources", scope="module")
 async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the app."""
