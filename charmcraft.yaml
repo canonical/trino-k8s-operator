@@ -80,7 +80,6 @@ parts:
     stage:
       - "-trino_rock"
       - "-tests"
-      - "-venv"
   templates-dump:
     plugin: dump
     source: .
