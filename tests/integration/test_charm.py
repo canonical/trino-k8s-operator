@@ -62,9 +62,7 @@ class TestDeployment:
             gsheet_secret_id,
             True,
         )
-        catalogs = await update_catalog_config(
-            ops_test, catalog_config, TRINO_USER
-        )
+        catalogs = await update_catalog_config(ops_test, catalog_config, TRINO_USER)
 
         # Verify that both catalogs have been added.
         assert "postgresql-1" in str(catalogs)
@@ -82,9 +80,7 @@ class TestDeployment:
             False,
         )
 
-        catalogs = await update_catalog_config(
-            ops_test, updated_catalog_config, TRINO_USER
-        )
+        catalogs = await update_catalog_config(ops_test, updated_catalog_config, TRINO_USER)
 
         # Verify that only the bigquery catalog has been removed.
         assert "postgresql-1" in str(catalogs)
@@ -93,9 +89,7 @@ class TestDeployment:
         assert "bigquery" not in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
-    async def test_simulate_crash(
-        self, ops_test: OpsTest, charm: str, charm_image: str
-    ):
+    async def test_simulate_crash(self, ops_test: OpsTest, charm: str, charm_image: str):
         """Simulate the crash of the Trino coordinator charm.
 
         Args:
@@ -112,14 +106,10 @@ class TestDeployment:
 
     async def test_trino_default_policy(self, ops_test: OpsTest):
         """Update the config and verify no catalog access."""
-        await ops_test.model.applications[APP_NAME].set_config(
-            {"acl-mode-default": "none"}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({"acl-mode-default": "none"})
 
         async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME], status="active", timeout=600
-            )
+            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
         catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
         logging.info(f"Found catalogs: {catalogs}")
         assert not catalogs

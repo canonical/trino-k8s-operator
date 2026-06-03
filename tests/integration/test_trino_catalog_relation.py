@@ -25,7 +25,6 @@ REQUIRER_APP = "requirer-app"
 REQUIRER_CHARM_PATH = "tests/integration/trino_catalog_requirer_charm"
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-requirer", scope="module")
 async def deploy_requirer(ops_test: OpsTest):
     """Deploy the requirer charm once for all tests in this module."""
@@ -48,7 +47,6 @@ async def deploy_requirer(ops_test: OpsTest):
         )
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-trino", scope="module")
 async def deploy_trino(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the trino charm once for all tests in this module."""
@@ -77,10 +75,7 @@ async def deploy_trino(ops_test: OpsTest, charm: str, charm_image: str):
 async def test_01_requirer_deployment(ops_test: OpsTest):
     """Test that the requirer charm has been deployed."""
     # Verify requirer is blocked waiting for relation
-    assert (
-        ops_test.model.applications[REQUIRER_APP].units[0].workload_status
-        == "blocked"
-    )
+    assert ops_test.model.applications[REQUIRER_APP].units[0].workload_status == "blocked"
 
 
 @pytest.mark.abort_on_fail
@@ -121,30 +116,30 @@ async def test_02_trino_catalog_relation_created(ops_test: OpsTest):
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
 async def test_03_auto_generated_credentials(ops_test: OpsTest):
     """Test that per-relation credentials are auto-generated."""
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
     # Verify auto-generated username follows pattern app-{app_name}-{relation_id}
     result_username = action.results.get("trino-username")
-    assert result_username.startswith(
-        f"app-{REQUIRER_APP}-"
-    ), f"Expected username starting with 'app-{REQUIRER_APP}-', got '{result_username}'"
+    assert result_username.startswith(f"app-{REQUIRER_APP}-"), (
+        f"Expected username starting with 'app-{REQUIRER_APP}-', got '{result_username}'"
+    )
 
     # Verify password is a non-empty random string
     result_password = action.results.get("trino-password")
-    assert (
-        result_password and len(result_password) > 0
-    ), "Expected non-empty auto-generated password"
+    assert result_password and len(result_password) > 0, (
+        "Expected non-empty auto-generated password"
+    )
 
     # Verify internal URL (no nginx relation at this point)
     result_url = action.results.get("trino-url")
-    expected_internal_url = f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
-    assert (
-        result_url == expected_internal_url
-    ), f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
+    expected_internal_url = (
+        f"{APP_NAME}.{ops_test.model.name}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
+    )
+    assert result_url == expected_internal_url, (
+        f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
+    )
 
     logger.info(
         "Verified auto-generated credentials: username='%s', URL='%s'",
@@ -183,9 +178,7 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
 
     # Update Trino with catalog config
     async with ops_test.fast_forward():
-        await ops_test.model.applications[APP_NAME].set_config(
-            {"catalog-config": catalog_config}
-        )
+        await ops_test.model.applications[APP_NAME].set_config({"catalog-config": catalog_config})
 
         # Wait for Trino to be ready
         await ops_test.model.wait_for_idle(
@@ -202,9 +195,7 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
         )
 
     # Verify the requirer received the catalogs
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
@@ -224,9 +215,9 @@ async def test_04_trino_catalog_relation_set_catalogs(ops_test: OpsTest):
         "bigquery",
         "gsheets-1",
     }
-    assert expected_catalogs.issubset(
-        catalog_names
-    ), f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+    assert expected_catalogs.issubset(catalog_names), (
+        f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+    )
 
     logger.info(
         "Verified requirer received %s catalogs: %s",
@@ -254,9 +245,7 @@ async def test_05_catalog_exclusions(ops_test: OpsTest):
         )
 
     # Verify the requirer receives 4 catalogs (postgresql-1 excluded)
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
@@ -264,16 +253,14 @@ async def test_05_catalog_exclusions(ops_test: OpsTest):
     catalogs = ast.literal_eval(catalogs_str)
     catalog_names = {cat["name"] for cat in catalogs}
 
-    assert (
-        "postgresql-1" not in catalog_names
-    ), f"postgresql-1 should be excluded, but found in {catalog_names}"
+    assert "postgresql-1" not in catalog_names, (
+        f"postgresql-1 should be excluded, but found in {catalog_names}"
+    )
     assert len(catalogs) == 4, f"Expected 4 catalogs, got {len(catalogs)}"
 
     # Reset exclusions and verify all catalogs are restored
     async with ops_test.fast_forward():
-        await ops_test.model.applications[APP_NAME].reset_config(
-            ["catalog-exclusions"]
-        )
+        await ops_test.model.applications[APP_NAME].reset_config(["catalog-exclusions"])
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
@@ -281,9 +268,7 @@ async def test_05_catalog_exclusions(ops_test: OpsTest):
             timeout=1000,
         )
 
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
@@ -291,9 +276,9 @@ async def test_05_catalog_exclusions(ops_test: OpsTest):
     catalogs = ast.literal_eval(catalogs_str)
     catalog_names = {cat["name"] for cat in catalogs}
 
-    assert (
-        "postgresql-1" in catalog_names
-    ), f"postgresql-1 should be restored after clearing exclusions, got {catalog_names}"
+    assert "postgresql-1" in catalog_names, (
+        f"postgresql-1 should be restored after clearing exclusions, got {catalog_names}"
+    )
     assert len(catalogs) == 5, f"Expected 5 catalogs, got {len(catalogs)}"
 
     logger.info("Verified catalog exclusions work correctly")
@@ -339,20 +324,16 @@ async def test_06_trino_catalog_external_url_with_nginx(
         )
 
     # Verify the requirer received the external URL
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
     result_url = action.results.get("trino-url")
     expected_external_url = f"trino.test.com:{TRINO_PORTS['HTTPS']}"
-    assert (
-        result_url == expected_external_url
-    ), f"Expected external URL '{expected_external_url}', got '{result_url}'"
-    logger.info(
-        "Verified requirer received external Trino URL: %s", result_url
+    assert result_url == expected_external_url, (
+        f"Expected external URL '{expected_external_url}', got '{result_url}'"
     )
+    logger.info("Verified requirer received external Trino URL: %s", result_url)
 
     # Clean up: remove nginx relation and reset external-hostname
     async with ops_test.fast_forward():
@@ -369,9 +350,7 @@ async def test_06_trino_catalog_external_url_with_nginx(
         )
 
     async with ops_test.fast_forward():
-        await ops_test.model.applications[APP_NAME].reset_config(
-            ["external-hostname"]
-        )
+        await ops_test.model.applications[APP_NAME].reset_config(["external-hostname"])
 
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME],
@@ -385,19 +364,11 @@ async def test_06_trino_catalog_external_url_with_nginx(
 async def test_07_catalog_config_propagation(ops_test: OpsTest):
     """Test that catalog-config changes propagate to the requirer."""
     # Get catalog secrets
-    postgresql_secret_id = await get_secret_id_by_label(
-        ops_test, "postgresql-secret"
-    )
+    postgresql_secret_id = await get_secret_id_by_label(ops_test, "postgresql-secret")
     mysql_secret_id = await get_secret_id_by_label(ops_test, "mysql-secret")
-    redshift_secret_id = await get_secret_id_by_label(
-        ops_test, "redshift-secret"
-    )
-    bigquery_secret_id = await get_secret_id_by_label(
-        ops_test, "bigquery-secret"
-    )
-    gsheets_secret_id = await get_secret_id_by_label(
-        ops_test, "gsheets-secret"
-    )
+    redshift_secret_id = await get_secret_id_by_label(ops_test, "redshift-secret")
+    bigquery_secret_id = await get_secret_id_by_label(ops_test, "bigquery-secret")
+    gsheets_secret_id = await get_secret_id_by_label(ops_test, "gsheets-secret")
 
     logger.info("PostgreSQL secret ID: %s", postgresql_secret_id)
     logger.info("MySQL secret ID: %s", mysql_secret_id)
@@ -427,9 +398,7 @@ async def test_07_catalog_config_propagation(ops_test: OpsTest):
         )
 
     # Verify the requirer received the updated catalogs (without bigquery)
-    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
-        "get-relation-data"
-    )
+    action = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
     await action.wait()
     assert action.status == "completed"
 
@@ -438,19 +407,19 @@ async def test_07_catalog_config_propagation(ops_test: OpsTest):
     catalogs = ast.literal_eval(catalogs_str)
     catalogs_count = len(catalogs)
 
-    assert (
-        catalogs_count == 4
-    ), f"Expected 4 catalogs after removing bigquery, got {catalogs_count}"
+    assert catalogs_count == 4, (
+        f"Expected 4 catalogs after removing bigquery, got {catalogs_count}"
+    )
 
     # Verify bigquery is no longer present
     catalog_names = {cat["name"] for cat in catalogs}
-    assert (
-        "bigquery" not in catalog_names
-    ), f"bigquery should be removed, but found in {catalog_names}"
+    assert "bigquery" not in catalog_names, (
+        f"bigquery should be removed, but found in {catalog_names}"
+    )
     expected_catalogs = {"postgresql-1", "mysql", "redshift", "gsheets-1"}
-    assert expected_catalogs.issubset(
-        catalog_names
-    ), f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+    assert expected_catalogs.issubset(catalog_names), (
+        f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+    )
 
     logger.info(
         "Verified catalog count reduced to %s after removing bigquery: %s",
@@ -503,13 +472,11 @@ async def test_08_multiple_requirers(ops_test: OpsTest):
     assert len(trino_catalog_relations) >= 2
 
     # Verify each requirer got different credentials
-    action_1 = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action(
+    action_1 = await ops_test.model.units.get(f"{REQUIRER_APP}/0").run_action("get-relation-data")
+    await action_1.wait()
+    action_2 = await ops_test.model.units.get(f"{requirer_app_2}/0").run_action(
         "get-relation-data"
     )
-    await action_1.wait()
-    action_2 = await ops_test.model.units.get(
-        f"{requirer_app_2}/0"
-    ).run_action("get-relation-data")
     await action_2.wait()
 
     username_1 = action_1.results.get("trino-username")
@@ -518,8 +485,7 @@ async def test_08_multiple_requirers(ops_test: OpsTest):
     assert username_1.startswith(f"app-{REQUIRER_APP}-")
     assert username_2.startswith(f"app-{requirer_app_2}-")
     assert username_1 != username_2, (
-        f"Each requirer should get a unique username, "
-        f"got '{username_1}' and '{username_2}'"
+        f"Each requirer should get a unique username, got '{username_1}' and '{username_2}'"
     )
 
     logger.info(
@@ -530,9 +496,7 @@ async def test_08_multiple_requirers(ops_test: OpsTest):
 
     # Clean up second requirer
     async with ops_test.fast_forward():
-        await ops_test.model.remove_application(
-            requirer_app_2, block_until_done=True
-        )
+        await ops_test.model.remove_application(requirer_app_2, block_until_done=True)
 
 
 @pytest.mark.abort_on_fail
@@ -563,7 +527,4 @@ async def test_09_relation_broken(ops_test: OpsTest):
     assert len(trino_catalog_relations) == 0
 
     # Requirer should be blocked
-    assert (
-        ops_test.model.applications[REQUIRER_APP].units[0].workload_status
-        == "blocked"
-    )
+    assert ops_test.model.applications[REQUIRER_APP].units[0].workload_status == "blocked"

@@ -2,6 +2,7 @@
 # See LICENSE file for licensing details.
 
 """Trino charm integration test config."""
+
 import logging
 import time
 
@@ -15,7 +16,6 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-resources", scope="module")
 async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the app."""
@@ -38,10 +38,7 @@ async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
             raise_on_blocked=False,
             timeout=300,
         )
-        assert (
-            ops_test.model.applications[APP_NAME].units[0].workload_status
-            == "active"
-        )
+        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
 
 @pytest.mark.abort_on_fail

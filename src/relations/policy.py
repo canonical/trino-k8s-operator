@@ -74,9 +74,9 @@ class PolicyRelationHandler(framework.Object):
             event.defer()
             return
 
-        self.charm.state.policy_manager_url = event.relation.data[
-            event.app
-        ].get("policy_manager_url")
+        self.charm.state.policy_manager_url = event.relation.data[event.app].get(
+            "policy_manager_url"
+        )
         if not self.charm.state.policy_manager_url:
             return
 
@@ -100,8 +100,7 @@ class PolicyRelationHandler(framework.Object):
         uri = f"{host}.{namespace}.svc.cluster.local:{port}"
 
         service_name = (
-            self.charm.config.get("ranger-service-name")
-            or f"relation_{event.relation.id}"
+            self.charm.config.get("ranger-service-name") or f"relation_{event.relation.id}"
         )
         service = {
             "name": service_name,
@@ -152,9 +151,7 @@ class PolicyRelationHandler(framework.Object):
         self.charm.state.ranger_enabled = True
         logger.info("Ranger plugin is enabled.")
 
-    def _push_plugin_files(
-        self, container, policy_manager_url, policy_relation
-    ):
+    def _push_plugin_files(self, container, policy_manager_url, policy_relation):
         """Configure the Ranger plugin install.properties file.
 
         Args:
@@ -163,15 +160,12 @@ class PolicyRelationHandler(framework.Object):
             policy_relation: The relation name and id of policy relation
         """
         opensearch = self.charm.state.opensearch or {}
-        if opensearch.get("is_enabled") and not container.exists(
-            "/opensearch.crt"
-        ):
+        if opensearch.get("is_enabled") and not container.exists("/opensearch.crt"):
             self.charm.opensearch_relation_handler.update_certificates()
         policy_context = {
             "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
-            "REPOSITORY_NAME": self.charm.config.get("ranger-service-name")
-            or policy_relation,
+            "REPOSITORY_NAME": self.charm.config.get("ranger-service-name") or policy_relation,
             "RANGER_RELATION": True,
             "OPENSEARCH_INDEX": opensearch.get("index"),
             "OPENSEARCH_HOST": opensearch.get("host"),

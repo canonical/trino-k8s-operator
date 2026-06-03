@@ -31,20 +31,17 @@ def log_event_handler(logger):
             """Log decorator method.
 
             Args:
+                self: The charm instance.
                 event: The event triggered when the relation changes.
 
             Returns:
                 Decorated method.
             """
-            logger.info(
-                f"* running {self.__class__.__name__}.{method.__name__}"
-            )
+            logger.info(f"* running {self.__class__.__name__}.{method.__name__}")
             try:
                 return method(self, event)
             finally:
-                logger.info(
-                    f"* completed {self.__class__.__name__}.{method.__name__}"
-                )
+                logger.info(f"* completed {self.__class__.__name__}.{method.__name__}")
 
         return decorated
 

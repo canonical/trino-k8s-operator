@@ -39,9 +39,7 @@ class TrinoCatalogRelationHandler(Object):
     sharing works across model boundaries (CMR).
     """
 
-    def __init__(
-        self, charm: CharmBase, relation_name: str = "trino-catalog"
-    ) -> None:
+    def __init__(self, charm: CharmBase, relation_name: str = "trino-catalog") -> None:
         """Construct.
 
         Args:
@@ -84,9 +82,7 @@ class TrinoCatalogRelationHandler(Object):
         try:
             secret = self.charm.model.get_secret(label=label)
             secret.remove_all_revisions()
-            logger.info(
-                "Removed secret for broken relation %s", event.relation.id
-            )
+            logger.info("Removed secret for broken relation %s", event.relation.id)
         except SecretNotFoundError:
             pass
 
@@ -215,9 +211,7 @@ class TrinoCatalogRelationHandler(Object):
             for key in ("ro_catalog_name", "rw_catalog_name"):
                 name = entry.get(key)
                 if name:
-                    catalogs.append(
-                        TrinoCatalog(name=name, connector="postgresql")
-                    )
+                    catalogs.append(TrinoCatalog(name=name, connector="postgresql"))
 
         return catalogs
 
@@ -363,16 +357,10 @@ class TrinoCatalogRelationHandler(Object):
                 users_changed = True
 
             # Filter catalogs based on per-app exclusions
-            app_name = (
-                relation.data[relation.app].get("app_name")
-                if relation.app
-                else None
-            )
+            app_name = relation.data[relation.app].get("app_name") if relation.app else None
             excluded = exclusions.get(app_name, set())
             filtered_catalogs = (
-                [c for c in catalogs if c.name not in excluded]
-                if excluded
-                else catalogs
+                [c for c in catalogs if c.name not in excluded] if excluded else catalogs
             )
 
             # Update relation databag

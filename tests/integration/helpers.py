@@ -20,10 +20,8 @@ from trino_client.trino_client import query_trino
 logger = logging.getLogger(__name__)
 
 
-BASE_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..")
-)
-METADATA = yaml.safe_load(Path(f"{BASE_DIR}/metadata.yaml").read_text())
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".."))
+METADATA = yaml.safe_load(Path(f"{BASE_DIR}/charmcraft.yaml").read_text())
 
 # Charm name literals
 APP_NAME = METADATA["name"]
@@ -47,7 +45,7 @@ project-12345: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 GSHEETS_SECRET = """\
 gsheets-1: |
@@ -64,7 +62,7 @@ gsheets-1: |
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-380.project.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 POSTGRESQL_REPLICA_SECRET = """\
 rw:
@@ -76,7 +74,7 @@ ro:
   user: trino_ro
   password: pwd2
   params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}&targetServerType=preferSecondary
-"""  # nosec
+"""  # nosec  # noqa: E501
 
 MYSQL_REPLICA_SECRET = """\
 ro:
@@ -111,9 +109,7 @@ COORDINATOR_CONFIG = {
 }
 
 
-async def get_unit_url(
-    ops_test: OpsTest, application, unit, port, protocol="http"
-):
+async def get_unit_url(ops_test: OpsTest, application, unit, port, protocol="http"):
     """Return unit URL from the model.
 
     Args:
@@ -127,9 +123,7 @@ async def get_unit_url(
         Unit URL of the form {protocol}://{address}:{port}
     """
     status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][application]["units"][
-        f"{application}/{unit}"
-    ]["address"]
+    address = status["applications"][application]["units"][f"{application}/{unit}"]["address"]
     return f"{protocol}://{address}:{port}"
 
 
@@ -164,9 +158,7 @@ async def run_query(ops_test: OpsTest, user, query, app_name=APP_NAME):
         Query result rows.
     """
     status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][app_name]["units"][f"{app_name}/{0}"][
-        "address"
-    ]
+    address = status["applications"][app_name]["units"][f"{app_name}/{0}"]["address"]
     logger.info("executing query on app address: %s", address)
     return await query_trino(address, user, query)
 
@@ -182,9 +174,7 @@ async def update_catalog_config(ops_test, catalog_config, user):
     Returns:
         A string of trino catalogs.
     """
-    await ops_test.model.applications[APP_NAME].set_config(
-        {"catalog-config": catalog_config}
-    )
+    await ops_test.model.applications[APP_NAME].set_config({"catalog-config": catalog_config})
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
             apps=[APP_NAME, WORKER_NAME], status="active", timeout=600
@@ -260,9 +250,7 @@ async def get_active_workers(ops_test: OpsTest):
         active_workers: list of active workers.
     """
     status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"][
-        "address"
-    ]
+    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"]["address"]
     logger.info("executing query on app address: %s", address)
     result = await query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
     active_workers = [
@@ -276,7 +264,7 @@ async def get_active_workers(ops_test: OpsTest):
 
 
 async def simulate_crash_and_restart(ops_test, charm, charm_image):
-    """Simulates the crash of the Trino coordinator.
+    """Simulate the crash of the Trino coordinator.
 
     Args:
         ops_test: PyTest object.
@@ -285,9 +273,7 @@ async def simulate_crash_and_restart(ops_test, charm, charm_image):
     """
     # Destroy charm
     await ops_test.model.applications[APP_NAME].destroy()
-    await ops_test.model.block_until(
-        lambda: APP_NAME not in ops_test.model.applications
-    )
+    await ops_test.model.block_until(lambda: APP_NAME not in ops_test.model.applications)
 
     # Deploy charm again
     async with ops_test.fast_forward():
@@ -440,7 +426,7 @@ async def create_catalog_config(
                     bigquery.arrow-serialization.enabled=false
             gsheets:
                 connector: gsheets
-        """
+        """  # noqa: E501
     else:
         catalog_config = f"""\
         catalogs:
@@ -483,7 +469,7 @@ async def create_catalog_config(
                     case-insensitive-name-matching=true
             gsheets:
                 connector: gsheets
-        """
+        """  # noqa: E501
     return catalog_config
 
 

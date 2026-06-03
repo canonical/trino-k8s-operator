@@ -15,7 +15,6 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy-upgrade", scope="module")
 async def deploy(ops_test: OpsTest):
     """Deploy the app."""
@@ -24,9 +23,7 @@ async def deploy(ops_test: OpsTest):
         "acl-mode-default": "none",
         "charm-function": "all",
     }
-    await ops_test.model.deploy(
-        APP_NAME, channel="edge", config=trino_config, trust=True
-    )
+    await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config, trust=True)
 
     async with ops_test.fast_forward():
         await ops_test.model.wait_for_idle(
@@ -35,10 +32,7 @@ async def deploy(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=600,
         )
-        assert (
-            ops_test.model.applications[APP_NAME].units[0].workload_status
-            == "active"
-        )
+        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
 
 @pytest.mark.abort_on_fail
@@ -46,9 +40,7 @@ async def deploy(ops_test: OpsTest):
 class TestUpgrade:
     """Integration test for Trino charm upgrade from previous release."""
 
-    async def test_upgrade(
-        self, ops_test: OpsTest, charm: str, charm_image: str
-    ):
+    async def test_upgrade(self, ops_test: OpsTest, charm: str, charm_image: str):
         """Builds the current charm and refreshes the current deployment."""
         await ops_test.model.applications[APP_NAME].refresh(
             path=str(charm), resources={"trino-image": charm_image}
@@ -62,16 +54,11 @@ class TestUpgrade:
                 timeout=600,
             )
 
-            assert (
-                ops_test.model.applications[APP_NAME].units[0].workload_status
-                == "active"
-            )
+            assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
     async def test_ui_relation(self, ops_test: OpsTest):
         """Perform GET request on the Trino UI host."""
-        url = await get_unit_url(
-            ops_test, application=APP_NAME, unit=0, port=8080
-        )
+        url = await get_unit_url(ops_test, application=APP_NAME, unit=0, port=8080)
         logger.info("curling app address: %s", url)
 
         response = requests.get(url, timeout=300)

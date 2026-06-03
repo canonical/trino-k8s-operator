@@ -2,6 +2,7 @@
 # See LICENSE file for licensing details.
 
 """Trino charm integration test config."""
+
 import logging
 from pathlib import Path
 
@@ -22,18 +23,16 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="module", name="charm_image")
 def charm_image_fixture(request: FixtureRequest) -> str:
-    """The OCI image for charm."""
+    """Get the OCI image for charm."""
     charm_image = request.config.getoption("--trino-image")
-    assert (
-        charm_image
-    ), "--trino-image argument is required which should contain the name of the OCI image."
+    assert charm_image, (
+        "--trino-image argument is required which should contain the name of the OCI image."
+    )
     return charm_image
 
 
 @pytest_asyncio.fixture(scope="module", name="charm")
-async def charm_fixture(
-    request: FixtureRequest, ops_test: OpsTest
-) -> str | Path:
+async def charm_fixture(request: FixtureRequest, ops_test: OpsTest) -> str | Path:
     """Fetch the path to charm."""
     charms = request.config.getoption("--charm-file")
     if not charms:
@@ -43,7 +42,6 @@ async def charm_fixture(
     return charms[0]
 
 
-@pytest.mark.skip_if_deployed
 @pytest_asyncio.fixture(name="deploy", scope="module")
 async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
     """Deploy the app."""
@@ -93,7 +91,4 @@ async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
             raise_on_blocked=False,
             timeout=300,
         )
-    assert (
-        ops_test.model.applications[APP_NAME].units[0].workload_status
-        == "active"
-    )
+    assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"

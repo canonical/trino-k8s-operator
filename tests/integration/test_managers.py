@@ -74,17 +74,13 @@ async def _set_manager_config(
 class TestManagers:
     """Integration tests for Trino managers."""
 
-    async def test_resource_group_and_session_property_managers(
-        self, ops_test: OpsTest
-    ):
+    async def test_resource_group_and_session_property_managers(self, ops_test: OpsTest):
         """Verify both managers affect query execution at runtime."""
         try:
             await _set_manager_config(
                 ops_test,
                 resource_groups_config=_resource_groups_config("nobody"),
-                session_property_manager_config=(
-                    SESSION_PROPERTY_MANAGER_CONFIG
-                ),
+                session_property_manager_config=(SESSION_PROPERTY_MANAGER_CONFIG),
             )
 
             with pytest.raises(trino.exceptions.TrinoUserError) as exc_info:
@@ -99,9 +95,7 @@ class TestManagers:
             await _set_manager_config(
                 ops_test,
                 resource_groups_config=_resource_groups_config(TRINO_USER),
-                session_property_manager_config=(
-                    SESSION_PROPERTY_MANAGER_CONFIG
-                ),
+                session_property_manager_config=(SESSION_PROPERTY_MANAGER_CONFIG),
             )
 
             session_rows = await run_query(

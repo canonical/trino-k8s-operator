@@ -129,18 +129,12 @@ class TrinoK8SCharm(CharmBase):
 
         # Handle basic charm lifecycle
         self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(
-            self.on.trino_pebble_ready, self._on_pebble_ready
-        )
+        self.framework.observe(self.on.trino_pebble_ready, self._on_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.restart_action, self._on_restart)
-        self.framework.observe(
-            self.on.list_system_users_action, self._on_list_system_users
-        )
+        self.framework.observe(self.on.list_system_users_action, self._on_list_system_users)
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(
-            self.on.peer_relation_changed, self._on_peer_relation_changed
-        )
+        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
         self.framework.observe(self.on.secret_changed, self._on_secret_changed)
 
         # Handle Ingress
@@ -151,11 +145,7 @@ class TrinoK8SCharm(CharmBase):
             self,
             relation_name="metrics-endpoint",
             jobs=[
-                {
-                    "static_configs": [
-                        {"targets": [f"{socket.getfqdn()}:{METRICS_PORT}"]}
-                    ]
-                },
+                {"static_configs": [{"targets": [f"{socket.getfqdn()}:{METRICS_PORT}"]}]},
             ],
             refresh_event=self.on.config_changed,
         )
@@ -175,9 +165,7 @@ class TrinoK8SCharm(CharmBase):
             extra_user_roles="admin",
         )
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
-        self.postgresql_catalog_handler = PostgresqlCatalogRelationHandler(
-            self
-        )
+        self.postgresql_catalog_handler = PostgresqlCatalogRelationHandler(self)
 
         resources = {
             "memory": {
@@ -310,10 +298,7 @@ class TrinoK8SCharm(CharmBase):
         """
         try:
             plan = container.get_plan().to_dict()
-            return bool(
-                plan
-                and plan["services"].get(self.name, {}).get("on-check-failure")
-            )
+            return bool(plan and plan["services"].get(self.name, {}).get("on-check-failure"))
         except ConnectionError:
             return False
 
@@ -327,9 +312,7 @@ class TrinoK8SCharm(CharmBase):
         # Catalog credential changes would enter the branch
         if not event.secret.label == USER_SECRET_LABEL:
             self._configure_catalogs(event)
-            self.postgresql_catalog_handler.reconcile_postgresql_catalogs(
-                event
-            )
+            self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)
             self.trino_catalog.reconcile_trino_catalog_relations()
             self._restart_trino()
             return
@@ -338,9 +321,7 @@ class TrinoK8SCharm(CharmBase):
             self._update_password_db(event)
             self._restart_trino()
         except Exception:
-            self.unit.status = BlockedStatus(
-                "Secret cannot be found or is incorrectly formatted."
-            )
+            self.unit.status = BlockedStatus("Secret cannot be found or is incorrectly formatted.")
 
     def _restart_trino(self):
         """Restart Trino."""
@@ -373,9 +354,7 @@ class TrinoK8SCharm(CharmBase):
         if secret_id:
             try:
                 content = self._get_secret_content(secret_id)
-                configured_users = list(
-                    yaml.safe_load(content["users"]).keys()
-                )
+                configured_users = list(yaml.safe_load(content["users"]).keys())
             except Exception:
                 configured_users = ["(error reading secret)"]
         else:
@@ -387,9 +366,7 @@ class TrinoK8SCharm(CharmBase):
             {
                 "configured-users": ", ".join(configured_users),
                 "relation-users": (
-                    ", ".join(relation_creds.keys())
-                    if relation_creds
-                    else "(none)"
+                    ", ".join(relation_creds.keys()) if relation_creds else "(none)"
                 ),
             }
         )
@@ -405,13 +382,9 @@ class TrinoK8SCharm(CharmBase):
             return
 
         if self.unit.is_leader():
-            self.state.java_truststore_pwd = (
-                self.state.java_truststore_pwd or generate_password()
-            )
+            self.state.java_truststore_pwd = self.state.java_truststore_pwd or generate_password()
 
-        out, _ = container.exec(
-            ["/bin/sh", "-c", "echo $JAVA_HOME"]
-        ).wait_output()
+        out, _ = container.exec(["/bin/sh", "-c", "echo $JAVA_HOME"]).wait_output()
         java_home = out.strip()
         command = [
             "keytool",
@@ -470,9 +443,7 @@ class TrinoK8SCharm(CharmBase):
 
         if secret_id:
             try:
-                credentials = yaml.safe_load(
-                    self._get_secret_content(secret_id)["users"]
-                )
+                credentials = yaml.safe_load(self._get_secret_content(secret_id)["users"])
             except Exception as e:
                 logger.error(f"Error reading secret {secret_id!r}: {e}")
                 raise
@@ -539,9 +510,7 @@ class TrinoK8SCharm(CharmBase):
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
-            catalog_instance = self._create_catalog_instance(
-                truststore_pwd, name, info, backend
-            )
+            catalog_instance = self._create_catalog_instance(truststore_pwd, name, info, backend)
             batch = catalog_instance.configure_catalogs()
             upserted_catalogs.extend(batch)
 
@@ -549,9 +518,7 @@ class TrinoK8SCharm(CharmBase):
         if not container.isdir(self.catalog_abs_path):
             return
 
-        for file in container.list_files(
-            self.catalog_abs_path, pattern="*.properties"
-        ):
+        for file in container.list_files(self.catalog_abs_path, pattern="*.properties"):
             if (
                 Path(file.name).stem in upserted_catalogs
                 or Path(file.name).stem
@@ -718,9 +685,7 @@ class TrinoK8SCharm(CharmBase):
 
         acl_mode_default = self.config.get("acl-mode-default")
         if acl_mode_default not in ["all", "none", "owner"]:
-            raise ValueError(
-                f"Invalid acl-mode-default value: {acl_mode_default!r}"
-            )
+            raise ValueError(f"Invalid acl-mode-default value: {acl_mode_default!r}")
 
         static_catalogs = self._validate_catalog_configs()
         self._validate_pg_catalog_config(static_catalogs)
@@ -764,12 +729,8 @@ class TrinoK8SCharm(CharmBase):
         try:
             parsed = yaml.safe_load(raw)
         except Exception as e:
-            logger.debug(
-                "Incorrectly formatted postgresql-catalog-config: %s", e
-            )
-            raise ValueError(
-                "Incorrectly formatted postgresql-catalog-config"
-            ) from None
+            logger.debug("Incorrectly formatted postgresql-catalog-config: %s", e)
+            raise ValueError("Incorrectly formatted postgresql-catalog-config") from None
         if isinstance(parsed, dict):
             self._check_catalog_name_conflicts(parsed, static_catalogs)
 
@@ -786,9 +747,7 @@ class TrinoK8SCharm(CharmBase):
             yaml.safe_load(raw)
         except Exception as e:
             logger.debug("Incorrectly formatted catalog-exclusions: %s", e)
-            raise ValueError(
-                "Incorrectly formatted catalog-exclusions"
-            ) from None
+            raise ValueError("Incorrectly formatted catalog-exclusions") from None
 
     def _validate_json_config(self, config_key) -> None:
         """Validate that a config value is valid JSON.
@@ -835,8 +794,7 @@ class TrinoK8SCharm(CharmBase):
                     )
                 if name in static_catalogs:
                     raise ValueError(
-                        f"postgresql-catalog-config catalog {name!r} "
-                        f"clashes with catalog-config"
+                        f"postgresql-catalog-config catalog {name!r} clashes with catalog-config"
                     )
                 seen.add(name)
 
@@ -865,9 +823,7 @@ class TrinoK8SCharm(CharmBase):
         default_opts = " ".join(DEFAULT_JVM_OPTIONS)
         user_opts = self.config.get("additional-jvm-options")
 
-        jvm_opts = (
-            update_opts(default_opts, user_opts) if user_opts else default_opts
-        )
+        jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
         env = {
             "LOG_LEVEL": self.config["log-level"],
@@ -876,13 +832,11 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "CHARM_FUNCTION": self.config["charm-function"],
-            "DISCOVERY_URI": self.state.discovery_uri
-            or self.config["discovery-uri"],
+            "DISCOVERY_URI": self.state.discovery_uri or self.config["discovery-uri"],
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
-            "CATALOG_CONFIG": self.state.catalog_config
-            or self.config.get("catalog-config"),
+            "CATALOG_CONFIG": self.state.catalog_config or self.config.get("catalog-config"),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
             "RANGER_RELATION": self.state.ranger_enabled or False,
@@ -892,43 +846,25 @@ class TrinoK8SCharm(CharmBase):
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
             "USER_SECRET_ID": self.config.get("user-secret-id"),
             "JVM_OPTIONS": jvm_opts,
-            "COORDINATOR_REQUEST_TIMEOUT": self.config[
-                "coordinator-request-timeout"
-            ],
-            "COORDINATOR_CONNECT_TIMEOUT": self.config[
-                "coordinator-connect-timeout"
-            ],
+            "COORDINATOR_REQUEST_TIMEOUT": self.config["coordinator-request-timeout"],
+            "COORDINATOR_CONNECT_TIMEOUT": self.config["coordinator-connect-timeout"],
             "WORKER_REQUEST_TIMEOUT": self.config["worker-request-timeout"],
             "MAX_CONCURRENT_QUERIES": self.config["max-concurrent-queries"],
             "QUERY_MAX_CPU_TIME": self.config.get("query-max-cpu-time"),
             "QUERY_MAX_RUN_TIME": self.config.get("query-max-run-time"),
-            "QUERY_MAX_MEMORY_PER_NODE": self.config.get(
-                "query-max-memory-per-node"
-            ),
+            "QUERY_MAX_MEMORY_PER_NODE": self.config.get("query-max-memory-per-node"),
             "QUERY_MAX_MEMORY": self.config.get("query-max-memory"),
-            "QUERY_MAX_TOTAL_MEMORY": self.config.get(
-                "query-max-total-memory"
-            ),
-            "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get(
-                "memory-heap-headroom-per-node"
-            ),
-            "RESOURCE_GROUPS_CONFIG": self.config.get(
-                "resource-groups-config"
-            ),
-            "SESSION_PROPERTY_MANAGER_CONFIG": self.config.get(
-                "session-property-manager-config"
-            ),
+            "QUERY_MAX_TOTAL_MEMORY": self.config.get("query-max-total-memory"),
+            "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get("memory-heap-headroom-per-node"),
+            "RESOURCE_GROUPS_CONFIG": self.config.get("resource-groups-config"),
+            "SESSION_PROPERTY_MANAGER_CONFIG": self.config.get("session-property-manager-config"),
         }
 
         # Merge PostgreSQL password env vars (derived at runtime)
         if self.config["charm-function"] in ("coordinator", "all"):
-            pg_secrets = (
-                self.postgresql_catalog_handler.get_postgresql_env_vars()
-            )
+            pg_secrets = self.postgresql_catalog_handler.get_postgresql_env_vars()
         elif self.config["charm-function"] == "worker":
-            pg_secrets = (
-                self.trino_worker.get_postgresql_secrets_from_coordinator()
-            )
+            pg_secrets = self.trino_worker.get_postgresql_secrets_from_coordinator()
         else:
             pg_secrets = {}
         if pg_secrets:
@@ -972,9 +908,7 @@ class TrinoK8SCharm(CharmBase):
             self._update_password_db(event)
         except Exception as err:
             logger.error(err)
-            self.unit.status = BlockedStatus(
-                "Secret cannot be found or is incorrectly formatted."
-            )
+            self.unit.status = BlockedStatus("Secret cannot be found or is incorrectly formatted.")
             return
 
         logger.info("planning trino execution")

@@ -2,7 +2,7 @@
 
 ## Testing
 
-This project uses `tox` for managing test environments. The `Makefile` provides convenience targets that wrap common `tox` commands:
+This project uses `tox` (with `tox-uv`) for managing test environments. The `Makefile` provides convenience targets that wrap common `tox` commands:
 
 ```shell
 make fmt              # update your code according to linting rules
@@ -17,7 +17,7 @@ make checks           # run fmt, lint, and test
 You can also invoke `tox` directly:
 
 ```shell
-tox run -e fmt
+tox run -e format
 tox run -e lint
 tox run -e unit
 tox run -e static
@@ -40,7 +40,7 @@ Install tools needed to build the charm and rock:
 make install-build-deps
 ```
 
-This installs: `yq`, `uv`, `charmcraft`, `rockcraft`, and `tox`.
+This installs: `yq`, `uv`, `charmcraft`, `rockcraft`, and `tox` (with `tox-uv`).
 
 To verify all build dependencies are present:
 
@@ -65,6 +65,16 @@ make check-deploy-deps
 ```
 
 ## Set up your development environment
+
+### Create a virtual environment
+
+```bash
+make venv
+source venv/bin/activate
+```
+
+This uses `uv sync` to install all development dependencies from
+`pyproject.toml` with a deterministic lockfile (`uv.lock`).
 
 ### Configure MicroK8s
 

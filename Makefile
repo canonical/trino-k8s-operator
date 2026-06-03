@@ -9,14 +9,14 @@ PROJECT_ROOT := $(CURDIR)
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-METADATA_YAML := $(PROJECT_ROOT)/metadata.yaml
+CHARMCRAFT_YAML := $(PROJECT_ROOT)/charmcraft.yaml
 ROCK_DIR := $(PROJECT_ROOT)/trino_rock
 ROCKCRAFT_YAML := $(ROCK_DIR)/rockcraft.yaml
 
 REGISTRY := localhost:32000
 
 # Ensure yq is installed: 'sudo snap install yq'
-CHARM_NAME := $(shell yq '.name' $(METADATA_YAML))
+CHARM_NAME := $(shell yq '.name' $(CHARMCRAFT_YAML))
 CHARM_ARCH := ubuntu-22.04-amd64
 
 ROCK_NAME := $(shell yq '.name' $(ROCKCRAFT_YAML))
@@ -132,7 +132,7 @@ deploy-local-worker:
 
 .PHONY: fmt
 fmt:
-	tox -e fmt
+	tox -e format
 
 .PHONY: lint
 lint:
@@ -175,4 +175,4 @@ import-rock: $(ROCK_FILE)
 .PHONY: venv
 venv:
 	uv venv --clear venv
-	uv pip install --python venv/bin/python -r requirements.txt
+	uv sync --active --group charmlibs-pydeps --group unit --group integration

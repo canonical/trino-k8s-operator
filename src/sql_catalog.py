@@ -64,7 +64,7 @@ class SqlCatalog(CatalogBase):
 
             catalog_content = textwrap.dedent(
                 f"""\
-                connector.name={self.backend['connector']}
+                connector.name={self.backend["connector"]}
                 connection-url={url}
                 connection-user={user_name}
                 connection-password={user_pwd}

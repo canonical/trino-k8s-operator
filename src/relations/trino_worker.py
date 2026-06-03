@@ -3,7 +3,6 @@
 
 """Trino worker relation hooks & helpers."""
 
-
 import json
 import logging
 
@@ -25,9 +24,7 @@ class TrinoWorker(Object):
         - relation-broken
     """
 
-    def __init__(
-        self, charm: CharmBase, relation_name: str = "trino-worker"
-    ) -> None:
+    def __init__(self, charm: CharmBase, relation_name: str = "trino-worker") -> None:
         """Construct TrinoRelationHandler object.
 
         Args:

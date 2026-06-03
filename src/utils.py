@@ -27,12 +27,7 @@ def generate_password() -> str:
     Returns:
         String of 32 randomized letter+digit characters
     """
-    return "".join(
-        [
-            secrets.choice(string.ascii_letters + string.digits)
-            for _ in range(32)
-        ]
-    )
+    return "".join([secrets.choice(string.ascii_letters + string.digits) for _ in range(32)])
 
 
 def render(template_name, env=None):
@@ -46,18 +41,14 @@ def render(template_name, env=None):
         content: template content.
     """
     # get the absolute path of templates directory.
-    charm_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), os.pardir)
-    )
+    charm_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
     templates_path = os.path.join(charm_dir, "templates")
 
     # handle jinja files.
     if "jinja" in template_name:
         loader = FileSystemLoader(templates_path)
         content = (
-            Environment(loader=loader, autoescape=True)
-            .get_template(template_name)
-            .render(**env)
+            Environment(loader=loader, autoescape=True).get_template(template_name).render(**env)
         )
 
     # handle properties files.
@@ -196,7 +187,7 @@ def create_postgresql_properties(cat_name, cat_info, backend, replicas):
 
         catalog_content = textwrap.dedent(
             f"""\
-            connector.name={backend['connector']}
+            connector.name={backend["connector"]}
             connection-url={url}
             connection-user={user_name}
             connection-password={user_pwd}
@@ -223,8 +214,8 @@ def create_bigquery_properties(name, info, backend, sa_creds_path):
 
     catalog_content = textwrap.dedent(
         f"""\
-    connector.name={backend['connector']}
-    bigquery.project-id={info['project']}
+    connector.name={backend["connector"]}
+    bigquery.project-id={info["project"]}
     bigquery.credentials-file={sa_creds_path}
     """
     )

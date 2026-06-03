@@ -1,5 +1,9 @@
 name: Publish to edge
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
@@ -9,5 +13,9 @@ jobs:
   publish:
     uses: canonical/operator-workflows/.github/workflows/publish_charm.yaml@main
     secrets: inherit
+    permissions:
+      contents: write
+      packages: write
+      actions: read
     with:
       channel: latest/edge
