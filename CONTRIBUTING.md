@@ -177,10 +177,10 @@ juju status
 
 ```bash
 # Refresh the coordinator:
-juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s --resource trino-image=localhost:32000/trino:<version>
+juju refresh --path="./trino-k8s_ubuntu-24.04-amd64.charm" trino-k8s --resource trino-image=localhost:32000/trino:<version>
 
 # Refresh the worker:
-juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s-worker --resource trino-image=localhost:32000/trino:<version>
+juju refresh --path="./trino-k8s_ubuntu-24.04-amd64.charm" trino-k8s-worker --resource trino-image=localhost:32000/trino:<version>
 ```
 
 ## Trino configuration
