@@ -73,7 +73,7 @@ make venv
 source venv/bin/activate
 ```
 
-This uses `uv sync` to install all project and development dependencies from
+This uses `uv sync` to install all development dependencies from
 `pyproject.toml` with a deterministic lockfile (`uv.lock`).
 
 ### Configure MicroK8s
