@@ -17,7 +17,7 @@ REGISTRY := localhost:32000
 
 # Ensure yq is installed: 'sudo snap install yq'
 CHARM_NAME := $(shell yq '.name' $(CHARMCRAFT_YAML))
-CHARM_ARCH := ubuntu-24.04-amd64
+CHARM_ARCH := ubuntu-22.04-amd64
 
 ROCK_NAME := $(shell yq '.name' $(ROCKCRAFT_YAML))
 ROCK_VERSION := $(shell yq '.version' $(ROCKCRAFT_YAML))
