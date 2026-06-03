@@ -77,9 +77,15 @@ parts:
       - libssl-dev
       - rustc
       - cargo
-    prime:
+    stage:
       - "-trino_rock"
       - "-tests"
+      - "-venv"
+  templates-dump:
+    plugin: dump
+    source: .
+    stage:
+      - templates/
 
 bases:
   - build-on:
