@@ -128,7 +128,7 @@ class TestCharm(TestCase):
                         "OAUTH_CLIENT_SECRET": None,  # nosec
                         "WEB_PROXY": None,
                         "CHARM_FUNCTION": "coordinator",
-                        "DISCOVERY_URI": "http://trino-k8s:8080",
+                        "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
                         "APPLICATION_NAME": "trino-k8s",
                         "TRINO_HOME": "/usr/lib/trino/etc",
                         "JMX_PORT": 9081,
@@ -141,6 +141,7 @@ class TestCharm(TestCase):
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
+                        "INT_COMMS_SECRET": "int_comms_secret",  # nosec
                         "USER_SECRET_ID": "secret:secret-id",  # nosec
                         "JVM_OPTIONS": DEFAULT_JVM_STRING,
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
@@ -160,6 +161,7 @@ class TestCharm(TestCase):
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
         environment = got_plan["services"]["trino"]["environment"]
         environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
+        environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
         environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
 
         self.assertEqual(got_plan["services"], want_plan["services"])
@@ -318,8 +320,29 @@ class TestCharm(TestCase):
         )
         relation_data = harness.get_relation_data(rel_id, harness.charm.app)
 
-        assert relation_data["discovery-uri"] == "http://trino-k8s:8080"
+        assert (
+            relation_data["discovery-uri"] == "http://trino-k8s.trino-model.svc.cluster.local:8080"
+        )
         assert relation_data["catalogs"] == catalog_config
+
+    def test_trino_coordinator_relation_discovery_uri_override(self):
+        """When discovery-uri config is set, the override is published to workers.
+
+        Workers in cross-cluster or multi-network topologies need the coordinator
+        to advertise a reachable address rather than the cluster-local default.
+        """
+        harness = self.harness
+        harness.update_config({"discovery-uri": "http://trino.example.com:8080"})
+
+        (rel_id, *_) = simulate_lifecycle_coordinator(harness)
+
+        relation_data = harness.get_relation_data(rel_id, harness.charm.app)
+        assert relation_data["discovery-uri"] == "http://trino.example.com:8080"
+
+        # The override is also reflected in the coordinator's own Pebble environment.
+        got_plan = harness.get_container_pebble_plan("trino").to_dict()
+        environment = got_plan["services"]["trino"]["environment"]
+        assert environment["DISCOVERY_URI"] == "http://trino.example.com:8080"
 
     def test_trino_coordinator_relation_broken(self):
         """Test trino relation.

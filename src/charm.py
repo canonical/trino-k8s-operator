@@ -91,7 +91,28 @@ class TrinoK8SCharm(CharmBase):
     @property
     def external_hostname(self):
         """Return the DNS listing used for external connections."""
-        return self.config["external-hostname"] or self.app.name
+        return self.config.get("external-hostname") or self.app.name
+
+    @property
+    def _cluster_local_coordinator_uri(self):
+        """Return the cluster-local service URI for the Trino coordinator."""
+        host = self.app.name
+        namespace = self.model.name
+        port = TRINO_PORTS["HTTP"]
+        return f"http://{host}.{namespace}.svc.cluster.local:{port}"
+
+    @property
+    def _coordinator_discovery_uri(self):
+        """Return the effective discovery URI advertised to Trino workers.
+
+        Uses the operator-supplied `discovery-uri` config value when set,
+        so that deployments where workers cannot reach the coordinator's
+        in-cluster service DNS (e.g. cross-cluster topologies) can supply a
+        reachable override.  Falls back to the cluster-local Kubernetes service
+        FQDN for same-cluster deployments, which requires no manual
+        configuration.
+        """
+        return self.config.get("discovery-uri") or self._cluster_local_coordinator_uri
 
     @property
     def trino_abs_path(self):
@@ -832,7 +853,7 @@ class TrinoK8SCharm(CharmBase):
             "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
             "WEB_PROXY": self.config.get("web-proxy"),
             "CHARM_FUNCTION": self.config["charm-function"],
-            "DISCOVERY_URI": self.state.discovery_uri or self.config["discovery-uri"],
+            "DISCOVERY_URI": self.state.discovery_uri or self._coordinator_discovery_uri,
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
@@ -844,6 +865,7 @@ class TrinoK8SCharm(CharmBase):
             "ACL_USER_PATTERN": self.config["acl-user-pattern"],
             "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
+            "INT_COMMS_SECRET": self.state.int_comms_secret,
             "USER_SECRET_ID": self.config.get("user-secret-id"),
             "JVM_OPTIONS": jvm_opts,
             "COORDINATOR_REQUEST_TIMEOUT": self.config["coordinator-request-timeout"],
@@ -892,9 +914,12 @@ class TrinoK8SCharm(CharmBase):
 
         logger.info("configuring trino")
         if self.config["charm-function"] in ["coordinator", "all"]:
-            self.state.discovery_uri = self.config.get("discovery-uri", "")
+            self.state.discovery_uri = self._coordinator_discovery_uri
             self.state.catalog_config = self.config.get("catalog-config", "")
             self.state.user_secret_id = self.config.get("user-secret-id", "")
+
+        if self.unit.is_leader():
+            self.state.int_comms_secret = self.state.int_comms_secret or generate_password()
 
         self._configure_catalogs(event)
 

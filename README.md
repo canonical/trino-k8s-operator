@@ -11,13 +11,19 @@ To deploy a single node of Trino which acts as both the coordinator and the work
 juju deploy trino-k8s --config charm-function=all
 ```
 ### Scalable deployment
-To deploy Trino in a production environment you will need to deploy the coordinator and worker separately, and then relate them. The relation serves the purpose of communicating the `discovery-uri` and `catalog-config` from the coordinator to the worker.
+To deploy Trino in a production environment you will need to deploy the coordinator and worker separately, and then relate them. The relation serves the purpose of communicating the `catalog-config` from the coordinator to the worker.
 ```
 juju deploy trino-k8s --trust --channel=latest/edge --config charm-function=coordinator
 juju deploy trino-k8s --trust --channel=latest/edge --config charm-function=worker trino-k8s-worker
 
 # Relate the two applications
 juju relate trino-k8s:trino-coordinator trino-k8s-worker:trino-worker
+```
+The coordinator automatically derives its Kubernetes service address and publishes it to workers through the relation. No `discovery-uri` configuration is needed for same-cluster deployments.
+
+For deployments where workers cannot reach the coordinator through the cluster-local service DNS (e.g. cross-cluster or multi-network topologies), set `discovery-uri` on the coordinator to the reachable address:
+```
+juju config trino-k8s discovery-uri=https://trino-coordinator.example.com
 ```
 
 ## HTTPS
