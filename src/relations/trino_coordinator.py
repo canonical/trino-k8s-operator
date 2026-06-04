@@ -78,7 +78,7 @@ class TrinoCoordinator(Object):
         if not self.charm.state.is_ready():
             return
 
-        if not self.charm.config["charm-function"] == "coordinator":
+        if self.charm.config.charm_function != "coordinator":
             return
 
         # This is a list that contains every relation to the 'trino-coordinator' endpoint
@@ -88,8 +88,8 @@ class TrinoCoordinator(Object):
         pg_env_vars = self.charm.postgresql_catalog_handler.get_postgresql_env_vars()
         relation_data = {
             "discovery-uri": self.charm._coordinator_discovery_uri,
-            "user-secret-id": self.charm.config.get("user-secret-id", ""),
-            "catalogs": self.charm.config.get("catalog-config", ""),
+            "user-secret-id": self.charm.config.user_secret_id or "",
+            "catalogs": self.charm.config.catalog_config or "",
             "postgresql-secrets": json.dumps(pg_env_vars),
         }
 

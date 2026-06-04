@@ -200,7 +200,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Args:
             event: The Juju event that triggered reconciliation (optional).
         """
-        if self.charm.config["charm-function"] not in ("coordinator", "all"):
+        if self.charm.config.charm_function not in ("coordinator", "all"):
             return
 
         self._write_databag()
@@ -273,10 +273,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         """
         if getattr(self, "_current_wanted_envs", None) is not None:
             return self._current_wanted_envs
-        if self.charm.config["charm-function"] not in (
-            "coordinator",
-            "all",
-        ):
+        if self.charm.config.charm_function not in ("coordinator", "all"):
             return {}
         _, env_vars = self._compute_wanted_catalogs()
         return env_vars
@@ -407,7 +404,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             The config dict for this relation, or None.
         """
-        raw = self.charm.config.get("postgresql-catalog-config")
+        raw = self.charm.config.postgresql_catalog_config
         if not raw:
             logger.warning(
                 "postgresql-catalog-config is empty, cannot map relation %r",

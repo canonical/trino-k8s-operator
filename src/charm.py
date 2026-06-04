@@ -12,7 +12,6 @@ https://discourse.charmhub.io/t/4208
 
 # pylint: disable=too-many-lines
 
-import json
 import logging
 import socket
 import subprocess  # nosec B404
@@ -23,11 +22,12 @@ from charms.comsys_libs.v0.kubernetes_statefulset_patch import (
     KubernetesStatefulsetPatch,
 )
 from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
+from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from ops.charm import CharmBase, ConfigChangedEvent, PebbleReadyEvent
+from ops.charm import ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
     ActiveStatus,
@@ -37,6 +37,7 @@ from ops.model import (
     WaitingStatus,
 )
 from ops.pebble import CheckStatus, ExecError, PathError
+from pydantic import ValidationError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
 from config import CharmConfig
@@ -77,7 +78,15 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 
-class TrinoK8SCharm(CharmBase):
+def _format_config_error(err: ValidationError) -> str:
+    """Return the first validation error message for use in BlockedStatus."""
+    errors = err.errors()
+    if not errors:
+        return str(err)
+    return errors[0]["msg"]
+
+
+class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     """Charm the service.
 
     Attrs:
@@ -94,7 +103,7 @@ class TrinoK8SCharm(CharmBase):
     @property
     def external_hostname(self):
         """Return the DNS listing used for external connections."""
-        return self.config.get("external-hostname") or self.app.name
+        return self.config.external_hostname or self.app.name
 
     @property
     def _cluster_local_coordinator_uri(self):
@@ -115,7 +124,7 @@ class TrinoK8SCharm(CharmBase):
         FQDN for same-cluster deployments, which requires no manual
         configuration.
         """
-        return self.config.get("discovery-uri") or self._cluster_local_coordinator_uri
+        return self.config.discovery_uri or self._cluster_local_coordinator_uri
 
     @property
     def trino_abs_path(self):
@@ -191,14 +200,15 @@ class TrinoK8SCharm(CharmBase):
         self.opensearch_relation_handler = OpensearchRelationHandler(self)
         self.postgresql_catalog_handler = PostgresqlCatalogRelationHandler(self)
 
+        raw = self.model.config
         resources = {
             "memory": {
-                "requests": self.config.get("workload-memory-requests"),
-                "limits": self.config.get("workload-memory-limits"),
+                "requests": raw.get("workload-memory-requests"),
+                "limits": raw.get("workload-memory-limits"),
             },
             "cpu": {
-                "requests": self.config.get("workload-cpu-requests"),
-                "limits": self.config.get("workload-cpu-limits"),
+                "requests": raw.get("workload-cpu-requests"),
+                "limits": raw.get("workload-cpu-limits"),
             },
         }
         resources = {k: v for k, v in resources.items() if v is not None}
@@ -211,12 +221,16 @@ class TrinoK8SCharm(CharmBase):
 
     def _require_nginx_route(self):
         """Require nginx-route relation based on current configuration."""
+        # Use raw model config here for bootstrap-safety: this method is called
+        # from __init__ before any hook handler runs, so a persisted invalid
+        # config must not prevent the charm from starting.
+        raw = self.model.config
         require_nginx_route(
             charm=self,
-            service_hostname=self.external_hostname,
+            service_hostname=raw.get("external-hostname") or self.app.name,
             service_name=self.app.name,
             service_port=TRINO_PORTS["HTTP"],
-            tls_secret_name=self.config["tls-secret-name"],
+            tls_secret_name=raw.get("tls-secret-name") or "trino-tls",
             backend_protocol="HTTP",
         )
 
@@ -269,6 +283,11 @@ class TrinoK8SCharm(CharmBase):
             event: The event triggered when the relation changed.
         """
         self.unit.status = WaitingStatus("configuring trino")
+        try:
+            _ = self.config  # validate upfront before any side-effects
+        except ValidationError as err:
+            self.unit.status = BlockedStatus(_format_config_error(err))
+            return
         self.trino_coordinator._update_coordinator_relation_data(event)
         self._update(event)
         self.trino_catalog.reconcile_trino_catalog_relations()
@@ -294,12 +313,16 @@ class TrinoK8SCharm(CharmBase):
             return
 
         try:
+            cfg = self.config
             self._validate_relations()
-        except ValueError as err:
+        except ValidationError as err:
+            self.unit.status = BlockedStatus(_format_config_error(err))
+            return
+        except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return
 
-        if self.config["charm-function"] in ["coordinator", "all"]:
+        if cfg.charm_function in ("coordinator", "all"):
             check = container.get_check("up")
             if check.status != CheckStatus.UP:
                 self.unit.status = MaintenanceStatus("Status check: DOWN")
@@ -310,6 +333,19 @@ class TrinoK8SCharm(CharmBase):
         self.trino_catalog.reconcile_trino_catalog_relations()
 
         self.unit.status = ActiveStatus("Status check: UP")
+
+    def _format_validation_blocked(self) -> bool:
+        """Check config validity and set BlockedStatus if invalid.
+
+        Returns:
+            True if config is invalid and status was set to BlockedStatus.
+        """
+        try:
+            _ = self.config
+        except ValidationError as err:
+            self.unit.status = BlockedStatus(_format_config_error(err))
+            return True
+        return False
 
     def _validate_pebble_plan(self, container):
         """Validate pebble plan.
@@ -605,7 +641,7 @@ class TrinoK8SCharm(CharmBase):
         self,
         container,
         env,
-        config_key,
+        manager_config,
         template_name,
         properties_filename,
         config_filename,
@@ -615,13 +651,12 @@ class TrinoK8SCharm(CharmBase):
         Args:
             container: The Trino container.
             env: Environment variables for Jinja templating.
-            config_key: The charm config key holding the JSON configuration.
+            manager_config: The raw JSON configuration string (or None/empty).
             template_name: The template used to render the manager properties.
             properties_filename: The properties file written under
                 `TRINO_HOME`.
             config_filename: The JSON config file written under `TRINO_HOME`.
         """
-        manager_config = self.config.get(config_key)
         properties_path = self.trino_abs_path.joinpath(properties_filename)
         config_path = self.trino_abs_path.joinpath(config_filename)
 
@@ -639,18 +674,18 @@ class TrinoK8SCharm(CharmBase):
                 make_dirs=True,
                 permissions=0o644,
             )
-            logger.info("%s configuration applied", config_key)
+            logger.info("%s configuration applied", properties_filename)
             return
 
         try:
             container.remove_path(properties_path)
-            logger.info("%s properties removed", config_key)
+            logger.info("%s properties removed", properties_filename)
         except PathError:
             pass
 
         try:
             container.remove_path(config_path)
-            logger.info("%s configuration removed", config_key)
+            logger.info("%s configuration removed", config_filename)
         except PathError:
             pass
 
@@ -664,7 +699,7 @@ class TrinoK8SCharm(CharmBase):
         self._configure_file_based_manager(
             container=container,
             env=env,
-            config_key="resource-groups-config",
+            manager_config=self.config.resource_groups_config,
             template_name="resource-groups.jinja",
             properties_filename="resource-groups.properties",
             config_filename="resource-groups.json",
@@ -681,115 +716,26 @@ class TrinoK8SCharm(CharmBase):
         self._configure_file_based_manager(
             container=container,
             env=env,
-            config_key="session-property-manager-config",
+            manager_config=self.config.session_property_manager_config,
             template_name="session-property-config.jinja",
             properties_filename="session-property-config.properties",
             config_filename="session-property-config.json",
         )
 
-    def _validate_config_params(self):
-        """Validate that configuration is valid.
+    def _validate_relations(self):
+        """Validate that required relations are valid and ready.
 
         Raises:
-            ValueError: in case of invalid log configuration.
-                        in case of web-proxy as empty string.
-                        in case of invalid acl-mode-default value.
-                        in case of incorrectly formatted catalog-config.
-                        in case of incorrectly formatted postgresql-catalog-config.
+            ValueError: in case of invalid configuration.
         """
-        valid_log_levels = ["info", "debug", "warn", "error"]
+        if not self.state.is_ready():
+            raise ValueError("peer relation not ready")
 
-        log_level = self.model.config["log-level"].lower()
-        if log_level not in valid_log_levels:
-            raise ValueError(f"config: invalid log level {log_level!r}")
+        if self.config.charm_function == "worker":
+            self.trino_worker._validate()
 
-        web_proxy = self.config.get("web-proxy")
-        if web_proxy and not web_proxy.strip():
-            raise ValueError("Web-proxy value cannot be an empty string")
-
-        acl_mode_default = self.config.get("acl-mode-default")
-        if acl_mode_default not in ["all", "none", "owner"]:
-            raise ValueError(f"Invalid acl-mode-default value: {acl_mode_default!r}")
-
-        static_catalogs = self._validate_catalog_configs()
-        self._validate_pg_catalog_config(static_catalogs)
-        self._validate_catalog_exclusions()
-        self._validate_json_config("resource-groups-config")
-        self._validate_json_config("session-property-manager-config")
-
-    def _validate_catalog_configs(self) -> set:
-        """Parse catalog-config and return the set of static catalog names.
-
-        Returns:
-            Set of catalog names from catalog-config.
-
-        Raises:
-            ValueError: If catalog-config is not valid YAML.
-        """
-        raw = self.config.get("catalog-config")
-        if not raw:
-            return set()
-        try:
-            parsed = yaml.safe_load(raw)
-        except Exception as e:
-            logger.debug("Incorrectly formatted catalog-config: %s", e)
-            raise ValueError("Incorrectly formatted catalog-config") from None
-        if isinstance(parsed, dict):
-            return set(parsed.get("catalogs", {}).keys())
-        return set()
-
-    def _validate_pg_catalog_config(self, static_catalogs) -> None:
-        """Parse postgresql-catalog-config and check for name conflicts.
-
-        Args:
-            static_catalogs: Set of catalog names from catalog-config.
-
-        Raises:
-            ValueError: If the config is not valid YAML or has conflicts.
-        """
-        raw = self.config.get("postgresql-catalog-config")
-        if not raw:
-            return
-        try:
-            parsed = yaml.safe_load(raw)
-        except Exception as e:
-            logger.debug("Incorrectly formatted postgresql-catalog-config: %s", e)
-            raise ValueError("Incorrectly formatted postgresql-catalog-config") from None
-        if isinstance(parsed, dict):
-            self._check_catalog_name_conflicts(parsed, static_catalogs)
-
-    def _validate_catalog_exclusions(self) -> None:
-        """Validate that catalog-exclusions config is valid YAML.
-
-        Raises:
-            ValueError: If the config is not valid YAML.
-        """
-        raw = self.config.get("catalog-exclusions")
-        if not raw:
-            return
-        try:
-            yaml.safe_load(raw)
-        except Exception as e:
-            logger.debug("Incorrectly formatted catalog-exclusions: %s", e)
-            raise ValueError("Incorrectly formatted catalog-exclusions") from None
-
-    def _validate_json_config(self, config_key) -> None:
-        """Validate that a config value is valid JSON.
-
-        Args:
-            config_key: The config key to validate.
-
-        Raises:
-            JSONDecodeError: If the value is not valid JSON.
-        """
-        raw = self.config.get(config_key)
-        if not raw:
-            return
-        try:
-            json.loads(raw)
-        except json.JSONDecodeError as e:
-            logger.debug("Incorrectly formatted %s: %s", config_key, e)
-            raise
+        if self.config.charm_function == "coordinator":
+            self.trino_coordinator._validate()
 
     def _check_catalog_name_conflicts(self, pg_config, static_catalogs):
         """Check for duplicate catalog names in postgresql-catalog-config.
@@ -822,73 +768,59 @@ class TrinoK8SCharm(CharmBase):
                     )
                 seen.add(name)
 
-    def _validate_relations(self):
-        """Validate that required relations are valid and ready.
-
-        Raises:
-            ValueError: in case of invalid configuration.
-        """
-        if not self.state.is_ready():
-            raise ValueError("peer relation not ready")
-
-        if self.config["charm-function"] == "worker":
-            self.trino_worker._validate()
-
-        if self.config["charm-function"] == "coordinator":
-            self.trino_coordinator._validate()
-
     def _create_environment(self):
         """Create application environment.
 
         Returns:
             env: a dictionary of trino environment variables.
         """
+        cfg = self.config
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
         default_opts = " ".join(DEFAULT_JVM_OPTIONS)
-        user_opts = self.config.get("additional-jvm-options")
+        user_opts = cfg.additional_jvm_options
 
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
         env = {
-            "LOG_LEVEL": self.config["log-level"],
-            "OAUTH_CLIENT_ID": self.config.get("google-client-id"),
-            "OAUTH_CLIENT_SECRET": self.config.get("google-client-secret"),
-            "OAUTH_USER_MAPPING": self.config.get("oauth-user-mapping"),
-            "WEB_PROXY": self.config.get("web-proxy"),
-            "CHARM_FUNCTION": self.config["charm-function"],
+            "LOG_LEVEL": cfg.log_level,
+            "OAUTH_CLIENT_ID": cfg.google_client_id,
+            "OAUTH_CLIENT_SECRET": cfg.google_client_secret,
+            "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
+            "WEB_PROXY": cfg.web_proxy,
+            "CHARM_FUNCTION": cfg.charm_function,
             "DISCOVERY_URI": self.state.discovery_uri or self._coordinator_discovery_uri,
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
-            "CATALOG_CONFIG": self.state.catalog_config or self.config.get("catalog-config"),
+            "CATALOG_CONFIG": self.state.catalog_config or cfg.catalog_config,
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
             "RANGER_RELATION": self.state.ranger_enabled or False,
-            "ACL_ACCESS_MODE": self.config["acl-mode-default"],
-            "ACL_USER_PATTERN": self.config["acl-user-pattern"],
-            "ACL_CATALOG_PATTERN": self.config["acl-catalog-pattern"],
+            "ACL_ACCESS_MODE": cfg.acl_mode_default,
+            "ACL_USER_PATTERN": cfg.acl_user_pattern,
+            "ACL_CATALOG_PATTERN": cfg.acl_catalog_pattern,
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
             "INT_COMMS_SECRET": self.state.int_comms_secret,
-            "USER_SECRET_ID": self.config.get("user-secret-id"),
+            "USER_SECRET_ID": cfg.user_secret_id,
             "JVM_OPTIONS": jvm_opts,
-            "COORDINATOR_REQUEST_TIMEOUT": self.config["coordinator-request-timeout"],
-            "COORDINATOR_CONNECT_TIMEOUT": self.config["coordinator-connect-timeout"],
-            "WORKER_REQUEST_TIMEOUT": self.config["worker-request-timeout"],
-            "MAX_CONCURRENT_QUERIES": self.config["max-concurrent-queries"],
-            "QUERY_MAX_CPU_TIME": self.config.get("query-max-cpu-time"),
-            "QUERY_MAX_RUN_TIME": self.config.get("query-max-run-time"),
-            "QUERY_MAX_MEMORY_PER_NODE": self.config.get("query-max-memory-per-node"),
-            "QUERY_MAX_MEMORY": self.config.get("query-max-memory"),
-            "QUERY_MAX_TOTAL_MEMORY": self.config.get("query-max-total-memory"),
-            "MEMORY_HEAP_HEADROOM_PER_NODE": self.config.get("memory-heap-headroom-per-node"),
-            "RESOURCE_GROUPS_CONFIG": self.config.get("resource-groups-config"),
-            "SESSION_PROPERTY_MANAGER_CONFIG": self.config.get("session-property-manager-config"),
+            "COORDINATOR_REQUEST_TIMEOUT": cfg.coordinator_request_timeout,
+            "COORDINATOR_CONNECT_TIMEOUT": cfg.coordinator_connect_timeout,
+            "WORKER_REQUEST_TIMEOUT": cfg.worker_request_timeout,
+            "MAX_CONCURRENT_QUERIES": cfg.max_concurrent_queries,
+            "QUERY_MAX_CPU_TIME": cfg.query_max_cpu_time,
+            "QUERY_MAX_RUN_TIME": cfg.query_max_run_time,
+            "QUERY_MAX_MEMORY_PER_NODE": cfg.query_max_memory_per_node,
+            "QUERY_MAX_MEMORY": cfg.query_max_memory,
+            "QUERY_MAX_TOTAL_MEMORY": cfg.query_max_total_memory,
+            "MEMORY_HEAP_HEADROOM_PER_NODE": cfg.memory_heap_headroom_per_node,
+            "RESOURCE_GROUPS_CONFIG": cfg.resource_groups_config,
+            "SESSION_PROPERTY_MANAGER_CONFIG": cfg.session_property_manager_config,
         }
 
         # Merge PostgreSQL password env vars (derived at runtime)
-        if self.config["charm-function"] in ("coordinator", "all"):
+        if cfg.charm_function in ("coordinator", "all"):
             pg_secrets = self.postgresql_catalog_handler.get_postgresql_env_vars()
-        elif self.config["charm-function"] == "worker":
+        elif cfg.charm_function == "worker":
             pg_secrets = self.trino_worker.get_postgresql_secrets_from_coordinator()
         else:
             pg_secrets = {}
@@ -909,17 +841,22 @@ class TrinoK8SCharm(CharmBase):
             return
 
         try:
-            self._validate_config_params()
+            cfg = self.config
+        except ValidationError as err:
+            self.unit.status = BlockedStatus(_format_config_error(err))
+            return
+
+        try:
             self._validate_relations()
         except (RuntimeError, ValueError) as err:
             self.unit.status = BlockedStatus(str(err))
             return
 
         logger.info("configuring trino")
-        if self.config["charm-function"] in ["coordinator", "all"]:
+        if cfg.charm_function in ("coordinator", "all"):
             self.state.discovery_uri = self._coordinator_discovery_uri
-            self.state.catalog_config = self.config.get("catalog-config", "")
-            self.state.user_secret_id = self.config.get("user-secret-id", "")
+            self.state.catalog_config = cfg.catalog_config or ""
+            self.state.user_secret_id = cfg.user_secret_id or ""
 
         if self.unit.is_leader():
             self.state.int_comms_secret = self.state.int_comms_secret or generate_password()
@@ -954,7 +891,7 @@ class TrinoK8SCharm(CharmBase):
                 }
             },
         }
-        if self.config["charm-function"] in ["coordinator", "all"]:
+        if cfg.charm_function in ("coordinator", "all"):
             pebble_layer.update(
                 {
                     "checks": {

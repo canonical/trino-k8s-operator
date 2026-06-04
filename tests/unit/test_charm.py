@@ -233,12 +233,14 @@ class TestCharm(TestCase):
         )
 
     def test_catalog_invalid_config(self):
-        """The catalog directory is updated to add the new catalog."""
+        """The charm blocks when catalog-config is missing required top-level keys."""
         harness = self.harness
         simulate_lifecycle_coordinator(harness)
 
-        with self.assertRaises(KeyError):
-            self.harness.update_config({"catalog-config": "catalog: incorrect"})
+        self.harness.update_config({"catalog-config": "catalog: incorrect"})
+
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
+        self.assertIn("catalog-config", harness.model.unit.status.message)
 
     def test_session_property_manager_invalid_config(self):
         """The charm blocks when the session property manager JSON is invalid."""
