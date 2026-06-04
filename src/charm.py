@@ -174,7 +174,7 @@ class TrinoK8SCharm(CharmBase):
             },
             "cpu": {
                 "requests": self.config.get("workload-cpu-requests"),
-                "limits": self.config.get("workload-cpu-requests"),
+                "limits": self.config.get("workload-cpu-limits"),
             },
         }
         resources = {k: v for k, v in resources.items() if v is not None}
