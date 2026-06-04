@@ -39,6 +39,7 @@ from ops.model import (
 from ops.pebble import CheckStatus, ExecError, PathError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
+from config import CharmConfig
 from literals import (
     CATALOG_DIR,
     CATALOG_SCHEMA,
@@ -87,6 +88,8 @@ class TrinoK8SCharm(CharmBase):
         conf_abs_path: The absolute path for the conf directory.
         truststore_abs_path: The absolute path for the truststore.
     """
+
+    config_type = CharmConfig
 
     @property
     def external_hostname(self):
