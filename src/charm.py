@@ -49,6 +49,7 @@ from literals import (
     DEFAULT_CREDENTIALS,
     DEFAULT_JVM_OPTIONS,
     INDEX_NAME,
+    INT_COMMS_SECRET_LABEL,
     JMX_PORT,
     METRICS_PORT,
     PASSWORD_DB,
@@ -768,6 +769,35 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                     )
                 seen.add(name)
 
+    def _get_int_comms_secret_value(self) -> str | None:
+        """Return the internal communication shared secret value.
+
+        For coordinator/all: creates or retrieves the singleton app-owned Juju secret.
+        For worker: resolves the secret by the ID stored in peer state (written by
+        _on_relation_changed after the coordinator has published it).
+
+        Returns:
+            The shared secret string, or None if not yet available.
+        """
+        cfg = self.config
+        if cfg.charm_function in ("coordinator", "all"):
+            if self.unit.is_leader():
+                secret = self.trino_coordinator._get_or_create_int_comms_secret()
+            else:
+                try:
+                    secret = self.model.get_secret(label=INT_COMMS_SECRET_LABEL)
+                except SecretNotFoundError:
+                    return None
+            if secret is None:
+                return None
+            return secret.get_content(refresh=True).get("secret")
+        elif cfg.charm_function == "worker":
+            secret_id = self.state.int_comms_secret_id
+            if not secret_id:
+                return None
+            return self.trino_worker._resolve_int_comms_secret(secret_id)
+        return None
+
     def _create_environment(self):
         """Create application environment.
 
@@ -800,7 +830,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "ACL_USER_PATTERN": cfg.acl_user_pattern,
             "ACL_CATALOG_PATTERN": cfg.acl_catalog_pattern,
             "JAVA_TRUSTSTORE_PWD": self.state.java_truststore_pwd,
-            "INT_COMMS_SECRET": self.state.int_comms_secret,
+            "INT_COMMS_SECRET": self._get_int_comms_secret_value(),
             "USER_SECRET_ID": cfg.user_secret_id,
             "JVM_OPTIONS": jvm_opts,
             "COORDINATOR_REQUEST_TIMEOUT": cfg.coordinator_request_timeout,
@@ -829,7 +859,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         return env
 
-    def _update(self, event):
+    # TODO (mertalpt): Remove suppressing the too complex error in the upcoming refactor.
+    def _update(self, event):  # noqa: C901
         """Update the Trino server configuration and replan its execution.
 
         Args:
@@ -852,14 +883,25 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             self.unit.status = BlockedStatus(str(err))
             return
 
+        if cfg.charm_function in ("coordinator", "all"):
+            if self._get_int_comms_secret_value() is None:
+                self.unit.status = WaitingStatus(
+                    "waiting for leader to create internal communication secret"
+                )
+                return
+
+        if cfg.charm_function == "worker" and self.model.relations["trino-worker"]:
+            if self._get_int_comms_secret_value() is None:
+                self.unit.status = WaitingStatus(
+                    "waiting for coordinator to publish internal communication secret"
+                )
+                return
+
         logger.info("configuring trino")
         if cfg.charm_function in ("coordinator", "all"):
             self.state.discovery_uri = self._coordinator_discovery_uri
             self.state.catalog_config = cfg.catalog_config or ""
             self.state.user_secret_id = cfg.user_secret_id or ""
-
-        if self.unit.is_leader():
-            self.state.int_comms_secret = self.state.int_comms_secret or generate_password()
 
         self._configure_catalogs(event)
 

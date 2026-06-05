@@ -8,8 +8,9 @@ import logging
 
 from ops.charm import CharmBase
 from ops.framework import Object
+from ops.model import SecretNotFoundError
 
-from literals import CATALOG_DIR
+from literals import CATALOG_DIR, INT_COMMS_SECRET_RELATION_KEY
 from log import log_event_handler
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,26 @@ class TrinoWorker(Object):
             self.charm.state.user_secret_id = event_data.get("user-secret-id")
             self.charm.state.catalog_config = event_data.get("catalogs")
 
+            int_comms_secret_id = event_data.get(INT_COMMS_SECRET_RELATION_KEY, "")
+            self.charm.state.int_comms_secret_id = int_comms_secret_id
+
         self.charm._update(event)
+
+    def _resolve_int_comms_secret(self, secret_id: str) -> str | None:
+        """Resolve the internal communication secret value by Juju secret ID.
+
+        Args:
+            secret_id: the Juju secret ID published by the coordinator.
+
+        Returns:
+            The shared secret string, or None if not yet resolvable.
+        """
+        try:
+            secret = self.charm.model.get_secret(id=secret_id)
+            return secret.get_content(refresh=True).get("secret")
+        except (SecretNotFoundError, KeyError):
+            logger.warning("int-comms-secret id %r could not be resolved", secret_id)
+            return None
 
     def _on_relation_broken(self, event):
         """Worker updates `state` following relation broken event.

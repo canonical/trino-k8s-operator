@@ -16,6 +16,7 @@ from ops.model import (
     BlockedStatus,
     MaintenanceStatus,
     SecretNotFoundError,
+    WaitingStatus,
 )
 from ops.pebble import CheckStatus
 from ops.testing import Harness
@@ -594,3 +595,130 @@ class TestCharm(TestCase):
         self.assertNotIn("targetServerType=primary", ro_props)
         self.assertIn("targetServerType=primary", rw_props)
         self.assertNotIn("targetServerType=preferSecondary", rw_props)
+
+    def test_coordinator_publishes_int_comms_secret_id(self):
+        """Coordinator writes int-comms-secret-id to the relation databag instead of plaintext.
+
+        Asserts that:
+        - the coordinator relation databag contains `int-comms-secret-id`
+        - the relation databag does NOT contain any plaintext secret value
+        """
+        harness = self.harness
+        (rel_id, *_) = simulate_lifecycle_coordinator(harness)
+
+        relation_data = harness.get_relation_data(rel_id, harness.charm.app)
+
+        # The secret ID must be present.
+        assert "int-comms-secret-id" in relation_data
+        assert relation_data["int-comms-secret-id"].startswith("secret:")
+
+        # The raw int-comms value must NOT appear in the relation databag.
+        assert "int-comms-secret" not in relation_data
+        assert "int_comms_secret" not in relation_data
+
+    def test_coordinator_int_comms_secret_is_singleton(self):
+        """Calling update_coordinator_relation_data twice reuses the same secret."""
+        harness = self.harness
+        (rel_id, *_) = simulate_lifecycle_coordinator(harness)
+
+        first_id = harness.get_relation_data(rel_id, harness.charm.app).get("int-comms-secret-id")
+
+        # Trigger a second update cycle (e.g. config changed).
+        harness.charm.trino_coordinator.update_coordinator_relation_data()
+        second_id = harness.get_relation_data(rel_id, harness.charm.app).get("int-comms-secret-id")
+
+        assert first_id == second_id, "Singleton secret ID must not change between updates"
+
+    def test_coordinator_int_comms_secret_preserves_existing_value(self):
+        """When peer state already carries an int-comms value, the Juju secret reuses it."""
+        harness = self.harness
+        # Add the peer relation first so state is accessible.
+        harness.add_relation("peer", "trino")
+
+        # Pre-seed the peer state with a known value.
+        harness.charm.state.int_comms_secret = "pre-existing-secret-value"  # nosec
+
+        # Directly invoke the singleton helper — it must reuse the pre-seeded value.
+        secret = harness.charm.trino_coordinator._get_or_create_int_comms_secret()
+        assert secret is not None
+        content = secret.get_content(refresh=True)
+        assert content["secret"] == "pre-existing-secret-value"  # nosec
+
+        # Calling it again must return the same secret (singleton).
+        secret2 = harness.charm.trino_coordinator._get_or_create_int_comms_secret()
+        assert secret2 is not None
+        # Both invocations must carry the pre-seeded value (no rotation).
+        content2 = secret2.get_content(refresh=True)
+        assert content2["secret"] == "pre-existing-secret-value"  # nosec
+
+    def test_worker_resolves_int_comms_secret_from_coordinator(self):
+        """Worker reads int-comms-secret from coordinator.
+
+        Worker reads int-comms-secret-id from relation, stores the ID in state, and
+        resolves the secret value at render time via _get_int_comms_secret_value.
+        """
+        harness = self.harness
+        (container, event, *_) = simulate_lifecycle_worker(harness)
+
+        # The worker's peer state must carry the secret *ID* (not the plaintext value).
+        secret_id = harness.charm.state.int_comms_secret_id
+        assert secret_id is not None
+        assert secret_id.startswith("secret:")
+
+        # _get_int_comms_secret_value must resolve to the actual secret content.
+        assert harness.charm._get_int_comms_secret_value() == "test-int-comms-secret"  # nosec
+
+    def test_worker_waits_when_int_comms_secret_id_absent(self):
+        """Worker goes into WaitingStatus when int-comms-secret-id is not yet in relation data."""
+        harness = self.harness
+        harness.add_relation("peer", "trino")
+
+        # Mock exec so _update does not fail.
+        harness.handle_exec("trino", ["keytool"], result=0)
+        harness.handle_exec("trino", ["htpasswd"], result=0)
+        harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
+        harness.update_config({"charm-function": "worker"})
+
+        container = harness.model.unit.get_container("trino")
+        harness.charm.on.trino_pebble_ready.emit(container)
+
+        rel_id = harness.add_relation("trino-worker", "trino-k8s")
+        harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
+
+        # Relation data WITHOUT int-comms-secret-id.
+        data = {
+            "trino-worker": {
+                "discovery-uri": "http://trino-k8s:8080",
+                "catalogs": "",
+            }
+        }
+        event = make_relation_event("trino-worker", rel_id, data)
+        harness.charm.trino_worker._on_relation_changed(event)
+
+        self.assertEqual(
+            harness.model.unit.status,
+            WaitingStatus("waiting for coordinator to publish internal communication secret"),
+        )
+
+    def test_worker_no_plaintext_secret_in_relation_databag(self):
+        """Worker never writes a plaintext internal communication secret to relation data.
+
+        This is the cross-model / cross-controller safety invariant: the databag
+        carries only the Juju secret ID, not the raw value.
+        """
+        harness = self.harness
+        simulate_lifecycle_worker(harness)
+
+        relation = harness.charm.model.get_relation("trino-worker")
+        assert relation is not None
+
+        # Only inspect the worker app's own databag — the coordinator's bag is
+        # populated via make_relation_event (a fake dict) and is not accessible
+        # through the real relation in the worker harness.
+        app_data = dict(relation.data[harness.charm.app])
+        for key, value in app_data.items():
+            if "int-comms" in key.lower() and not key.endswith("-id"):
+                raise AssertionError(
+                    f"Plaintext int-comms field {key!r} "
+                    f"found in worker app relation data: {value!r}"
+                )

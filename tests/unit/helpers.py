@@ -184,10 +184,19 @@ def simulate_lifecycle_worker(harness):
     rel_id = harness.add_relation("trino-worker", "trino-k8s")
     harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
 
+    # Simulate coordinator publishing the int-comms secret via Juju secrets.
+    # The secret is owned by the charm under test, so no explicit grant is needed
+    # in the harness — the charm can already resolve it by ID.
+    int_comms_secret_id = harness.add_model_secret(
+        "trino-k8s",
+        {"secret": "test-int-comms-secret"},  # nosec
+    )
+
     data = {
         "trino-worker": {
             "discovery-uri": "http://trino-k8s:8080",
             "catalogs": catalog_config,
+            "int-comms-secret-id": int_comms_secret_id,
         }
     }
     event = make_relation_event("trino-worker", rel_id, data)
