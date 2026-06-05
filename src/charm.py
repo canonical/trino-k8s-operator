@@ -335,19 +335,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         self.unit.status = ActiveStatus("Status check: UP")
 
-    def _format_validation_blocked(self) -> bool:
-        """Check config validity and set BlockedStatus if invalid.
-
-        Returns:
-            True if config is invalid and status was set to BlockedStatus.
-        """
-        try:
-            _ = self.config
-        except ValidationError as err:
-            self.unit.status = BlockedStatus(_format_config_error(err))
-            return True
-        return False
-
     def _validate_pebble_plan(self, container):
         """Validate pebble plan.
 

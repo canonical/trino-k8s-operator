@@ -82,8 +82,11 @@ class TrinoWorker(Object):
         """
         try:
             secret = self.charm.model.get_secret(id=secret_id)
-            return secret.get_content(refresh=True).get("secret")
-        except (SecretNotFoundError, KeyError):
+            value = secret.get_content(refresh=True).get("secret")
+            if not value:
+                logger.warning("int-comms-secret id %r has no 'secret' field", secret_id)
+            return value
+        except SecretNotFoundError:
             logger.warning("int-comms-secret id %r could not be resolved", secret_id)
             return None
 
