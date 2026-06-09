@@ -422,36 +422,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 relation.app.name,
             )
             return None
-        if not self._validate_config_entry(entry, relation.app.name):
-            return None
         return entry
-
-    def _validate_config_entry(self, entry, app_name) -> bool:
-        """Validate a postgresql-catalog-config entry.
-
-        Args:
-            entry: The config dict to validate.
-            app_name: The app name (for error messages).
-
-        Returns:
-            True if the entry is valid.
-        """
-        prefix = entry.get("database_prefix")
-        if not prefix or not prefix.endswith("*"):
-            logger.error(
-                "Invalid or missing database_prefix for %s: must end with '*'",
-                app_name,
-            )
-            return False
-
-        if not entry.get("ro_catalog_name") and not entry.get("rw_catalog_name"):
-            logger.error(
-                "At least one of ro_catalog_name or rw_catalog_name must be set for %s",
-                app_name,
-            )
-            return False
-
-        return True
 
     def _compute_wanted_catalogs(self) -> tuple[dict, dict]:
         """Compute the wanted catalog state from relations and config.

@@ -277,13 +277,33 @@ class CharmConfig(BaseConfigModel):
 
     @validator("postgresql_catalog_config")
     def validate_postgresql_catalog_config(cls, v):
-        """Validate postgresql_catalog_config is valid YAML when provided."""
+        """Validate postgresql_catalog_config is valid YAML and has well-formed entries."""
         if not v:
             return v
         try:
-            yaml.safe_load(v)
+            parsed = yaml.safe_load(v)
         except yaml.YAMLError as e:
             raise ValueError(f"postgresql-catalog-config is not valid YAML: {e}") from None
+        if parsed is None:
+            return v
+        if not isinstance(parsed, dict):
+            raise ValueError("postgresql-catalog-config must be a YAML mapping")
+        for app_name, entry in parsed.items():
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"postgresql-catalog-config entry for {app_name!r} must be a mapping"
+                )
+            prefix = entry.get("database_prefix")
+            if not prefix or not prefix.endswith("*"):
+                raise ValueError(
+                    f"postgresql-catalog-config entry for {app_name!r}: "
+                    f"database_prefix must be set and end with '*'"
+                )
+            if not entry.get("ro_catalog_name") and not entry.get("rw_catalog_name"):
+                raise ValueError(
+                    f"postgresql-catalog-config entry for {app_name!r}: "
+                    f"at least one of ro_catalog_name or rw_catalog_name must be set"
+                )
         return v
 
     @validator("catalog_exclusions")
@@ -330,4 +350,45 @@ class CharmConfig(BaseConfigModel):
             raise ValueError(
                 "google-client-id and google-client-secret must both be set or both unset"
             )
+        return values
+
+    @root_validator(skip_on_failure=True)
+    def validate_postgresql_catalog_name_conflicts(cls, values):  # noqa: C901
+        """Detect duplicate names and clashes between postgresql-catalog-config and catalog-config.
+
+        Ensures no two postgresql-catalog-config entries share a catalog name and
+        no dynamic catalog name clashes with a static catalog from catalog-config.
+        """
+        pg_raw = values.get("postgresql_catalog_config")
+        catalog_raw = values.get("catalog_config")
+        if not pg_raw:
+            return values
+
+        pg_config = yaml.safe_load(pg_raw)
+        if not isinstance(pg_config, dict):
+            return values
+
+        static_catalogs: set = set()
+        if catalog_raw:
+            parsed_catalog = yaml.safe_load(catalog_raw)
+            if isinstance(parsed_catalog, dict):
+                static_catalogs = set(parsed_catalog.get("catalogs", {}).keys())
+
+        seen: set = set()
+        for entry in pg_config.values():
+            if not isinstance(entry, dict):
+                continue
+            for key in ("ro_catalog_name", "rw_catalog_name"):
+                name = entry.get(key)
+                if not name:
+                    continue
+                if name in seen:
+                    raise ValueError(
+                        f"Duplicate catalog name in postgresql-catalog-config: {name!r}"
+                    )
+                if name in static_catalogs:
+                    raise ValueError(
+                        f"postgresql-catalog-config catalog {name!r} clashes with catalog-config"
+                    )
+                seen.add(name)
         return values

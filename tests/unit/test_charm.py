@@ -243,6 +243,64 @@ class TestCharm(TestCase):
         self.assertIsInstance(harness.model.unit.status, BlockedStatus)
         self.assertIn("catalog-config", harness.model.unit.status.message)
 
+    def test_postgresql_catalog_config_bad_prefix(self):
+        """The charm blocks when a postgresql-catalog-config entry has an invalid database_prefix."""  # noqa: E501
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        bad_config = "pg-app:\n  database_prefix: mydb\n  ro_catalog_name: mycat\n"
+        self.harness.update_config({"postgresql-catalog-config": bad_config})
+
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
+        self.assertIn("database_prefix", harness.model.unit.status.message)
+
+    def test_postgresql_catalog_config_no_catalog_name(self):
+        """The charm blocks when a postgresql-catalog-config entry has no catalog name."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        bad_config = "pg-app:\n  database_prefix: mydb*\n"
+        self.harness.update_config({"postgresql-catalog-config": bad_config})
+
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
+        self.assertIn("ro_catalog_name", harness.model.unit.status.message)
+
+    def test_postgresql_catalog_config_duplicate_catalog_names(self):
+        """The charm blocks when two postgresql-catalog-config entries share a catalog name."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        duplicate_config = (
+            "pg-app-a:\n  database_prefix: db_a*\n  ro_catalog_name: shared_cat\n"
+            "pg-app-b:\n  database_prefix: db_b*\n  ro_catalog_name: shared_cat\n"
+        )
+        self.harness.update_config({"postgresql-catalog-config": duplicate_config})
+
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
+        self.assertIn("Duplicate", harness.model.unit.status.message)
+        self.assertIn("shared_cat", harness.model.unit.status.message)
+
+    def test_postgresql_catalog_config_clashes_with_static(self):
+        """The charm blocks when a postgresql-catalog-config name clashes with catalog-config."""
+        harness = self.harness
+        simulate_lifecycle_coordinator(harness)
+
+        import yaml
+
+        static_config = yaml.dump(
+            {
+                "catalogs": {"my_static_cat": {"backend": "pg"}},
+                "backends": {"pg": {"connector": "postgresql"}},
+            }
+        )
+        pg_config = "pg-app:\n  database_prefix: db*\n  ro_catalog_name: my_static_cat\n"
+        self.harness.update_config(
+            {"catalog-config": static_config, "postgresql-catalog-config": pg_config}
+        )
+
+        self.assertIsInstance(harness.model.unit.status, BlockedStatus)
+        self.assertIn("clashes with catalog-config", harness.model.unit.status.message)
+
     def test_session_property_manager_invalid_config(self):
         """The charm blocks when the session property manager JSON is invalid."""
         harness = self.harness

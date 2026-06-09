@@ -725,37 +725,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if self.config.charm_function == "coordinator":
             self.trino_coordinator._validate()
 
-    def _check_catalog_name_conflicts(self, pg_config, static_catalogs):
-        """Check for duplicate catalog names in postgresql-catalog-config.
-
-        Ensures no two entries share a catalog name and no dynamic catalog
-        name clashes with a static catalog from catalog-config.
-
-        Args:
-            pg_config: Parsed postgresql-catalog-config dict.
-            static_catalogs: Set of catalog names from catalog-config.
-
-        Raises:
-            ValueError: If a duplicate or clash is found.
-        """
-        seen = set()
-        for entry in pg_config.values():
-            if not isinstance(entry, dict):
-                continue
-            for key in ("ro_catalog_name", "rw_catalog_name"):
-                name = entry.get(key)
-                if not name:
-                    continue
-                if name in seen:
-                    raise ValueError(
-                        f"Duplicate catalog name in postgresql-catalog-config: {name!r}"
-                    )
-                if name in static_catalogs:
-                    raise ValueError(
-                        f"postgresql-catalog-config catalog {name!r} clashes with catalog-config"
-                    )
-                seen.add(name)
-
     def _get_int_comms_secret_value(self) -> str | None:
         """Return the internal communication shared secret value.
 
