@@ -98,6 +98,8 @@ charm-libs:
     version: "0"
   - lib: "data_platform_libs.data_interfaces"
     version: "0"
+  - lib: "data_platform_libs.data_models"
+    version: "0"
   - lib: "grafana_k8s.grafana_dashboard"
     version: "0"
   - lib: "loki_k8s.loki_push_api"
@@ -123,10 +125,6 @@ config:
         Valid values: info, debug, warn, error.
       default: info
       type: string
-    int-comms-secret:
-      description: |
-        The secret Trino uses to communicate between nodes.
-      type: string
     google-client-id:
       description: |
         Client id from Google Oauth setup
@@ -149,7 +147,6 @@ config:
           The DNS listing used for external connections. 
           Will default to the name of the deployed application.
       type: string
-      default: trino-k8s
     tls-secret-name:
       description: |
           Name of the k8s secret which contains the TLS certificate to be used by ingress.
@@ -163,10 +160,16 @@ config:
       type: string
     discovery-uri:
       description: |
-          When using a coordinator and worker this is the host and port of the 
-          coordinator service that the workers announce themselves to.
+        The URI that Trino workers use to discover and register with the coordinator.
+        Leave this option unset for same-cluster deployments: the charm automatically
+        derives the coordinator's Kubernetes service URI in the form
+        http://<app-name>.<model-name>.svc.cluster.local:8080 and publishes it to
+        workers through the trino-coordinator relation.
+        Set this option explicitly when workers cannot reach the coordinator through
+        that in-cluster address, for example in cross-cluster or multi-network
+        deployments where the coordinator is exposed through an ingress or a
+        load-balancer at a different hostname or port.
       type: string
-      default: http://trino-k8s:8080
     catalog-config:
       description: |
         Catalogs for which Trino should be connected.

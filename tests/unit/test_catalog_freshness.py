@@ -93,7 +93,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
                         "WEB_PROXY": "proxy:port",
                         "CHARM_FUNCTION": "all",
-                        "DISCOVERY_URI": "http://trino-k8s:8080",
+                        "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
                         "APPLICATION_NAME": "trino-k8s",
                         "TRINO_HOME": "/usr/lib/trino/etc",
                         "JMX_PORT": 9081,
@@ -106,6 +106,7 @@ class TestCatalogConfigFreshness(TestCase):
                         "ACL_CATALOG_PATTERN": ".*",
                         "ACL_USER_PATTERN": ".*",
                         "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
+                        "INT_COMMS_SECRET": "int_comms_secret",  # nosec
                         "USER_SECRET_ID": "secret:secret-id",  # nosec
                         "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
                         "COORDINATOR_REQUEST_TIMEOUT": "10m",
@@ -125,6 +126,7 @@ class TestCatalogConfigFreshness(TestCase):
         got_plan = harness.get_container_pebble_plan("trino").to_dict()
         environment = got_plan["services"]["trino"]["environment"]
         environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
+        environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
         environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
         self.assertEqual(got_plan["services"], want_plan["services"])
 

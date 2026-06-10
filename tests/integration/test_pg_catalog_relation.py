@@ -153,20 +153,30 @@ async def remove_pg_relation(ops_test, pg_name=POSTGRES_NAME):
         await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
 
 
-async def set_pg_config(ops_test, config_str):
+async def set_pg_config(ops_test, config_str, expect_blocked=False):
     """Set postgresql-catalog-config and wait for idle.
 
     Args:
         ops_test: PyTest object.
         config_str: YAML config string.
+        expect_blocked: When True, wait for APP_NAME to reach blocked status
+            instead of active. Used when the config is intentionally invalid.
     """
     await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config_str})
     async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME],
-            status="active",
-            timeout=900,
-        )
+        if expect_blocked:
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME],
+                status="blocked",
+                raise_on_blocked=False,
+                timeout=900,
+            )
+        else:
+            await ops_test.model.wait_for_idle(
+                apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME],
+                status="active",
+                timeout=900,
+            )
 
 
 async def wait_for_catalog(ops_test, catalog_name, present=True, timeout=120):
@@ -243,31 +253,36 @@ class TestPostgresqlCatalogRelation:
     """Integration tests for PostgreSQL catalog relation."""
 
     async def test_01_missing_database_prefix(self, ops_test: OpsTest):
-        """Config without database_prefix: no catalog, charm stays active."""
+        """Config without database_prefix: charm goes blocked with validation error."""
         config = yaml.dump({POSTGRES_NAME: {"ro_catalog_name": "test_ro"}})
-        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
         await deploy_pg(ops_test)
         await relate_pg(ops_test)
+        await set_pg_config(ops_test, config, expect_blocked=True)
 
-        await wait_for_catalog(ops_test, "test_ro", present=False)
-        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
+        unit = ops_test.model.applications[APP_NAME].units[0]
+        assert unit.workload_status == "blocked"
+        assert "database_prefix" in unit.workload_status_message
 
     async def test_02_prefix_without_asterisk(self, ops_test: OpsTest):
-        """Config with database_prefix missing *: no catalog."""
+        """Config with database_prefix missing *: charm goes blocked with validation error."""
         config = pg_catalog_config(POSTGRES_NAME, "mydb", "test_ro")
-        await set_pg_config(ops_test, config)
+        await set_pg_config(ops_test, config, expect_blocked=True)
 
-        await wait_for_catalog(ops_test, "test_ro", present=False)
+        unit = ops_test.model.applications[APP_NAME].units[0]
+        assert unit.workload_status == "blocked"
+        assert "database_prefix" in unit.workload_status_message
 
     async def test_03_missing_catalog_names(self, ops_test: OpsTest):
-        """Config with database_prefix but no catalog names: no catalog."""
+        """Config with database_prefix but no catalog names: charm goes blocked."""
         config = yaml.dump({POSTGRES_NAME: {"database_prefix": "testdb*"}})
-        await set_pg_config(ops_test, config)
+        await set_pg_config(ops_test, config, expect_blocked=True)
 
-        await wait_for_catalog(ops_test, "testdb", present=False)
+        unit = ops_test.model.applications[APP_NAME].units[0]
+        assert unit.workload_status == "blocked"
+        assert "ro_catalog_name" in unit.workload_status_message
 
     async def test_04_fix_invalid_config(self, ops_test: OpsTest):
-        """After fixing invalid config, catalog is created."""
+        """After fixing the invalid config from test_03, charm recovers and catalog is created."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "test_catalog")
         await set_pg_config(ops_test, config)
 

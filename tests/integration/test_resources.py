@@ -69,5 +69,5 @@ class TestResources:
             if container.name == "trino":
                 current_limits = container.resources.limits or {}
                 current_requests = container.resources.requests or {}
-                assert current_limits == {"cpu": "1", "memory": "2Gi"}
+                assert current_limits == {"cpu": "2", "memory": "2Gi"}
                 assert current_requests == {"cpu": "1", "memory": "1Gi"}

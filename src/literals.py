@@ -62,6 +62,8 @@ DEFAULT_JVM_OPTIONS = [
 ]
 USER_SECRET_LABEL = "trino-user-management"  # nosec
 TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
+INT_COMMS_SECRET_LABEL = "trino-int-comms-secret"  # nosec
+INT_COMMS_SECRET_RELATION_KEY = "int-comms-secret-id"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string", "nullable": True},

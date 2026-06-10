@@ -99,9 +99,7 @@ class PolicyRelationHandler(framework.Object):
         namespace = self.model.name
         uri = f"{host}.{namespace}.svc.cluster.local:{port}"
 
-        service_name = (
-            self.charm.config.get("ranger-service-name") or f"relation_{event.relation.id}"
-        )
+        service_name = self.charm.config.ranger_service_name or f"relation_{event.relation.id}"
         service = {
             "name": service_name,
             "type": "trino",
@@ -165,7 +163,7 @@ class PolicyRelationHandler(framework.Object):
         policy_context = {
             "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
-            "REPOSITORY_NAME": self.charm.config.get("ranger-service-name") or policy_relation,
+            "REPOSITORY_NAME": self.charm.config.ranger_service_name or policy_relation,
             "RANGER_RELATION": True,
             "OPENSEARCH_INDEX": opensearch.get("index"),
             "OPENSEARCH_HOST": opensearch.get("host"),

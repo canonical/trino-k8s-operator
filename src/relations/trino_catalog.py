@@ -97,7 +97,7 @@ class TrinoCatalogRelationHandler(Object):
         # Use external hostname with HTTPS port when nginx ingress is related
         nginx_relation = self.charm.model.get_relation("nginx-route")
         if nginx_relation:
-            external_hostname = self.charm.config.get("external-hostname")
+            external_hostname = self.charm.config.external_hostname
             if not external_hostname:
                 return None
             port = TRINO_PORTS["HTTPS"]
@@ -119,7 +119,7 @@ class TrinoCatalogRelationHandler(Object):
         Returns:
             List of TrinoCatalog objects
         """
-        catalog_config_str = self.charm.config.get("catalog-config", "")
+        catalog_config_str = self.charm.config.catalog_config or ""
 
         if not catalog_config_str:
             logger.debug("No catalog-config set")
@@ -192,7 +192,7 @@ class TrinoCatalogRelationHandler(Object):
         if not self.charm.model.relations.get(POSTGRESQL_RELATION_NAME):
             return []
 
-        raw = self.charm.config.get("postgresql-catalog-config")
+        raw = self.charm.config.postgresql_catalog_config
         if not raw:
             return []
 
@@ -307,7 +307,7 @@ class TrinoCatalogRelationHandler(Object):
             Dict mapping app_name to set of excluded catalog names.
             Empty dict if config is unset or empty.
         """
-        raw = self.charm.config.get("catalog-exclusions")
+        raw = self.charm.config.catalog_exclusions
         if not raw:
             return {}
         try:

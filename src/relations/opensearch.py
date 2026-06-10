@@ -56,7 +56,7 @@ class OpensearchRelationHandler(framework.Object):
             )
             return
 
-        if self.charm.config["charm-function"] != "coordinator":
+        if self.charm.config.charm_function != "coordinator":
             self.charm.unit.status = BlockedStatus(
                 "Only Trino coordinator can relate to Opensearch"
             )
@@ -72,7 +72,7 @@ class OpensearchRelationHandler(framework.Object):
         Args:
             event: The event triggered when the relation changed.
         """
-        if self.charm.config["charm-function"] != "coordinator":
+        if self.charm.config.charm_function != "coordinator":
             return
 
         if not self.charm.state.ranger_enabled:

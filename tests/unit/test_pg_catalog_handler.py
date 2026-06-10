@@ -7,7 +7,10 @@
 
 from unittest import TestCase, mock
 
-from charm import TrinoK8SCharm
+import yaml
+from pydantic import ValidationError
+
+from config import CharmConfig
 from relations.postgresql_catalog import (
     DYNAMIC_CATALOG_MARKER,
     PostgresqlCatalogRelationHandler,
@@ -182,115 +185,151 @@ class TestBuildJdbcUrl(TestCase):
         handler._import_tls_cert.assert_called_once_with(1, "BEGIN CERT...")
 
 
-class TestCheckCatalogNameConflicts(TestCase):
-    """Tests for TrinoK8SCharm._check_catalog_name_conflicts."""
+def _pg_yaml(entries: dict) -> str:
+    """Serialise a postgresql-catalog-config dict to a YAML string."""
+    return yaml.dump(entries)
 
-    def _call(self, pg_config, static_catalogs=None):
-        """Call _check_catalog_name_conflicts with a mock self."""
-        charm = mock.MagicMock(spec=TrinoK8SCharm)
-        TrinoK8SCharm._check_catalog_name_conflicts(charm, pg_config, static_catalogs or set())
+
+def _static_catalog_config(catalog_names: list) -> str:
+    """Build a minimal valid catalog-config YAML string with the given catalog names."""
+    catalogs = {name: {"backend": "pg"} for name in catalog_names}
+    return yaml.dump({"catalogs": catalogs, "backends": {"pg": {"connector": "postgresql"}}})
+
+
+def _make_config(pg_entries: dict, static_catalog_names: list | None = None) -> CharmConfig:
+    """Instantiate CharmConfig with the given postgresql-catalog-config.
+
+    Raises ValidationError if config is invalid.
+    """
+    kwargs = {"postgresql_catalog_config": _pg_yaml(pg_entries)}
+    if static_catalog_names:
+        kwargs["catalog_config"] = _static_catalog_config(static_catalog_names)
+    return CharmConfig(**kwargs)
+
+
+class TestPostgresqlCatalogConfigValidation(TestCase):
+    """Tests for CharmConfig postgresql-catalog-config validation."""
 
     def test_no_conflicts(self):
         """Verify no error when all catalog names are unique."""
-        pg_config = {
-            "pg-app-a": {
-                "database_prefix": "db_a*",
-                "ro_catalog_name": "cat_a_ro",
-                "rw_catalog_name": "cat_a_rw",
-            },
-            "pg-app-b": {
-                "database_prefix": "db_b*",
-                "ro_catalog_name": "cat_b_ro",
-            },
-        }
-        self._call(pg_config)  # should not raise
-
-    def test_duplicate_ro_names(self):
-        """Verify error when two entries share the same ro_catalog_name."""
-        pg_config = {
-            "pg-app-a": {
-                "database_prefix": "db_a*",
-                "ro_catalog_name": "shared_name",
-            },
-            "pg-app-b": {
-                "database_prefix": "db_b*",
-                "ro_catalog_name": "shared_name",
-            },
-        }
-        with self.assertRaises(ValueError) as ctx:
-            self._call(pg_config)
-        self.assertIn("Duplicate", str(ctx.exception))
-        self.assertIn("shared_name", str(ctx.exception))
-
-    def test_ro_clashes_with_rw(self):
-        """Verify error when ro_catalog_name matches another entry's rw_catalog_name."""
-        pg_config = {
-            "pg-app-a": {
-                "database_prefix": "db_a*",
-                "ro_catalog_name": "clash",
-            },
-            "pg-app-b": {
-                "database_prefix": "db_b*",
-                "ro_catalog_name": "unique",
-                "rw_catalog_name": "clash",
-            },
-        }
-        with self.assertRaises(ValueError) as ctx:
-            self._call(pg_config)
-        self.assertIn("clash", str(ctx.exception))
-
-    def test_clashes_with_static_catalog(self):
-        """Verify error when a PG catalog name matches a static catalog."""
-        pg_config = {
-            "pg-app": {
-                "database_prefix": "db*",
-                "ro_catalog_name": "static_cat",
-            },
-        }
-        with self.assertRaises(ValueError) as ctx:
-            self._call(pg_config, static_catalogs={"static_cat"})
-        self.assertIn("clashes with catalog-config", str(ctx.exception))
-
-    def test_rw_clashes_with_static_catalog(self):
-        """Verify error when an rw_catalog_name matches a static catalog."""
-        pg_config = {
-            "pg-app": {
-                "database_prefix": "db*",
-                "ro_catalog_name": "unique_ro",
-                "rw_catalog_name": "static_cat",
-            },
-        }
-        with self.assertRaises(ValueError) as ctx:
-            self._call(pg_config, static_catalogs={"static_cat"})
-        self.assertIn("clashes with catalog-config", str(ctx.exception))
+        _make_config(
+            {
+                "pg-app-a": {
+                    "database_prefix": "db_a*",
+                    "ro_catalog_name": "cat_a_ro",
+                    "rw_catalog_name": "cat_a_rw",
+                },
+                "pg-app-b": {
+                    "database_prefix": "db_b*",
+                    "ro_catalog_name": "cat_b_ro",
+                },
+            }
+        )  # should not raise
 
     def test_rw_only_no_conflicts(self):
         """Verify no error when entries only have rw_catalog_name."""
-        pg_config = {
-            "pg-app-a": {
-                "database_prefix": "db_a*",
-                "rw_catalog_name": "cat_a_rw",
-            },
-            "pg-app-b": {
-                "database_prefix": "db_b*",
-                "rw_catalog_name": "cat_b_rw",
-            },
-        }
-        self._call(pg_config)  # should not raise
+        _make_config(
+            {
+                "pg-app-a": {"database_prefix": "db_a*", "rw_catalog_name": "cat_a_rw"},
+                "pg-app-b": {"database_prefix": "db_b*", "rw_catalog_name": "cat_b_rw"},
+            }
+        )  # should not raise
+
+    def test_invalid_yaml_rejected(self):
+        """Verify non-YAML postgresql-catalog-config is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            CharmConfig(postgresql_catalog_config=": bad: yaml: [")
+        self.assertIn("postgresql-catalog-config", str(ctx.exception))
+
+    def test_not_a_mapping_rejected(self):
+        """Verify non-mapping postgresql-catalog-config is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            CharmConfig(postgresql_catalog_config="- list\n- item")
+        self.assertIn("postgresql-catalog-config", str(ctx.exception))
+
+    def test_entry_not_a_mapping_rejected(self):
+        """Verify entry that is not a mapping is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            CharmConfig(postgresql_catalog_config="pg-app: just-a-string")
+        self.assertIn("pg-app", str(ctx.exception))
+
+    def test_missing_database_prefix_rejected(self):
+        """Verify missing database_prefix is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config({"pg-app": {"ro_catalog_name": "cat"}})
+        self.assertIn("database_prefix", str(ctx.exception))
+
+    def test_database_prefix_without_star_rejected(self):
+        """Verify database_prefix not ending with '*' is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config({"pg-app": {"database_prefix": "mydb", "ro_catalog_name": "cat"}})
+        self.assertIn("database_prefix", str(ctx.exception))
+
+    def test_no_catalog_name_rejected(self):
+        """Verify entry with neither ro_catalog_name nor rw_catalog_name is rejected."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config({"pg-app": {"database_prefix": "db*"}})
+        self.assertIn("ro_catalog_name", str(ctx.exception))
+
+    def test_duplicate_ro_names(self):
+        """Verify error when two entries share the same ro_catalog_name."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config(
+                {
+                    "pg-app-a": {"database_prefix": "db_a*", "ro_catalog_name": "shared_name"},
+                    "pg-app-b": {"database_prefix": "db_b*", "ro_catalog_name": "shared_name"},
+                }
+            )
+        self.assertIn("Duplicate", str(ctx.exception))
+        self.assertIn("shared_name", str(ctx.exception))
 
     def test_duplicate_rw_names(self):
         """Verify error when two entries share the same rw_catalog_name."""
-        pg_config = {
-            "pg-app-a": {
-                "database_prefix": "db_a*",
-                "rw_catalog_name": "shared_rw",
-            },
-            "pg-app-b": {
-                "database_prefix": "db_b*",
-                "rw_catalog_name": "shared_rw",
-            },
-        }
-        with self.assertRaises(ValueError) as ctx:
-            self._call(pg_config)
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config(
+                {
+                    "pg-app-a": {"database_prefix": "db_a*", "rw_catalog_name": "shared_rw"},
+                    "pg-app-b": {"database_prefix": "db_b*", "rw_catalog_name": "shared_rw"},
+                }
+            )
         self.assertIn("Duplicate", str(ctx.exception))
         self.assertIn("shared_rw", str(ctx.exception))
+
+    def test_ro_clashes_with_rw(self):
+        """Verify error when ro_catalog_name matches another entry's rw_catalog_name."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config(
+                {
+                    "pg-app-a": {"database_prefix": "db_a*", "ro_catalog_name": "clash"},
+                    "pg-app-b": {
+                        "database_prefix": "db_b*",
+                        "ro_catalog_name": "unique",
+                        "rw_catalog_name": "clash",
+                    },
+                }
+            )
+        self.assertIn("clash", str(ctx.exception))
+
+    def test_clashes_with_static_catalog(self):
+        """Verify error when a PG ro_catalog_name matches a static catalog name."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config(
+                {"pg-app": {"database_prefix": "db*", "ro_catalog_name": "static_cat"}},
+                static_catalog_names=["static_cat"],
+            )
+        self.assertIn("clashes with catalog-config", str(ctx.exception))
+
+    def test_rw_clashes_with_static_catalog(self):
+        """Verify error when an rw_catalog_name matches a static catalog name."""
+        with self.assertRaises(ValidationError) as ctx:
+            _make_config(
+                {
+                    "pg-app": {
+                        "database_prefix": "db*",
+                        "ro_catalog_name": "unique_ro",
+                        "rw_catalog_name": "static_cat",
+                    }
+                },
+                static_catalog_names=["static_cat"],
+            )
+        self.assertIn("clashes with catalog-config", str(ctx.exception))
