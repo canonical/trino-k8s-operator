@@ -293,7 +293,7 @@
         "type": "prometheus",
         "uid": "${prometheusds}"
       },
-      "description": "Number of active worker nodes in the cluster according to the coordinator.",
+      "description": "Number of active nodes in the cluster according to the coordinator.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -358,14 +358,14 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "trino_failuredetector_HeartbeatFailureDetector_ActiveCount{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
+          "expr": "trino_node_CoordinatorNodeManager_ActiveNodeCount{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Count",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Active Worker Nodes",
+      "title": "Active Nodes",
       "type": "stat"
     },
     {
@@ -373,7 +373,7 @@
         "type": "prometheus",
         "uid": "${prometheusds}"
       },
-      "description": "Number of active worker nodes in the cluster according to each node.",
+      "description": "Number of inactive nodes in the cluster according to the coordinator.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -384,9 +384,9 @@
             {
               "options": {
                 "0": {
-                  "color": "red",
+                  "color": "green",
                   "index": 1,
-                  "text": "N/A"
+                  "text": "0"
                 },
                 "null": {
                   "index": 0,
@@ -443,14 +443,14 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "(trino_metadata_DiscoveryNodeManager_ActiveNodeCount{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit!~\"$coordinator_unit\",juju_unit=~\"$juju_unit\"} - 1) or on (juju_unit) (up{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit!~\"$coordinator_unit\"} * 0)",
+          "expr": "trino_node_CoordinatorNodeManager_InactiveNodeCount{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
           "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Worker View of Cluster Nodes",
+      "title": "Inactive Nodes",
       "type": "stat"
     },
     {
@@ -677,7 +677,7 @@
           "exemplar": false,
           "expr": "trino_execution_QueryManager_SubmittedQueries_FifteenMinute_Count{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Count",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -747,7 +747,7 @@
           "exemplar": false,
           "expr": "trino_execution_QueryManager_RunningQueries{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Count",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -825,7 +825,7 @@
           "exemplar": false,
           "expr": "trino_execution_QueryManager_FailedQueries_FifteenMinute_Count{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Count",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -907,7 +907,7 @@
           "exemplar": false,
           "expr": "trino_execution_QueryManager_QueuedQueries{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Count",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -988,7 +988,7 @@
           "exemplar": false,
           "expr": "trino_execution_QueryManager_QueuedTime_FifteenMinutes_Max{juju_application=~\"$coordinator_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$coordinator_unit\"}",
           "instant": false,
-          "legendFormat": "Time",
+          "legendFormat": "{{juju_model}}.{{juju_unit}}",
           "range": true,
           "refId": "A"
         }
@@ -1001,7 +1001,7 @@
         "type": "loki",
         "uid": "${lokids}"
       },
-      "description": "History of number of logs from the coordinator by log level.",
+      "description": "Requires one non-datasource variable to be set.\n\nHistory of number of logs from the coordinator by log level.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1145,6 +1145,7 @@
             "type": "loki",
             "uid": "${lokids}"
           },
+          "direction": "backward",
           "editorMode": "code",
           "expr": "sum by(level)(count_over_time({juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$coordinator_application\", juju_unit=~\"$coordinator_unit\"} | regexp \"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}\\\\.\\\\d{3}Z\\\\s+(?P<level>[A-Z]+)\" | level=~\"DEBUG|INFO|WARN|ERROR\"[$__interval]))",
           "legendFormat": "{{level}}",
@@ -1230,7 +1231,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 23
+            "y": 231
           },
           "id": 11,
           "options": {
@@ -1383,7 +1384,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 23
+            "y": 231
           },
           "id": 13,
           "options": {
@@ -1514,7 +1515,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 31
+            "y": 239
           },
           "id": 12,
           "options": {
@@ -1623,7 +1624,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 31
+            "y": 239
           },
           "id": 14,
           "options": {
@@ -1776,7 +1777,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 31
+            "y": 239
           },
           "id": 15,
           "options": {
@@ -1956,7 +1957,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 24
+            "y": 296
           },
           "id": 28,
           "options": {
@@ -2067,7 +2068,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 24
+            "y": 296
           },
           "id": 22,
           "options": {
@@ -2178,7 +2179,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 24
+            "y": 296
           },
           "id": 33,
           "options": {
@@ -2289,7 +2290,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 32
+            "y": 304
           },
           "id": 21,
           "options": {
@@ -2400,7 +2401,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 32
+            "y": 304
           },
           "id": 23,
           "options": {
@@ -2511,7 +2512,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 32
+            "y": 304
           },
           "id": 24,
           "options": {
@@ -2611,7 +2612,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 40
+            "y": 312
           },
           "id": 25,
           "options": {
@@ -2711,7 +2712,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 40
+            "y": 312
           },
           "id": 26,
           "options": {
@@ -2811,7 +2812,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 40
+            "y": 312
           },
           "id": 27,
           "options": {
@@ -2911,7 +2912,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 48
+            "y": 320
           },
           "id": 29,
           "options": {
@@ -3011,7 +3012,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 48
+            "y": 320
           },
           "id": 30,
           "options": {
@@ -3166,7 +3167,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 48
+            "y": 320
           },
           "id": 31,
           "options": {
@@ -3282,20 +3283,23 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 81
+            "y": 462
           },
           "id": 35,
           "options": {
             "dedupStrategy": "none",
+            "enableInfiniteScrolling": false,
             "enableLogDetails": true,
             "prettifyLogMessage": false,
             "showCommonLabels": false,
+            "showControls": false,
             "showLabels": false,
             "showTime": false,
             "sortOrder": "Descending",
+            "unwrappedColumns": false,
             "wrapLogMessage": false
           },
-          "pluginVersion": "9.5.3",
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
@@ -3325,20 +3329,23 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 89
+            "y": 470
           },
           "id": 36,
           "options": {
             "dedupStrategy": "none",
+            "enableInfiniteScrolling": false,
             "enableLogDetails": true,
             "prettifyLogMessage": false,
             "showCommonLabels": false,
+            "showControls": false,
             "showLabels": false,
             "showTime": false,
             "sortOrder": "Descending",
+            "unwrappedColumns": false,
             "wrapLogMessage": false
           },
-          "pluginVersion": "9.5.3",
+          "pluginVersion": "12.4.2",
           "targets": [
             {
               "datasource": {
@@ -3458,9 +3465,7 @@
       {
         "allValue": ".*",
         "current": {
-          "text": [
-            "All"
-          ],
+          "text": "All",
           "value": [
             "$__all"
           ]
@@ -3512,9 +3517,7 @@
       {
         "allValue": ".*",
         "current": {
-          "text": [
-            "All"
-          ],
+          "text": "All",
           "value": [
             "$__all"
           ]
@@ -3523,7 +3526,7 @@
           "type": "prometheus",
           "uid": "${prometheusds}"
         },
-        "definition": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
+        "definition": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\"},juju_application)",
         "description": "Juju applications of which to find the coordinator unit.",
         "includeAll": true,
         "label": "Coordinator Application",
@@ -3532,7 +3535,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\"},juju_application)",
+          "query": "label_values(up{juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_application=~\"$juju_application\"},juju_application)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -3543,9 +3546,7 @@
       {
         "allValue": ".*",
         "current": {
-          "text": [
-            "All"
-          ],
+          "text": "All",
           "value": [
             "$__all"
           ]
