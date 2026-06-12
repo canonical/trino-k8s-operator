@@ -6,16 +6,6 @@
 groups:
   - name: trino_k8s
     rules:
-      - alert: TrinoUnitDown
-        expr: min by (juju_model, juju_unit) (up{juju_application=~".*trino.*"}) == 0
-        for: 5m
-        keep_firing_for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Trino unit {{ $labels.juju_unit }} is down"
-          description: "The Trino unit {{ $labels.juju_unit }} in the {{ $labels.juju_model }} model has been unreachable for more than 5 minutes."
-
       - alert: HighQueuedQueries
         expr: trino_execution_QueryManager_QueuedQueries > 10
         for: 10m
