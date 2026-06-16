@@ -6,30 +6,6 @@
 groups:
   - name: trino_k8s
     rules:
-      - alert: TrinoUnitDown
-        expr: min by (juju_model, juju_unit) (up{juju_application=~".*trino.*"}) == 0
-        for: 5m
-        keep_firing_for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Trino unit {{ $labels.juju_unit }} is down"
-          description: "The Trino unit {{ $labels.juju_unit }} in the {{ $labels.juju_model }} model has been unreachable for more than 5 minutes."
-
-      - alert: TrinoNodeCountDiscrepancy
-        expr: >
-          (max by (juju_model) (trino_metadata_DiscoveryNodeManager_ActiveNodeCount) 
-          - 
-          min by (juju_model) (trino_metadata_DiscoveryNodeManager_ActiveNodeCount)) 
-          > 0
-        for: 5m
-        keep_firing_for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Trino cluster node count discrepancy in model {{ $labels.juju_model }}"
-          description: "The Trino coordinator and workers in the {{ $labels.juju_model }} model disagree on the total number of active nodes."
-
       - alert: HighQueuedQueries
         expr: trino_execution_QueryManager_QueuedQueries > 10
         for: 10m
