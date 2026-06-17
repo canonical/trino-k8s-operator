@@ -231,7 +231,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             service_hostname=raw.get("external-hostname") or self.app.name,
             service_name=self.app.name,
             service_port=TRINO_PORTS["HTTP"],
-            tls_secret_name=raw.get("tls-secret-name") or "trino-tls",
+            tls_secret_name=raw.get("tls-secret-name"),
             backend_protocol="HTTP",
         )
 

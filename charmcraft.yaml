@@ -150,7 +150,9 @@ config:
     tls-secret-name:
       description: |
           Name of the k8s secret which contains the TLS certificate to be used by ingress.
-      default: "trino-tls"
+          When set, this takes precedence over any TLS secret managed externally (e.g. by lego).
+          Leave unset to let nginx-ingress-integrator obtain the TLS certificate from a related
+          lego operator instead.
       type: string
     charm-function:
       description: |

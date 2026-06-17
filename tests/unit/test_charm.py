@@ -196,8 +196,52 @@ class TestCharm(TestCase):
             "service-name": harness.charm.app.name,
             "service-port": SERVER_PORT,
             "backend-protocol": "HTTP",
-            "tls-secret-name": "trino-tls",
         }
+
+    @mock.patch("charm.KubernetesStatefulsetPatch")
+    def test_ingress_tls_secret_name_set(self, _):
+        """An explicit tls-secret-name is forwarded to the nginx-route relation."""
+        harness = Harness(TrinoK8SCharm)
+        self.addCleanup(harness.cleanup)
+        harness.set_can_connect("trino", True)
+        harness.set_leader(True)
+        harness.set_model_name("trino-model")
+        harness.add_network("10.0.0.10", endpoint="peer")
+        harness.update_config({"tls-secret-name": "my-tls-secret"})
+        harness.begin()
+
+        simulate_lifecycle_coordinator(harness)
+        nginx_route_relation_id = harness.add_relation("nginx-route", "ingress")
+        harness.charm._require_nginx_route()
+
+        assert (
+            harness.get_relation_data(nginx_route_relation_id, harness.charm.app).get(
+                "tls-secret-name"
+            )
+            == "my-tls-secret"
+        )
+
+    @mock.patch("charm.KubernetesStatefulsetPatch")
+    def test_ingress_tls_secret_name_unset(self, _):
+        """When tls-secret-name is not set, the key is absent from the nginx-route relation.
+
+        This allows an external operator (e.g. lego) to provide the TLS secret instead.
+        """
+        harness = Harness(TrinoK8SCharm)
+        self.addCleanup(harness.cleanup)
+        harness.set_can_connect("trino", True)
+        harness.set_leader(True)
+        harness.set_model_name("trino-model")
+        harness.add_network("10.0.0.10", endpoint="peer")
+        harness.begin()
+
+        simulate_lifecycle_coordinator(harness)
+        nginx_route_relation_id = harness.add_relation("nginx-route", "ingress")
+        harness.charm._require_nginx_route()
+
+        assert "tls-secret-name" not in harness.get_relation_data(
+            nginx_route_relation_id, harness.charm.app
+        )
 
     def test_invalid_config_value(self):
         """The charm blocks if an invalid config value is provided."""

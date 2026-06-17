@@ -93,7 +93,7 @@ class CharmConfig(BaseConfigModel):
     web_proxy: Optional[str] = None
     ranger_service_name: Optional[str] = None
     external_hostname: Optional[str] = None
-    tls_secret_name: str = "trino-tls"
+    tls_secret_name: Optional[str] = None
     charm_function: str = "all"
     discovery_uri: Optional[str] = None
     catalog_config: Optional[str] = None
@@ -168,13 +168,13 @@ class CharmConfig(BaseConfigModel):
 
     @validator("tls_secret_name")
     def validate_tls_secret_name(cls, v):
-        """Validate tls_secret_name is a legal Kubernetes resource name."""
-        if not _K8S_NAME_RE.match(v):
+        """Validate tls_secret_name is a legal Kubernetes resource name when provided."""
+        if v and not _K8S_NAME_RE.match(v):
             raise ValueError(
                 f"tls-secret-name must be a valid Kubernetes resource name "
                 f"(lowercase alphanumeric and hyphens), got {v!r}"
             )
-        return v
+        return v or None
 
     # ── Regex validators ───────────────────────────────────────────────────
 

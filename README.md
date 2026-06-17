@@ -34,7 +34,7 @@ The load balancer or proxy server accepts TLS connections and forwards them to t
 ![trino-communication](trino-tls.svg)
 
 ### Ingress
-The Trino operator exposes its ports using the Nginx Ingress Integrator operator. You must first make sure to have an Nginx Ingress Controller deployed. To enable TLS connections, you must have a TLS certificate stored as a k8s secret (default name is "trino-tls"). A self-signed certificate for development purposes can be created as follows:
+The Trino operator exposes its ports using the Nginx Ingress Integrator operator. You must first make sure to have an Nginx Ingress Controller deployed. To enable TLS connections, you can either supply the name of a pre-existing k8s TLS secret via the `tls-secret-name` config option, or leave it unset and relate `nginx-ingress-integrator` to a `lego` operator so that lego manages the certificate automatically. A self-signed certificate for development purposes can be created and supplied as follows:
 
 ```
 # Generate private key
@@ -48,6 +48,9 @@ openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt -
 
 # Create a k8s secret
 kubectl create secret tls trino-tls --cert=server.crt --key=server.key
+
+# Configure the application
+juju config trino-k8s tls-secret-name=trino-tls
 ```
 This operator can then be deployed and connected to the Trino operator using the Juju command line as follows:
 
