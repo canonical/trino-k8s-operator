@@ -4,221 +4,175 @@
 # Learn more about testing at: https://juju.is/docs/sdk/testing
 
 
-"""Trino charm unit tests."""
+"""Trino charm catalog freshness unit tests."""
 
 # pylint:disable=protected-access
 
+import dataclasses
 import logging
-from unittest import TestCase, mock
 
 from ops.model import MaintenanceStatus
-from ops.testing import Harness
+from ops.testing import Mount
 
-from charm import TrinoK8SCharm
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
-    POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_2_CATALOG_PATH,
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
+    build_coordinator_state,
+    build_worker_state,
+    carry_forward,
     create_added_catalog_config,
-    create_catalog_config,
-    make_relation_event,
-    simulate_lifecycle_coordinator,
-    simulate_lifecycle_worker,
+    peer_state_value,
+    trino_container,
+    workload_path,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class TestCatalogConfigFreshness(TestCase):
-    """Unit tests for Trino charm catalog freshness."""
+def test_config_changed(ctx):
+    """The pebble plan changes according to config changes."""
+    state_in, ids = build_coordinator_state(
+        config={
+            "google-client-id": "test-client-id",
+            "google-client-secret": "test-client-secret",
+            "web-proxy": "proxy:port",
+            "charm-function": "all",
+            "additional-jvm-options": USER_JVM_STRING,
+        }
+    )
 
-    @mock.patch("charm.KubernetesStatefulsetPatch")
-    def setUp(self, _):
-        """Set up for the unit tests."""
-        self.harness = Harness(TrinoK8SCharm)
-        self.addCleanup(self.harness.cleanup)
-        self.harness.set_can_connect("trino", True)
-        self.harness.set_leader(True)
-        self.harness.set_model_name("trino-model")
-        self.harness.add_network("10.0.0.10", endpoint="peer")
-        self.harness.begin()
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    def test_config_changed(self):
-        """The pebble plan changes according to config changes."""
-        harness = self.harness
-        (
-            _,
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        ) = simulate_lifecycle_coordinator(harness)
-
-        catalog_config = create_catalog_config(
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        )
-
-        # Update the config.
-        self.harness.update_config(
-            {
-                "google-client-id": "test-client-id",
-                "google-client-secret": "test-client-secret",
-                "web-proxy": "proxy:port",
-                "charm-function": "all",
-                "additional-jvm-options": USER_JVM_STRING,
-            }
-        )
-
-        # The new plan reflects the change.
-        want_plan = {
-            "services": {
-                "trino": {
-                    "override": "replace",
-                    "summary": "trino server",
-                    "command": "./entrypoint.sh",
-                    "startup": "enabled",
-                    "on-check-failure": {"up": "ignore"},
-                    "environment": {
-                        "CATALOG_CONFIG": catalog_config,
-                        "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
-                        "LOG_LEVEL": "info",
-                        "OAUTH_CLIENT_ID": "test-client-id",
-                        "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
-                        "WEB_PROXY": "proxy:port",
-                        "CHARM_FUNCTION": "all",
-                        "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
-                        "APPLICATION_NAME": "trino-k8s",
-                        "TRINO_HOME": "/usr/lib/trino/etc",
-                        "JMX_PORT": 9081,
-                        "METRICS_PORT": 9090,
-                        "OAUTH_USER_MAPPING": None,
-                        "RANGER_RELATION": False,
-                        "RESOURCE_GROUPS_CONFIG": None,
-                        "SESSION_PROPERTY_MANAGER_CONFIG": None,
-                        "ACL_ACCESS_MODE": "owner",
-                        "ACL_CATALOG_PATTERN": ".*",
-                        "ACL_USER_PATTERN": ".*",
-                        "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
-                        "INT_COMMS_SECRET": "int_comms_secret",  # nosec
-                        "USER_SECRET_ID": "secret:secret-id",  # nosec
-                        "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
-                        "COORDINATOR_REQUEST_TIMEOUT": "10m",
-                        "COORDINATOR_CONNECT_TIMEOUT": "30s",
-                        "WORKER_REQUEST_TIMEOUT": "30s",
-                        "MAX_CONCURRENT_QUERIES": 50,
-                        "QUERY_MAX_CPU_TIME": None,
-                        "QUERY_MAX_MEMORY_PER_NODE": None,
-                        "QUERY_MAX_MEMORY": None,
-                        "QUERY_MAX_TOTAL_MEMORY": None,
-                        "MEMORY_HEAP_HEADROOM_PER_NODE": None,
-                        "QUERY_MAX_RUN_TIME": None,
-                    },
-                }
+    want_services = {
+        "trino": {
+            "override": "replace",
+            "summary": "trino server",
+            "command": "./entrypoint.sh",
+            "startup": "enabled",
+            "on-check-failure": {"up": "ignore"},
+            "environment": {
+                "CATALOG_CONFIG": ids.catalog_config,
+                "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
+                "LOG_LEVEL": "info",
+                "OAUTH_CLIENT_ID": "test-client-id",
+                "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
+                "WEB_PROXY": "proxy:port",
+                "CHARM_FUNCTION": "all",
+                "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
+                "APPLICATION_NAME": "trino-k8s",
+                "TRINO_HOME": "/usr/lib/trino/etc",
+                "JMX_PORT": 9081,
+                "METRICS_PORT": 9090,
+                "OAUTH_USER_MAPPING": None,
+                "RANGER_RELATION": False,
+                "RESOURCE_GROUPS_CONFIG": None,
+                "SESSION_PROPERTY_MANAGER_CONFIG": None,
+                "ACL_ACCESS_MODE": "owner",
+                "ACL_CATALOG_PATTERN": ".*",
+                "ACL_USER_PATTERN": ".*",
+                "JAVA_TRUSTSTORE_PWD": "truststore_pwd",  # nosec
+                "INT_COMMS_SECRET": "int_comms_secret",  # nosec
+                "USER_SECRET_ID": "secret:secret-id",  # nosec
+                "JVM_OPTIONS": UPDATED_JVM_OPTIONS,
+                "COORDINATOR_REQUEST_TIMEOUT": "10m",
+                "COORDINATOR_CONNECT_TIMEOUT": "30s",
+                "WORKER_REQUEST_TIMEOUT": "30s",
+                "MAX_CONCURRENT_QUERIES": 50,
+                "QUERY_MAX_CPU_TIME": None,
+                "QUERY_MAX_MEMORY_PER_NODE": None,
+                "QUERY_MAX_MEMORY": None,
+                "QUERY_MAX_TOTAL_MEMORY": None,
+                "MEMORY_HEAP_HEADROOM_PER_NODE": None,
+                "QUERY_MAX_RUN_TIME": None,
             },
         }
-        got_plan = harness.get_container_pebble_plan("trino").to_dict()
-        environment = got_plan["services"]["trino"]["environment"]
-        environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
-        environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
-        environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
-        self.assertEqual(got_plan["services"], want_plan["services"])
+    }
 
-        # The MaintenanceStatus is set.
-        self.assertEqual(
-            harness.model.unit.status,
-            MaintenanceStatus("replanning application"),
-        )
+    got_services = state_out.get_container("trino").plan.to_dict()["services"]
 
-    def test_catalog_added(self):
-        """The catalog directory is updated to add the new catalog."""
-        harness = self.harness
-        (
-            _,
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        ) = simulate_lifecycle_coordinator(harness)
+    # The truststore password and the internal-comms secret are randomly
+    # generated, and are normalised here to compare the rest of the plan.
+    environment = got_services["trino"]["environment"]
+    environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
+    environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
+    environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
 
-        catalog_config = create_added_catalog_config(
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        )
+    assert got_services == want_services
+    assert state_out.unit_status == MaintenanceStatus("replanning application")
 
-        # Update the config.
-        self.harness.update_config({"catalog-config": catalog_config})
 
-        # Validate catalog.properties file created.
-        container = harness.model.unit.get_container("trino")
-        self.assertTrue(container.exists(POSTGRESQL_2_CATALOG_PATH))
-        self.assertTrue(container.exists(BIGQUERY_CATALOG_PATH))
+def test_catalog_added(ctx):
+    """The catalog directory is updated to add the new catalog."""
+    state_in, ids = build_coordinator_state()
+    extended_catalog_config = create_added_catalog_config(
+        ids.postgresql,
+        ids.mysql,
+        ids.redshift,
+        ids.bigquery,
+        ids.gsheets,
+    )
+    state_in = dataclasses.replace(
+        state_in,
+        config={**state_in.config, "catalog-config": extended_catalog_config},
+    )
 
-    def test_catalog_removed(self):
-        """The catalog directory is updated to remove existing catalogs."""
-        harness = self.harness
-        simulate_lifecycle_coordinator(harness)
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-        # Update the config.
-        self.harness.update_config({"catalog-config": ""})
+    assert workload_path(state_out, ctx, POSTGRESQL_2_CATALOG_PATH).exists()
+    assert workload_path(state_out, ctx, BIGQUERY_CATALOG_PATH).exists()
 
-        # Validate catalog.properties file created.
-        container = harness.model.unit.get_container("trino")
-        self.assertFalse(container.exists(POSTGRESQL_1_CATALOG_PATH))
-        self.assertFalse(container.exists(BIGQUERY_CATALOG_PATH))
 
-    def test_worker_fetches_latest_catalog_on_relation_change(self):
-        """Test the worker catalogs change after the config and relation changes simultaneously."""
-        harness = self.harness
-        (
-            _,
-            event,
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        ) = simulate_lifecycle_worker(harness)
+def test_catalog_removed(ctx, tmp_path):
+    """The catalog directory is updated to remove existing catalogs."""
+    container = trino_container(
+        mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
+    )
+    state_in, _ = build_coordinator_state(container=container)
 
-        old_catalog = create_catalog_config(
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        )
+    # Establish the catalogs on disk.
+    mid = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    assert (tmp_path / "catalog" / "postgresql-1.properties").exists()
 
-        extended_catalog_config = create_added_catalog_config(
-            postgresql_secret_id,
-            mysql_secret_id,
-            redshift_secret_id,
-            bigquery_secret_id,
-            gsheets_secret_id,
-        )
-        new_data = dict(event.relation.data)
-        new_data["trino-worker"].update({"catalogs": extended_catalog_config})
+    # Clear the catalog configuration and reconcile.
+    mid = dataclasses.replace(mid, config={**mid.config, "catalog-config": ""})
+    ctx.run(ctx.on.config_changed(), mid)
 
-        new_event = make_relation_event("trino-worker", event.relation.id, new_data)
-        harness.charm.trino_worker._on_relation_changed(new_event)
+    assert not (tmp_path / "catalog" / "postgresql-1.properties").exists()
+    assert not (tmp_path / "catalog" / "bigquery.properties").exists()
 
-        self.assertEqual(
-            harness.charm.trino_worker.charm.state.catalog_config,
-            extended_catalog_config,
-            "Catalog should be updated to the latest version when relation is changed.",
-        )
 
-        self.assertNotEqual(
-            harness.charm.trino_worker.charm.state.catalog_config,
-            old_catalog,
-            "Stale catalog should not be used after it is updated.",
-        )
+def test_worker_fetches_latest_catalog_on_relation_change(ctx):
+    """The worker uses the latest catalog advertised on relation change."""
+    state_in, ids = build_worker_state()
+    old_catalog = ids.catalog_config
+
+    extended_catalog_config = create_added_catalog_config(
+        ids.postgresql,
+        ids.mysql,
+        ids.redshift,
+        ids.bigquery,
+        ids.gsheets,
+    )
+
+    # Advertise the extended catalog config on the worker relation.
+    worker_relation = dataclasses.replace(
+        ids.worker_relation,
+        remote_app_data={
+            **ids.worker_relation.remote_app_data,
+            "catalogs": extended_catalog_config,
+        },
+    )
+    relations = {
+        relation for relation in state_in.relations if relation.id != ids.worker_relation.id
+    }
+    relations.add(worker_relation)
+    state_in = dataclasses.replace(state_in, relations=relations)
+
+    state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
+
+    peer_relation = state_out.get_relation(ids.peer_relation.id)
+    catalog_config = peer_state_value(peer_relation, "catalog_config")
+    assert catalog_config == extended_catalog_config
+    assert catalog_config != old_catalog
