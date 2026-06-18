@@ -3,10 +3,10 @@
 
 """Integration tests for the Trino-PostgreSQL catalog relation."""
 
-import asyncio
 import logging
 import time
 
+import jubilant
 import pytest
 import yaml
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
@@ -18,9 +18,14 @@ from helpers import (
     add_juju_secret,
     create_catalog_config,
     get_catalogs,
+    get_status,
+    get_unit,
+    scale,
+    unit_name,
     update_catalog_config,
+    wait_for_app_gone,
+    wait_for_apps,
 )
-from pytest_operator.plugin import OpsTest
 from trino_client.trino_client import query_trino
 
 logger = logging.getLogger(__name__)
@@ -60,130 +65,98 @@ def pg_catalog_config(
     return yaml.dump({app_name: entry})
 
 
-async def deploy_pg(ops_test, pg_name=POSTGRES_NAME, db_name="testdb", units=1):
+def deploy_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME, db_name="testdb", units=1):
     """Deploy PostgreSQL and a data-integrator to create a database.
 
     The DI is needed because PG's prefix matching only discovers existing
     databases, it does not create them from a prefix request.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         pg_name: Application name for PG.
         db_name: Database name for the data-integrator to create.
         units: Number of PG units.
     """
     di_name = f"di-{pg_name}"
-    await ops_test.model.deploy(
-        "postgresql-k8s",
-        application_name=pg_name,
-        channel=PG_CHANNEL,
-        num_units=units,
-        trust=True,
-    )
-    await ops_test.model.deploy(
+    juju.deploy("postgresql-k8s", pg_name, channel=PG_CHANNEL, num_units=units, trust=True)
+    juju.deploy(
         "data-integrator",
-        application_name=di_name,
+        di_name,
         channel="latest/edge",
         config={"database-name": db_name},
     )
-    await ops_test.model.integrate(f"{pg_name}:database", di_name)
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[pg_name],
-            status="active",
-            timeout=900,
-            wait_for_exact_units=units,
-        )
-        await ops_test.model.wait_for_idle(
-            apps=[di_name],
-            status="active",
-            timeout=900,
-        )
+    juju.integrate(f"{pg_name}:database", di_name)
+    wait_for_apps(juju, [pg_name], status="active", timeout=900, wait_for_exact_units=units)
+    wait_for_apps(juju, [di_name], status="active", timeout=900)
 
 
-async def wait_for_idle_pg(ops_test, pg_name=POSTGRES_NAME):
+def wait_for_idle_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
     """Wait for PG and Trino to be idle and active.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         pg_name: PG application name.
     """
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME, pg_name],
-            status="active",
-            raise_on_blocked=False,
-            timeout=900,
-        )
+    wait_for_apps(juju, [APP_NAME, WORKER_NAME, pg_name], status="active", timeout=900)
 
 
-async def destroy_pg(ops_test, pg_name):
+def destroy_pg(juju: jubilant.Juju, pg_name):
     """Destroy a PG app and its associated data-integrator.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         pg_name: Application name for PG.
     """
     di_name = f"di-{pg_name}"
-    await ops_test.model.applications[di_name].destroy()
-    await ops_test.model.applications[pg_name].destroy()
-    await ops_test.model.block_until(lambda: pg_name not in ops_test.model.applications)
+    juju.remove_application(di_name)
+    juju.remove_application(pg_name)
+    wait_for_app_gone(juju, di_name)
+    wait_for_app_gone(juju, pg_name)
 
 
-async def relate_pg(ops_test, pg_name=POSTGRES_NAME):
+def relate_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
     """Integrate Trino with PG and wait for idle.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         pg_name: PG application name.
     """
-    await ops_test.model.integrate(APP_NAME, pg_name)
-    await wait_for_idle_pg(ops_test, pg_name)
+    juju.integrate(APP_NAME, pg_name)
+    wait_for_idle_pg(juju, pg_name)
 
 
-async def remove_pg_relation(ops_test, pg_name=POSTGRES_NAME):
+def remove_pg_relation(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
     """Remove the Trino-PG relation and wait for idle.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         pg_name: PG application name.
     """
-    await ops_test.juju("remove-relation", APP_NAME, pg_name)
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
+    juju.remove_relation(APP_NAME, pg_name)
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
 
-async def set_pg_config(ops_test, config_str, expect_blocked=False):
+def set_pg_config(juju: jubilant.Juju, config_str, expect_blocked=False):
     """Set postgresql-catalog-config and wait for idle.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         config_str: YAML config string.
         expect_blocked: When True, wait for APP_NAME to reach blocked status
             instead of active. Used when the config is intentionally invalid.
     """
-    await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config_str})
-    async with ops_test.fast_forward():
-        if expect_blocked:
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME],
-                status="blocked",
-                raise_on_blocked=False,
-                timeout=900,
-            )
-        else:
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME],
-                status="active",
-                timeout=900,
-            )
+    juju.config(APP_NAME, {PG_CONFIG_KEY: config_str})
+    if expect_blocked:
+        wait_for_apps(juju, [APP_NAME], status="blocked", timeout=900)
+    else:
+        wait_for_apps(juju, [APP_NAME, WORKER_NAME, POSTGRES_NAME], status="active", timeout=900)
 
 
-async def wait_for_catalog(ops_test, catalog_name, present=True, timeout=120):
+def wait_for_catalog(juju: jubilant.Juju, catalog_name, present=True, timeout=120):
     """Poll SHOW CATALOGS until catalog appears/disappears or timeout.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         catalog_name: Catalog name to check.
         present: True to wait for appearance, False for disappearance.
         timeout: Seconds before giving up.
@@ -197,54 +170,50 @@ async def wait_for_catalog(ops_test, catalog_name, present=True, timeout=120):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
+            catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
             found = catalog_name in str(catalogs)
             if found == present:
                 return catalogs
         except Exception:  # nosec
             pass  # nosec
-        await asyncio.sleep(5)
+        time.sleep(5)
     state = "not found" if present else "still present"
     raise TimeoutError(f"Catalog {catalog_name!r} {state} after {timeout}s")
 
 
-async def query_pg_catalog(ops_test, catalog_name):
+def query_pg_catalog(juju: jubilant.Juju, catalog_name):
     """Run SHOW SCHEMAS against a catalog to verify connectivity.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         catalog_name: Name of the Trino catalog.
 
     Returns:
         List of schemas
     """
-    status = await ops_test.model.get_status()
-    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/0"]["address"]
-    return await query_trino(address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"')
+    address = get_status(juju).apps[APP_NAME].units[f"{APP_NAME}/0"].address
+    return query_trino(address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"')
 
 
-async def get_properties_file(ops_test, catalog_name):
+def get_properties_file(juju: jubilant.Juju, catalog_name):
     """Read a catalog .properties file from the Trino container.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         catalog_name: Name of the catalog.
 
     Returns:
         File contents as string, or None if not found.
     """
-    unit = ops_test.model.applications[APP_NAME].units[0]
-    rc, stdout, _ = await ops_test.juju(
-        "ssh",
-        "--container",
-        "trino",
-        unit.name,
-        "cat",
-        f"{CATALOG_DIR}/{catalog_name}.properties",
-    )
-    if rc != 0:
+    try:
+        return juju.ssh(
+            unit_name(APP_NAME),
+            "cat",
+            f"{CATALOG_DIR}/{catalog_name}.properties",
+            container="trino",
+        )
+    except Exception:  # nosec
         return None
-    return stdout
 
 
 @pytest.mark.abort_on_fail
@@ -252,164 +221,156 @@ async def get_properties_file(ops_test, catalog_name):
 class TestPostgresqlCatalogRelation:
     """Integration tests for PostgreSQL catalog relation."""
 
-    async def test_01_missing_database_prefix(self, ops_test: OpsTest):
+    def test_01_missing_database_prefix(self, juju: jubilant.Juju):
         """Config without database_prefix: charm goes blocked with validation error."""
         config = yaml.dump({POSTGRES_NAME: {"ro_catalog_name": "test_ro"}})
-        await deploy_pg(ops_test)
-        await relate_pg(ops_test)
-        await set_pg_config(ops_test, config, expect_blocked=True)
+        deploy_pg(juju)
+        relate_pg(juju)
+        set_pg_config(juju, config, expect_blocked=True)
 
-        unit = ops_test.model.applications[APP_NAME].units[0]
-        assert unit.workload_status == "blocked"
-        assert "database_prefix" in unit.workload_status_message
+        unit = get_unit(juju, APP_NAME)
+        assert unit.workload_status.current == "blocked"
+        assert "database_prefix" in unit.workload_status.message
 
-    async def test_02_prefix_without_asterisk(self, ops_test: OpsTest):
+    def test_02_prefix_without_asterisk(self, juju: jubilant.Juju):
         """Config with database_prefix missing *: charm goes blocked with validation error."""
         config = pg_catalog_config(POSTGRES_NAME, "mydb", "test_ro")
-        await set_pg_config(ops_test, config, expect_blocked=True)
+        set_pg_config(juju, config, expect_blocked=True)
 
-        unit = ops_test.model.applications[APP_NAME].units[0]
-        assert unit.workload_status == "blocked"
-        assert "database_prefix" in unit.workload_status_message
+        unit = get_unit(juju, APP_NAME)
+        assert unit.workload_status.current == "blocked"
+        assert "database_prefix" in unit.workload_status.message
 
-    async def test_03_missing_catalog_names(self, ops_test: OpsTest):
+    def test_03_missing_catalog_names(self, juju: jubilant.Juju):
         """Config with database_prefix but no catalog names: charm goes blocked."""
         config = yaml.dump({POSTGRES_NAME: {"database_prefix": "testdb*"}})
-        await set_pg_config(ops_test, config, expect_blocked=True)
+        set_pg_config(juju, config, expect_blocked=True)
 
-        unit = ops_test.model.applications[APP_NAME].units[0]
-        assert unit.workload_status == "blocked"
-        assert "ro_catalog_name" in unit.workload_status_message
+        unit = get_unit(juju, APP_NAME)
+        assert unit.workload_status.current == "blocked"
+        assert "ro_catalog_name" in unit.workload_status.message
 
-    async def test_04_fix_invalid_config(self, ops_test: OpsTest):
+    def test_04_fix_invalid_config(self, juju: jubilant.Juju):
         """After fixing the invalid config from test_03, charm recovers and catalog is created."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "test_catalog")
-        await set_pg_config(ops_test, config)
+        set_pg_config(juju, config)
 
-        await wait_for_catalog(ops_test, "test_catalog")
+        wait_for_catalog(juju, "test_catalog")
 
-        schemas = await query_pg_catalog(ops_test, "test_catalog")
+        schemas = query_pg_catalog(juju, "test_catalog")
         schema_names = [s[0] for s in schemas]
         assert "public" in schema_names
 
-    async def test_05_both_ro_and_rw(self, ops_test: OpsTest):
+    def test_05_both_ro_and_rw(self, juju: jubilant.Juju):
         """Config with both ro and rw: two catalogs created."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw")
-        await set_pg_config(ops_test, config)
+        set_pg_config(juju, config)
 
-        await wait_for_catalog(ops_test, "mydb_ro")
-        await wait_for_catalog(ops_test, "mydb_rw")
+        wait_for_catalog(juju, "mydb_ro")
+        wait_for_catalog(juju, "mydb_rw")
 
-        ro_props = await get_properties_file(ops_test, "mydb_ro")
-        rw_props = await get_properties_file(ops_test, "mydb_rw")
+        ro_props = get_properties_file(juju, "mydb_ro")
+        rw_props = get_properties_file(juju, "mydb_rw")
         assert ro_props is not None
         assert rw_props is not None
         assert "preferSecondary" in ro_props
         assert "primary" in rw_props
 
-        ro_schemas = await query_pg_catalog(ops_test, "mydb_ro")
-        rw_schemas = await query_pg_catalog(ops_test, "mydb_rw")
+        ro_schemas = query_pg_catalog(juju, "mydb_ro")
+        rw_schemas = query_pg_catalog(juju, "mydb_rw")
         assert any("public" in s for s in ro_schemas)
         assert any("public" in s for s in rw_schemas)
 
-    async def test_06_remove_rw(self, ops_test: OpsTest):
+    def test_06_remove_rw(self, juju: jubilant.Juju):
         """Remove rw_catalog_name: RW catalog dropped, RO remains."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "mydb_ro")
-        await set_pg_config(ops_test, config)
+        set_pg_config(juju, config)
 
-        await wait_for_catalog(ops_test, "mydb_ro")
-        await wait_for_catalog(ops_test, "mydb_rw", present=False)
+        wait_for_catalog(juju, "mydb_ro")
+        wait_for_catalog(juju, "mydb_rw", present=False)
 
-    async def test_07_add_rw(self, ops_test: OpsTest):
+    def test_07_add_rw(self, juju: jubilant.Juju):
         """Add rw_catalog_name: RW catalog appears alongside RO."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "mydb_ro", rw_name="mydb_rw")
-        await set_pg_config(ops_test, config)
+        set_pg_config(juju, config)
 
-        await wait_for_catalog(ops_test, "mydb_ro")
-        await wait_for_catalog(ops_test, "mydb_rw")
+        wait_for_catalog(juju, "mydb_ro")
+        wait_for_catalog(juju, "mydb_rw")
 
-    async def test_08_pg_scaling(self, ops_test: OpsTest):
+    def test_08_pg_scaling(self, juju: jubilant.Juju):
         """Catalog URL gains replicas service address after PG scales up."""
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "multihost_ro")
-        await set_pg_config(ops_test, config)
-        await wait_for_catalog(ops_test, "multihost_ro")
+        set_pg_config(juju, config)
+        wait_for_catalog(juju, "multihost_ro")
 
         # With 1 PG unit there are no replicas, URL has only the primary
-        props = await get_properties_file(ops_test, "multihost_ro")
+        props = get_properties_file(juju, "multihost_ro")
         assert props is not None
         assert f"{POSTGRES_NAME}-primary" in props
         assert f"{POSTGRES_NAME}-replicas" not in props
 
         # Scale PG to 3, replicas service should appear in the URL
-        async with ops_test.fast_forward():
-            await ops_test.model.applications[POSTGRES_NAME].scale(scale=3)
-            await ops_test.model.wait_for_idle(
-                apps=[POSTGRES_NAME],
-                status="active",
-                timeout=900,
-                wait_for_exact_units=3,
-            )
-            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
+        scale(juju, POSTGRES_NAME, 3)
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
-        await wait_for_catalog(ops_test, "multihost_ro")
-        props = await get_properties_file(ops_test, "multihost_ro")
+        wait_for_catalog(juju, "multihost_ro")
+        props = get_properties_file(juju, "multihost_ro")
         assert props is not None
         assert f"{POSTGRES_NAME}-primary" in props
         assert f"{POSTGRES_NAME}-replicas" in props
 
-    async def test_09_both_config_types(self, ops_test: OpsTest):
+    def test_09_both_config_types(self, juju: jubilant.Juju):
         """Both catalog-config and postgresql-catalog-config active."""
-        postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
+        postgresql_secret_id = add_juju_secret(juju, "postgresql")
         for app in [APP_NAME, WORKER_NAME]:
-            await ops_test.model.grant_secret("postgresql-secret", app)
+            juju.grant_secret("postgresql-secret", app)
 
-        catalog_config = await create_catalog_config(
+        catalog_config = create_catalog_config(
             postgresql_secret_id,
-            await add_juju_secret(ops_test, "mysql"),
-            await add_juju_secret(ops_test, "redshift"),
-            await add_juju_secret(ops_test, "bigquery"),
-            await add_juju_secret(ops_test, "gsheets"),
+            add_juju_secret(juju, "mysql"),
+            add_juju_secret(juju, "redshift"),
+            add_juju_secret(juju, "bigquery"),
+            add_juju_secret(juju, "gsheets"),
         )
         for app in [APP_NAME, WORKER_NAME]:
-            await ops_test.model.grant_secret("mysql-secret", app)
-            await ops_test.model.grant_secret("redshift-secret", app)
-            await ops_test.model.grant_secret("bigquery-secret", app)
-            await ops_test.model.grant_secret("gsheets-secret", app)
+            juju.grant_secret("mysql-secret", app)
+            juju.grant_secret("redshift-secret", app)
+            juju.grant_secret("bigquery-secret", app)
+            juju.grant_secret("gsheets-secret", app)
 
-        await update_catalog_config(ops_test, catalog_config, TRINO_USER)
+        update_catalog_config(juju, catalog_config, TRINO_USER)
 
         pg_config = pg_catalog_config(POSTGRES_NAME, "testdb*", "dynamic_pg")
-        await set_pg_config(ops_test, pg_config)
+        set_pg_config(juju, pg_config)
 
-        await wait_for_catalog(ops_test, "dynamic_pg")
-        await wait_for_catalog(ops_test, "postgresql-1")
+        wait_for_catalog(juju, "dynamic_pg")
+        wait_for_catalog(juju, "postgresql-1")
 
-    async def test_10_remove_relation_keeps_static(self, ops_test: OpsTest):
+    def test_10_remove_relation_keeps_static(self, juju: jubilant.Juju):
         """Removing PG relation does not affect static catalogs."""
-        await remove_pg_relation(ops_test)
+        remove_pg_relation(juju)
 
-        await wait_for_catalog(ops_test, "dynamic_pg", present=False)
-        await wait_for_catalog(ops_test, "postgresql-1")
+        wait_for_catalog(juju, "dynamic_pg", present=False)
+        wait_for_catalog(juju, "postgresql-1")
 
         # Re-relate for next test
-        await relate_pg(ops_test)
+        relate_pg(juju)
 
-    async def test_11_remove_static_keeps_dynamic(self, ops_test: OpsTest):
+    def test_11_remove_static_keeps_dynamic(self, juju: jubilant.Juju):
         """Removing static catalog does not affect dynamic catalog."""
-        await wait_for_catalog(ops_test, "dynamic_pg")
+        wait_for_catalog(juju, "dynamic_pg")
 
-        await ops_test.model.applications[APP_NAME].reset_config(["catalog-config"])
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
+        juju.config(APP_NAME, reset=["catalog-config"])
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
-        await wait_for_catalog(ops_test, "postgresql-1", present=False)
-        await wait_for_catalog(ops_test, "dynamic_pg")
+        wait_for_catalog(juju, "postgresql-1", present=False)
+        wait_for_catalog(juju, "dynamic_pg")
 
-        await remove_pg_relation(ops_test)
+        remove_pg_relation(juju)
 
-    async def test_12_two_pg_apps(self, ops_test: OpsTest):
+    def test_12_two_pg_apps(self, juju: jubilant.Juju):
         """Two PG apps with separate configs: both catalogs created."""
-        await deploy_pg(ops_test, pg_name="pg-second", db_name="seconddb")
+        deploy_pg(juju, pg_name="pg-second", db_name="seconddb")
 
         config = yaml.dump(
             {
@@ -423,126 +384,106 @@ class TestPostgresqlCatalogRelation:
                 },
             }
         )
-        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
+        juju.config(APP_NAME, {PG_CONFIG_KEY: config})
 
-        await ops_test.model.integrate(APP_NAME, POSTGRES_NAME)
-        await ops_test.model.integrate(APP_NAME, "pg-second")
+        juju.integrate(APP_NAME, POSTGRES_NAME)
+        juju.integrate(APP_NAME, "pg-second")
 
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME, WORKER_NAME, POSTGRES_NAME, "pg-second"],
-                status="active",
-                timeout=900,
-            )
-
-        await wait_for_catalog(ops_test, "pg1_catalog")
-        await wait_for_catalog(ops_test, "pg2_catalog")
-
-    async def test_13_remove_one_relation(self, ops_test: OpsTest):
-        """Remove one PG relation: its catalog dropped, other unaffected."""
-        await remove_pg_relation(ops_test)
-
-        await wait_for_catalog(ops_test, "pg1_catalog", present=False)
-        await wait_for_catalog(ops_test, "pg2_catalog")
-
-    async def test_14_re_add_relation(self, ops_test: OpsTest):
-        """Re-add first PG relation: catalog re-created."""
-        await relate_pg(ops_test)
-
-        await wait_for_catalog(ops_test, "pg1_catalog")
-        await wait_for_catalog(ops_test, "pg2_catalog")
-
-        # Cleanup
-        await remove_pg_relation(ops_test)
-        await remove_pg_relation(ops_test, "pg-second")
-        await destroy_pg(ops_test, "pg-second")
-
-    async def test_15_wrong_app_name_in_config(self, ops_test: OpsTest):
-        """Config key doesn't match PG app name: no catalog, charm active."""
-        config = pg_catalog_config("wrong-name", "testdb*", "missing_catalog")
-        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
-        await relate_pg(ops_test)
-
-        await wait_for_catalog(ops_test, "missing_catalog", present=False)
-        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
-
-        await remove_pg_relation(ops_test)
-
-    async def test_16_container_restart(self, ops_test: OpsTest):
-        """Trino container restart: catalog persists."""
-        config = pg_catalog_config(POSTGRES_NAME, "testdb*", "persist_catalog")
-        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
-        await relate_pg(ops_test)
-
-        await wait_for_catalog(ops_test, "persist_catalog")
-
-        schemas = await query_pg_catalog(ops_test, "persist_catalog")
-        assert any("public" in s for s in schemas)
-
-        unit = ops_test.model.applications[APP_NAME].units[0]
-        await ops_test.juju(
-            "ssh",
-            "--container",
-            "trino",
-            unit.name,
-            "/charm/bin/pebble",
-            "restart",
-            "trino",
+        wait_for_apps(
+            juju,
+            [APP_NAME, WORKER_NAME, POSTGRES_NAME, "pg-second"],
+            status="active",
+            timeout=900,
         )
 
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME, WORKER_NAME],
-                status="active",
-                timeout=600,
-            )
+        wait_for_catalog(juju, "pg1_catalog")
+        wait_for_catalog(juju, "pg2_catalog")
 
-        await wait_for_catalog(ops_test, "persist_catalog")
+    def test_13_remove_one_relation(self, juju: jubilant.Juju):
+        """Remove one PG relation: its catalog dropped, other unaffected."""
+        remove_pg_relation(juju)
 
-        schemas = await query_pg_catalog(ops_test, "persist_catalog")
+        wait_for_catalog(juju, "pg1_catalog", present=False)
+        wait_for_catalog(juju, "pg2_catalog")
+
+    def test_14_re_add_relation(self, juju: jubilant.Juju):
+        """Re-add first PG relation: catalog re-created."""
+        relate_pg(juju)
+
+        wait_for_catalog(juju, "pg1_catalog")
+        wait_for_catalog(juju, "pg2_catalog")
+
+        # Cleanup
+        remove_pg_relation(juju)
+        remove_pg_relation(juju, "pg-second")
+        destroy_pg(juju, "pg-second")
+
+    def test_15_wrong_app_name_in_config(self, juju: jubilant.Juju):
+        """Config key doesn't match PG app name: no catalog, charm active."""
+        config = pg_catalog_config("wrong-name", "testdb*", "missing_catalog")
+        juju.config(APP_NAME, {PG_CONFIG_KEY: config})
+        relate_pg(juju)
+
+        wait_for_catalog(juju, "missing_catalog", present=False)
+        assert get_unit(juju, APP_NAME).workload_status.current == "active"
+
+        remove_pg_relation(juju)
+
+    def test_16_container_restart(self, juju: jubilant.Juju):
+        """Trino container restart: catalog persists."""
+        config = pg_catalog_config(POSTGRES_NAME, "testdb*", "persist_catalog")
+        juju.config(APP_NAME, {PG_CONFIG_KEY: config})
+        relate_pg(juju)
+
+        wait_for_catalog(juju, "persist_catalog")
+
+        schemas = query_pg_catalog(juju, "persist_catalog")
+        assert any("public" in s for s in schemas)
+
+        juju.ssh(unit_name(APP_NAME), "/charm/bin/pebble", "restart", "trino", container="trino")
+
+        wait_for_apps(juju, [APP_NAME, WORKER_NAME], status="active", timeout=600)
+
+        wait_for_catalog(juju, "persist_catalog")
+
+        schemas = query_pg_catalog(juju, "persist_catalog")
         assert any("public" in s for s in schemas)
 
         # Final cleanup
-        await remove_pg_relation(ops_test)
-        await ops_test.model.applications[APP_NAME].reset_config([PG_CONFIG_KEY])
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
+        remove_pg_relation(juju)
+        juju.config(APP_NAME, reset=[PG_CONFIG_KEY])
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
-    async def test_17_tls_connection(self, ops_test: OpsTest):
+    def test_17_tls_connection(self, juju: jubilant.Juju):
         """Catalog uses TLS when PG has certificates enabled."""
-        await ops_test.model.deploy("self-signed-certificates", channel="latest/edge")
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=["self-signed-certificates"],
-                status="active",
-                timeout=600,
-            )
+        juju.deploy("self-signed-certificates", channel="latest/edge")
+        wait_for_apps(juju, ["self-signed-certificates"], status="active", timeout=600)
 
-        await ops_test.model.integrate(
+        juju.integrate(
             f"{POSTGRES_NAME}:client-certificates",
             "self-signed-certificates:certificates",
         )
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[POSTGRES_NAME, "self-signed-certificates"],
-                status="active",
-                timeout=900,
-            )
+        wait_for_apps(
+            juju,
+            [POSTGRES_NAME, "self-signed-certificates"],
+            status="active",
+            timeout=900,
+        )
 
         config = pg_catalog_config(POSTGRES_NAME, "testdb*", "tls_catalog")
-        await ops_test.model.applications[APP_NAME].set_config({PG_CONFIG_KEY: config})
-        await relate_pg(ops_test)
+        juju.config(APP_NAME, {PG_CONFIG_KEY: config})
+        relate_pg(juju)
 
-        await wait_for_catalog(ops_test, "tls_catalog")
+        wait_for_catalog(juju, "tls_catalog")
 
-        props = await get_properties_file(ops_test, "tls_catalog")
+        props = get_properties_file(juju, "tls_catalog")
         assert props is not None
         assert "ssl=true" in props or "ssl\\=true" in props
         assert "sslmode=require" in props or "sslmode\\=require" in props
 
-        schemas = await query_pg_catalog(ops_test, "tls_catalog")
+        schemas = query_pg_catalog(juju, "tls_catalog")
         assert any("public" in s for s in schemas)
 
         # Cleanup
-        await remove_pg_relation(ops_test)
-        await ops_test.model.applications[APP_NAME].reset_config([PG_CONFIG_KEY])
+        remove_pg_relation(juju)
+        juju.config(APP_NAME, reset=[PG_CONFIG_KEY])

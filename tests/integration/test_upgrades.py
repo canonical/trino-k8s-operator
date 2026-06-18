@@ -5,34 +5,26 @@
 
 import logging
 
+import jubilant
 import pytest
-import pytest_asyncio
 import requests
-import yaml
-from helpers import APP_NAME, get_unit_url
-from pytest_operator.plugin import OpsTest
+from helpers import APP_NAME, get_unit, get_unit_url, wait_for_apps
 
 logger = logging.getLogger(__name__)
 
 
-@pytest_asyncio.fixture(name="deploy-upgrade", scope="module")
-async def deploy(ops_test: OpsTest):
+@pytest.fixture(name="deploy-upgrade", scope="module")
+def deploy(juju: jubilant.Juju):
     """Deploy the app."""
     # Deploy trino and nginx charms
     trino_config = {
         "acl-mode-default": "none",
         "charm-function": "all",
     }
-    await ops_test.model.deploy(APP_NAME, channel="edge", config=trino_config, trust=True)
+    juju.deploy(APP_NAME, channel="edge", config=trino_config, trust=True)
 
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=600,
-        )
-        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+    assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 
 @pytest.mark.abort_on_fail
@@ -40,36 +32,23 @@ async def deploy(ops_test: OpsTest):
 class TestUpgrade:
     """Integration test for Trino charm upgrade from previous release."""
 
-    async def test_upgrade(self, ops_test: OpsTest, charm: str, charm_image: str):
+    def test_upgrade(self, juju: jubilant.Juju, charm: str, charm_image: str):
         """Builds the current charm and refreshes the current deployment."""
-        await ops_test.model.applications[APP_NAME].refresh(
-            path=str(charm), resources={"trino-image": charm_image}
-        )
+        juju.refresh(APP_NAME, path=str(charm), resources={"trino-image": charm_image})
 
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME],
-                status="active",
-                raise_on_blocked=False,
-                timeout=600,
-            )
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+        assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
-            assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
-
-    async def test_ui_relation(self, ops_test: OpsTest):
+    def test_ui_relation(self, juju: jubilant.Juju):
         """Perform GET request on the Trino UI host."""
-        url = await get_unit_url(ops_test, application=APP_NAME, unit=0, port=8080)
+        url = get_unit_url(juju, application=APP_NAME, unit=0, port=8080)
         logger.info("curling app address: %s", url)
 
         response = requests.get(url, timeout=300)
         assert response.status_code == 200
 
-    async def test_config_unchanged(self, ops_test: OpsTest):
+    def test_config_unchanged(self, juju: jubilant.Juju):
         """Validate config remains unchanged."""
-        command = ["config", "trino-k8s"]
-        returncode, stdout, stderr = await ops_test.juju(*command, check=True)
-        if stderr:
-            logger.error(f"{returncode}: {stderr}")
-        config = yaml.safe_load(stdout)
-        acl_mode_default = config["settings"]["acl-mode-default"]["value"]
+        config = juju.config(APP_NAME)
+        acl_mode_default = config["acl-mode-default"]
         assert acl_mode_default == "none"

@@ -6,15 +6,16 @@
 
 import logging
 import os
+import time
 from pathlib import Path
 
+import jubilant
 import requests
 import trino.exceptions
 import yaml
 from apache_ranger.client.ranger_client import RangerClient
 from apache_ranger.client.ranger_user_mgmt_client import RangerUserMgmtClient
 from apache_ranger.model.ranger_user_mgmt import RangerUser
-from pytest_operator.plugin import OpsTest
 from trino_client.trino_client import query_trino
 
 logger = logging.getLogger(__name__)
@@ -109,11 +110,108 @@ COORDINATOR_CONFIG = {
 }
 
 
-async def get_unit_url(ops_test: OpsTest, application, unit, port, protocol="http"):
+def unit_name(application: str, unit: int = 0) -> str:
+    """Build a Juju unit name from an application name and index."""
+    return f"{application}/{unit}"
+
+
+def get_status(juju: jubilant.Juju):
+    """Fetch the current model status."""
+    return juju.status()
+
+
+def get_unit(juju: jubilant.Juju, application: str, unit: int = 0):
+    """Return a single unit status from the current model status."""
+    return get_status(juju).apps[application].units[unit_name(application, unit)]
+
+
+def _exact_unit_counts(apps: list[str], wait_for_exact_units: int | dict[str, int] | None):
+    """Return expected unit counts for apps when exact counts are requested."""
+    if isinstance(wait_for_exact_units, int):
+        return dict.fromkeys(apps, wait_for_exact_units)
+    return wait_for_exact_units or {}
+
+
+def _apps_ready(model_status, apps: list[str], status: str, exact_units: dict[str, int]):
+    """Return whether all selected applications match the expected state."""
+    for app in apps:
+        if app not in model_status.apps:
+            return False
+
+        app_status = model_status.apps[app]
+        if app_status.app_status.current != status:
+            return False
+        if app in exact_units and len(app_status.units) != exact_units[app]:
+            return False
+        if any(unit.workload_status.current != status for unit in app_status.units.values()):
+            return False
+
+    return True
+
+
+def _apps_in_error(model_status, apps: list[str], status: str, raise_on_blocked: bool):
+    """Return whether any selected application is in a terminal wait state."""
+    for app in apps:
+        app_status = model_status.apps.get(app)
+        if app_status is None:
+            continue
+        if app_status.app_status.current == "error":
+            return True
+        if raise_on_blocked and app_status.app_status.current == "blocked" and status != "blocked":
+            return True
+        for unit_status in app_status.units.values():
+            if unit_status.workload_status.current == "error":
+                return True
+            if (
+                raise_on_blocked
+                and unit_status.workload_status.current == "blocked"
+                and status != "blocked"
+            ):
+                return True
+
+    return False
+
+
+def wait_for_apps(
+    juju: jubilant.Juju,
+    apps: list[str],
+    *,
+    status: str,
+    timeout: float,
+    raise_on_blocked: bool = False,
+    wait_for_exact_units: int | dict[str, int] | None = None,
+    idle_period: int | None = None,
+    delay: float = 2.0,
+):
+    """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
+    exact_units = _exact_unit_counts(apps, wait_for_exact_units)
+
+    successes = max(3, int(idle_period / delay)) if idle_period else 3
+
+    def ready(model_status):
+        return _apps_ready(model_status, apps, status, exact_units)
+
+    def error(model_status):
+        return _apps_in_error(model_status, apps, status, raise_on_blocked)
+
+    return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+
+
+def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay: float = 2.0):
+    """Wait until an application no longer appears in model status."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if app not in get_status(juju).apps:
+            return
+        time.sleep(delay)
+    raise TimeoutError(f"Application {app!r} still present after {timeout}s")
+
+
+def get_unit_url(juju: jubilant.Juju, application, unit, port, protocol="http"):
     """Return unit URL from the model.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         application: Name of the application.
         unit: Number of the unit.
         port: Port number of the URL.
@@ -122,16 +220,15 @@ async def get_unit_url(ops_test: OpsTest, application, unit, port, protocol="htt
     Returns:
         Unit URL of the form {protocol}://{address}:{port}
     """
-    status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][application]["units"][f"{application}/{unit}"]["address"]
+    address = get_unit(juju, application, unit).address
     return f"{protocol}://{address}:{port}"
 
 
-async def get_catalogs(ops_test: OpsTest, user, app_name):
+def get_catalogs(juju: jubilant.Juju, user, app_name):
     """Return a list of catalogs from Trino charm.
 
     Args:
-        ops_test: PyTest object
+        juju: Jubilant Juju object.
         user: the user to access Trino with
         app_name: name of the application
 
@@ -139,17 +236,17 @@ async def get_catalogs(ops_test: OpsTest, user, app_name):
         catalogs: list of catalogs connected to trino
     """
     try:
-        catalogs = await run_query(ops_test, user, CATALOG_QUERY, app_name)
+        catalogs = run_query(juju, user, CATALOG_QUERY, app_name)
     except trino.exceptions.TrinoUserError:
         catalogs = []
     return catalogs
 
 
-async def run_query(ops_test: OpsTest, user, query, app_name=APP_NAME):
+def run_query(juju: jubilant.Juju, user, query, app_name=APP_NAME):
     """Run a SQL query against the Trino coordinator.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         user: the user to access Trino with.
         query: SQL query to execute.
         app_name: name of the application.
@@ -157,34 +254,30 @@ async def run_query(ops_test: OpsTest, user, query, app_name=APP_NAME):
     Returns:
         Query result rows.
     """
-    status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][app_name]["units"][f"{app_name}/{0}"]["address"]
+    address = get_unit(juju, app_name).address
     logger.info("executing query on app address: %s", address)
-    return await query_trino(address, user, query)
+    return query_trino(address, user, query)
 
 
-async def update_catalog_config(ops_test, catalog_config, user):
+def update_catalog_config(juju: jubilant.Juju, catalog_config, user):
     """Run connection action.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         catalog_config: The catalogs configuration value.
         user: the user to access Trino with.
 
     Returns:
         A string of trino catalogs.
     """
-    await ops_test.model.applications[APP_NAME].set_config({"catalog-config": catalog_config})
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME], status="active", timeout=600
-        )
-    catalogs = await get_catalogs(ops_test, user, APP_NAME)
+    juju.config(APP_NAME, {"catalog-config": catalog_config})
+    wait_for_apps(juju, [APP_NAME, WORKER_NAME], status="active", timeout=600)
+    catalogs = get_catalogs(juju, user, APP_NAME)
     logging.info(f"Catalogs: {catalogs}")
     return catalogs
 
 
-async def create_user(ranger_url):
+def create_user(ranger_url):
     """Create Ranger user.
 
     Args:
@@ -202,7 +295,7 @@ async def create_user(ranger_url):
     logger.info(res)
 
 
-async def update_policies(ranger_url):
+def update_policies(ranger_url):
     """Update Ranger user policy.
 
     Allow user `USER_WITH_ACCESS` to access `system` catalog.
@@ -218,41 +311,43 @@ async def update_policies(ranger_url):
         ranger.update_policy(TRINO_SERVICE, policy_name, policy)
 
 
-async def scale(ops_test: OpsTest, app, units):
+def scale(juju: jubilant.Juju, app, units):
     """Scale the application to the provided number and wait for idle.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         app: Application to be scaled.
         units: Number of units required.
     """
-    async with ops_test.fast_forward():
-        await ops_test.model.applications[app].scale(scale=units)
+    current_units = len(get_status(juju).apps[app].units)
+    if units > current_units:
+        juju.add_unit(app, num_units=units - current_units)
+    elif units < current_units:
+        juju.remove_unit(app, num_units=current_units - units)
 
-        # Wait for model to settle
-        await ops_test.model.wait_for_idle(
-            apps=[app],
-            status="active",
-            idle_period=30,
-            raise_on_blocked=True,
-            timeout=600,
-            wait_for_exact_units=units,
-        )
+    wait_for_apps(
+        juju,
+        [app],
+        status="active",
+        idle_period=30,
+        raise_on_blocked=True,
+        timeout=600,
+        wait_for_exact_units=units,
+    )
 
 
-async def get_active_workers(ops_test: OpsTest):
+def get_active_workers(juju: jubilant.Juju):
     """Get active trino workers.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
 
     Returns:
         active_workers: list of active workers.
     """
-    status = await ops_test.model.get_status()  # noqa: F821
-    address = status["applications"][APP_NAME]["units"][f"{APP_NAME}/{0}"]["address"]
+    address = get_unit(juju, APP_NAME).address
     logger.info("executing query on app address: %s", address)
-    result = await query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
+    result = query_trino(address, USER_WITH_ACCESS, WORKER_QUERY)
     active_workers = [
         x
         for x in result
@@ -263,68 +358,65 @@ async def get_active_workers(ops_test: OpsTest):
     return active_workers
 
 
-async def simulate_crash_and_restart(ops_test, charm, charm_image):
+def simulate_crash_and_restart(juju: jubilant.Juju, charm, charm_image):
     """Simulate the crash of the Trino coordinator.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         charm: charm path.
         charm_image: path to rock image to be used.
     """
     # Destroy charm
-    await ops_test.model.applications[APP_NAME].destroy()
-    await ops_test.model.block_until(lambda: APP_NAME not in ops_test.model.applications)
+    juju.remove_application(APP_NAME)
+    wait_for_app_gone(juju, APP_NAME)
 
     # Deploy charm again
-    async with ops_test.fast_forward():
-        await ops_test.model.deploy(
-            charm,
-            resources={"trino-image": charm_image},
-            application_name=APP_NAME,
-            config=COORDINATOR_CONFIG,
-            num_units=1,
-            trust=True,
-        )
+    juju.deploy(
+        charm,
+        APP_NAME,
+        resources={"trino-image": charm_image},
+        config=COORDINATOR_CONFIG,
+        num_units=1,
+        trust=True,
+    )
 
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
+    wait_for_apps(
+        juju,
+        [APP_NAME],
+        status="blocked",
+        timeout=1000,
+    )
 
-        await ops_test.model.integrate(
-            f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker"
-        )
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=1000,
-        )
+    juju.integrate(f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker")
+    wait_for_apps(
+        juju,
+        [APP_NAME, WORKER_NAME],
+        status="active",
+        timeout=1000,
+    )
 
 
-async def curl_unit_ip(ops_test):
+def curl_unit_ip(juju: jubilant.Juju):
     """Curl the coordinator unit IP.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
 
     Returns:
         response: Request response.
     """
-    url = await get_unit_url(ops_test, application=APP_NAME, unit=0, port=8080)
+    url = get_unit_url(juju, application=APP_NAME, unit=0, port=8080)
     logger.info("curling app address: %s", url)
 
     response = requests.get(url, timeout=300, verify=False)  # nosec
     return response
 
 
-async def add_juju_secret(ops_test: OpsTest, connector_type: str):
+def add_juju_secret(juju: jubilant.Juju, connector_type: str):
     """Add Juju user secret to model.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         connector_type: Type of connector secret to add.
 
     Returns:
@@ -334,27 +426,24 @@ async def add_juju_secret(ops_test: OpsTest, connector_type: str):
         ValueError: in case connector is not supported.
     """
     if connector_type == "postgresql":
-        data_args = [f"replicas={POSTGRESQL_REPLICA_SECRET}"]  # nosec
+        content = {"replicas": POSTGRESQL_REPLICA_SECRET}  # nosec
     elif connector_type == "mysql":
-        data_args = [f"replicas=={MYSQL_REPLICA_SECRET}"]  # nosec
+        content = {"replicas": MYSQL_REPLICA_SECRET}  # nosec
     elif connector_type == "redshift":
-        data_args = [f"replicas=={REDSHIFT_REPLICA_SECRET}"]  # nosec
+        content = {"replicas": REDSHIFT_REPLICA_SECRET}  # nosec
     elif connector_type == "bigquery":
-        data_args = [f"service-accounts={BIGQUERY_SECRET}"]  # nosec
+        content = {"service-accounts": BIGQUERY_SECRET}  # nosec
     elif connector_type == "gsheets":
-        data_args = [f"service-accounts={GSHEETS_SECRET}"]  # nosec
+        content = {"service-accounts": GSHEETS_SECRET}  # nosec
     else:
         raise ValueError(f"Unsupported secret type: {connector_type}")
 
-    juju_secret = await ops_test.model.add_secret(
-        name=f"{connector_type}-secret", data_args=data_args
-    )
-
-    secret_id = juju_secret.split(":")[-1]
+    juju_secret = juju.add_secret(name=f"{connector_type}-secret", content=content)
+    secret_id = str(juju_secret).split(":")[-1]
     return secret_id
 
 
-async def create_catalog_config(
+def create_catalog_config(
     postgresql_secret_id,
     mysql_secret_id,
     redshift_secret_id,
@@ -473,21 +562,17 @@ async def create_catalog_config(
     return catalog_config
 
 
-async def get_secret_id_by_label(ops_test: OpsTest, label: str):
+def get_secret_id_by_label(juju: jubilant.Juju, label: str):
     """Get the secret ID by label.
 
     Args:
-        ops_test: PyTest object.
+        juju: Jubilant Juju object.
         label: Label of the secret to find.
 
     Returns:
         Secret ID string if found, None otherwise.
     """
-    result = await ops_test.juju("secrets", "--format=yaml")
-    if result[0] != 0:
-        return None
-
-    secrets = yaml.safe_load(result[1])
+    secrets = yaml.safe_load(juju.cli("secrets", "--format=yaml"))
 
     for secret_id, info in secrets.items():
         if info and info.get("name") == label:

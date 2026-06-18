@@ -7,7 +7,7 @@
 from trino.dbapi import connect
 
 
-async def query_trino(host, user, query) -> str:
+def query_trino(host, user, query) -> str:
     """Trino catalogs.
 
     Args:

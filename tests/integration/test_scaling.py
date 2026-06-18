@@ -5,9 +5,9 @@
 
 import logging
 
+import jubilant
 import pytest
-from helpers import WORKER_NAME, get_active_workers, scale
-from pytest_operator.plugin import OpsTest
+from helpers import WORKER_NAME, get_active_workers, get_status, scale
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +17,18 @@ logger = logging.getLogger(__name__)
 class TestScaling:
     """Integration tests for Trino worker scaling."""
 
-    async def test_scaling_up(self, ops_test: OpsTest):
+    def test_scaling_up(self, juju: jubilant.Juju):
         """Scale Trino worker up to 2 units."""
-        await scale(ops_test, app=WORKER_NAME, units=2)
-        assert len(ops_test.model.applications[WORKER_NAME].units) == 2
+        scale(juju, app=WORKER_NAME, units=2)
+        assert len(get_status(juju).apps[WORKER_NAME].units) == 2
 
-        active_workers = await get_active_workers(ops_test)
+        active_workers = get_active_workers(juju)
         assert len(active_workers) == 2
 
-    async def test_scaling_down(self, ops_test: OpsTest):
+    def test_scaling_down(self, juju: jubilant.Juju):
         """Scale Trino worker down to 1 unit."""
-        await scale(ops_test, app=WORKER_NAME, units=1)
-        assert len(ops_test.model.applications[WORKER_NAME].units) == 1
+        scale(juju, app=WORKER_NAME, units=1)
+        assert len(get_status(juju).apps[WORKER_NAME].units) == 1
 
-        active_workers = await get_active_workers(ops_test)
+        active_workers = get_active_workers(juju)
         assert len(active_workers) == 1

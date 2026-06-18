@@ -6,6 +6,7 @@
 
 import logging
 
+import jubilant
 import pytest
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
@@ -17,8 +18,8 @@ from helpers import (
     get_catalogs,
     simulate_crash_and_restart,
     update_catalog_config,
+    wait_for_apps,
 )
-from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
@@ -28,33 +29,33 @@ logger = logging.getLogger(__name__)
 class TestDeployment:
     """Integration tests for Trino charm."""
 
-    async def test_trino_ui(self, ops_test: OpsTest):
+    def test_trino_ui(self, juju: jubilant.Juju):
         """Perform GET request on the Trino UI host."""
-        response = await curl_unit_ip(ops_test)
+        response = curl_unit_ip(juju)
         assert response.status_code == 200
 
-    async def test_basic_client(self, ops_test: OpsTest):
+    def test_basic_client(self, juju: jubilant.Juju):
         """Connects a client and executes a basic SQL query."""
-        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
+        catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
         logging.info(f"Found catalogs: {catalogs}")
         assert catalogs
 
-    async def test_catalog_config(self, ops_test: OpsTest):
+    def test_catalog_config(self, juju: jubilant.Juju):
         """Adds a PostgreSQL and BigQuery connector and asserts catalogs added."""
-        postgresql_secret_id = await add_juju_secret(ops_test, "postgresql")
-        mysql_secret_id = await add_juju_secret(ops_test, "mysql")
-        redshift_secret_id = await add_juju_secret(ops_test, "redshift")
-        bigquery_secret_id = await add_juju_secret(ops_test, "bigquery")
-        gsheet_secret_id = await add_juju_secret(ops_test, "gsheets")
+        postgresql_secret_id = add_juju_secret(juju, "postgresql")
+        mysql_secret_id = add_juju_secret(juju, "mysql")
+        redshift_secret_id = add_juju_secret(juju, "redshift")
+        bigquery_secret_id = add_juju_secret(juju, "bigquery")
+        gsheet_secret_id = add_juju_secret(juju, "gsheets")
 
         for app in ["trino-k8s", "trino-k8s-worker"]:
-            await ops_test.model.grant_secret("postgresql-secret", app)
-            await ops_test.model.grant_secret("mysql-secret", app)
-            await ops_test.model.grant_secret("redshift-secret", app)
-            await ops_test.model.grant_secret("bigquery-secret", app)
-            await ops_test.model.grant_secret("gsheets-secret", app)
+            juju.grant_secret("postgresql-secret", app)
+            juju.grant_secret("mysql-secret", app)
+            juju.grant_secret("redshift-secret", app)
+            juju.grant_secret("bigquery-secret", app)
+            juju.grant_secret("gsheets-secret", app)
 
-        catalog_config = await create_catalog_config(
+        catalog_config = create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
             redshift_secret_id,
@@ -62,7 +63,7 @@ class TestDeployment:
             gsheet_secret_id,
             True,
         )
-        catalogs = await update_catalog_config(ops_test, catalog_config, TRINO_USER)
+        catalogs = update_catalog_config(juju, catalog_config, TRINO_USER)
 
         # Verify that both catalogs have been added.
         assert "postgresql-1" in str(catalogs)
@@ -71,7 +72,7 @@ class TestDeployment:
         assert "bigquery" in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
-        updated_catalog_config = await create_catalog_config(
+        updated_catalog_config = create_catalog_config(
             postgresql_secret_id,
             mysql_secret_id,
             redshift_secret_id,
@@ -80,7 +81,7 @@ class TestDeployment:
             False,
         )
 
-        catalogs = await update_catalog_config(ops_test, updated_catalog_config, TRINO_USER)
+        catalogs = update_catalog_config(juju, updated_catalog_config, TRINO_USER)
 
         # Verify that only the bigquery catalog has been removed.
         assert "postgresql-1" in str(catalogs)
@@ -89,27 +90,26 @@ class TestDeployment:
         assert "bigquery" not in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
-    async def test_simulate_crash(self, ops_test: OpsTest, charm: str, charm_image: str):
+    def test_simulate_crash(self, juju: jubilant.Juju, charm: str, charm_image: str):
         """Simulate the crash of the Trino coordinator charm.
 
         Args:
-            ops_test: PyTest object.
+            juju: Jubilant Juju object.
             charm: charm path.
             charm_image: path to rock image to be used.
         """
-        await simulate_crash_and_restart(ops_test, charm, charm_image)
-        response = await curl_unit_ip(ops_test)
+        simulate_crash_and_restart(juju, charm, charm_image)
+        response = curl_unit_ip(juju)
         assert response.status_code == 200
 
-        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
+        catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
         assert catalogs
 
-    async def test_trino_default_policy(self, ops_test: OpsTest):
+    def test_trino_default_policy(self, juju: jubilant.Juju):
         """Update the config and verify no catalog access."""
-        await ops_test.model.applications[APP_NAME].set_config({"acl-mode-default": "none"})
+        juju.config(APP_NAME, {"acl-mode-default": "none"})
 
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(apps=[APP_NAME], status="active", timeout=600)
-        catalogs = await get_catalogs(ops_test, TRINO_USER, APP_NAME)
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+        catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
         logging.info(f"Found catalogs: {catalogs}")
         assert not catalogs
