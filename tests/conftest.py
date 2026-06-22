@@ -24,6 +24,15 @@ def pytest_addoption(parser: pytest.Parser):
     parser.addoption("--charm-file", action="append", default=[])
     # The charm image name:tag.
     parser.addoption("--trino-image", action="store", default="")
+    parser.addoption(
+        "--keep-models",
+        action="store_true",
+        default=False,
+    )
+    parser.addoption(
+        "--model",
+        action="store",
+    )
 
 
 @pytest.hookimpl(hookwrapper=True)
