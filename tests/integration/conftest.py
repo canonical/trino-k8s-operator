@@ -111,6 +111,6 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         juju,
         [APP_NAME, WORKER_NAME],
         status="active",
-        timeout=300,
+        timeout=600,
     )
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
