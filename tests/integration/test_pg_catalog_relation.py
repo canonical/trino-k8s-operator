@@ -135,6 +135,21 @@ def remove_pg_relation(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
     juju.remove_relation(APP_NAME, pg_name)
     wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
+    # Wait for the relation to be fully removed from Juju's state
+    # to avoid "relation is dying, but not yet removed" errors on re-integrate.
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        status = juju.status()
+        app_status = status.apps.get(APP_NAME)
+        if app_status is None:
+            break
+        pg_relations = app_status.relations.get("postgresql", [])
+        if not any(r.related_app == pg_name for r in pg_relations):
+            break
+        time.sleep(2)
+    else:
+        raise TimeoutError(f"Relation {APP_NAME}:postgresql {pg_name} still present after 300s")
+
 
 def set_pg_config(juju: jubilant.Juju, config_str, expect_blocked=False):
     """Set postgresql-catalog-config and wait for idle.
