@@ -200,7 +200,15 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Args:
             event: The Juju event that triggered reconciliation (optional).
         """
-        if self.charm.config.charm_function not in ("coordinator", "all"):
+        # While invalid configuration is caught during config changes
+        # other hooks can still fire afterwards even if the charm is blocked.
+        try:
+            charm_function = self.charm.config.charm_function
+        except pydantic.ValidationError:
+            logger.warning("Skipping PG catalog reconciliation: charm config is invalid")
+            return
+
+        if charm_function not in ("coordinator", "all"):
             return
 
         self._write_databag()

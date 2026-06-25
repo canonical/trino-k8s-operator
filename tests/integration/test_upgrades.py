@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(name="deploy-upgrade", scope="module")
 def deploy(juju: jubilant.Juju):
     """Deploy the app."""
+    juju.model_config({"update-status-hook-interval": "10s"})
+
     # Deploy trino and nginx charms
     trino_config = {
         "acl-mode-default": "none",

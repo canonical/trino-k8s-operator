@@ -44,6 +44,8 @@ def deploy_requirer(juju: jubilant.Juju):
 @pytest.fixture(name="deploy-trino", scope="module")
 def deploy_trino(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the trino charm once for all tests in this module."""
+    juju.model_config({"update-status-hook-interval": "10s"})
+
     # Deploy trino charm
     juju.deploy(
         charm,

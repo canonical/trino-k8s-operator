@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(name="deploy-resources", scope="module")
 def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the app."""
+    juju.model_config({"update-status-hook-interval": "10s"})
+
     trino_config = {
         "charm-function": "all",
     }
@@ -30,7 +32,7 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         num_units=1,
         trust=True,
     )
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=300)
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 

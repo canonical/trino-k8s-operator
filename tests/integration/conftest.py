@@ -72,6 +72,8 @@ def charm_fixture(request: FixtureRequest) -> str | Path:
 @pytest.fixture(name="deploy", scope="module")
 def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the app."""
+    juju.model_config({"update-status-hook-interval": "10s"})
+
     # Deploy trino and nginx charms
     juju.deploy(
         charm,
