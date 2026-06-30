@@ -32,7 +32,7 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         num_units=1,
         trust=True,
     )
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=900)
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 

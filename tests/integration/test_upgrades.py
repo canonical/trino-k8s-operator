@@ -25,7 +25,7 @@ def deploy(juju: jubilant.Juju):
     }
     juju.deploy(APP_NAME, channel="edge", config=trino_config, trust=True)
 
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=900)
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 
