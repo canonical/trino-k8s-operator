@@ -110,19 +110,12 @@ COORDINATOR_CONFIG = {
 }
 
 
-def unit_name(application: str, unit: int = 0) -> str:
-    """Build a Juju unit name from an application name and index."""
-    return f"{application}/{unit}"
-
-
-def get_status(juju: jubilant.Juju):
-    """Fetch the current model status."""
-    return juju.status()
-
-
-def get_unit(juju: jubilant.Juju, application: str, unit: int = 0):
+def get_unit(
+    juju: jubilant.Juju, application: str, unit: int = 0
+) -> jubilant.statustypes.UnitStatus:
     """Return a single unit status from the current model status."""
-    return get_status(juju).apps[application].units[unit_name(application, unit)]
+    unit_name = f"{application}/{unit}"
+    return juju.status().apps[application].units[unit_name]
 
 
 def _exact_unit_counts(apps: list[str], wait_for_exact_units: int | dict[str, int] | None):
@@ -201,7 +194,7 @@ def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay
     """Wait until an application no longer appears in model status."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if app not in get_status(juju).apps:
+        if app not in juju.status().apps:
             return
         time.sleep(delay)
     raise TimeoutError(f"Application {app!r} still present after {timeout}s")
@@ -319,7 +312,7 @@ def scale(juju: jubilant.Juju, app, units):
         app: Application to be scaled.
         units: Number of units required.
     """
-    current_units = len(get_status(juju).apps[app].units)
+    current_units = len(juju.status().apps[app].units)
     if units > current_units:
         juju.add_unit(app, num_units=units - current_units)
     elif units < current_units:
