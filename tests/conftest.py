@@ -43,6 +43,8 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
     setattr(item, f"rep_{report.when}", report)
 
 
+# TODO (mertalpt): Retire this fixture in favor of `pytest -x`
+# and clean up tests and `pytest_configure`.
 @pytest.fixture(autouse=True)
 def abort_on_fail(request: pytest.FixtureRequest):
     """Preserve pytest-operator abort-on-fail semantics at module scope."""

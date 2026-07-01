@@ -126,6 +126,7 @@ def test_catalog_added(ctx):
 
 def test_catalog_removed(ctx, tmp_path):
     """The catalog directory is updated to remove existing catalogs."""
+    # We need the mount for permanence because `ctx.run` is called twice.
     container = trino_container(
         mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
     )
