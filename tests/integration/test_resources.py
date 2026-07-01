@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(name="deploy-resources", scope="module")
 def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the app."""
-    juju.model_config({"update-status-hook-interval": "10s"})
-
     trino_config = {
         "charm-function": "all",
     }

@@ -7,7 +7,9 @@
 import logging
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 import jubilant
 import requests
@@ -118,6 +120,17 @@ def get_unit(
     return juju.status().apps[application].units[unit_name]
 
 
+@contextmanager
+def fast_forward_ctx(juju: jubilant.Juju, interval: str) -> Generator[None, None, None]:
+    """Simulate OpsTest fast forward semantics."""
+    old_interval = juju.model_config()["update-status-hook-interval"]
+    try:
+        juju.model_config({"update-status-hook-interval": interval})
+        yield
+    finally:
+        juju.model_config({"update-status-hook-interval": old_interval})
+
+
 def _apps_ready(
     model_status: jubilant.Status, apps: list[str], status: str, exact_units: dict[str, int]
 ) -> bool:
@@ -172,6 +185,7 @@ def wait_for_apps(
     wait_for_exact_units: int | dict[str, int] | None = None,
     idle_period: int | None = None,
     delay: float = 2.0,
+    fast_forward: str | None = "10s",
 ):
     """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
     exact_units: dict[str, int] = {}
@@ -188,7 +202,11 @@ def wait_for_apps(
     def error(model_status):
         return _apps_in_error(model_status, apps, status, raise_on_blocked)
 
-    return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+    if not fast_forward:
+        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+
+    with fast_forward_ctx(juju, fast_forward):
+        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
 
 
 def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay: float = 2.0):
