@@ -16,7 +16,6 @@ from helpers import (
     add_juju_secret,
     create_catalog_config,
     get_secret_id_by_label,
-    get_status,
     get_unit,
     wait_for_app_gone,
     wait_for_apps,
@@ -69,11 +68,10 @@ def test_02_trino_catalog_relation_created(juju: jubilant.Juju):
     """Test creating the trino-catalog relation."""
     # Add the relation
     juju.integrate(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
-    wait_for_apps(juju, [REQUIRER_APP], status="active", timeout=1000)
+    wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
 
     # Verify relation exists
-    trino_catalog_relations = get_status(juju).apps[APP_NAME].relations.get("trino-catalog", [])
+    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
     assert len(trino_catalog_relations) > 0
 
 
@@ -140,8 +138,7 @@ def test_04_trino_catalog_relation_set_catalogs(juju: jubilant.Juju):
 
     # Update Trino with catalog config
     juju.config(APP_NAME, {"catalog-config": catalog_config})
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
-    wait_for_apps(juju, [REQUIRER_APP], status="active", timeout=1000)
+    wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
 
     # Verify the requirer received the catalogs
     action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
@@ -328,7 +325,7 @@ def test_08_multiple_requirers(juju: jubilant.Juju):
     wait_for_apps(juju, [requirer_app_2], status="active", timeout=1000)
 
     # Verify both requirers are connected
-    trino_catalog_relations = get_status(juju).apps[APP_NAME].relations.get("trino-catalog", [])
+    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
     # Should have at least 2 relations
     assert len(trino_catalog_relations) >= 2
 
@@ -365,7 +362,7 @@ def test_09_relation_broken(juju: jubilant.Juju):
     wait_for_apps(juju, [REQUIRER_APP], status="blocked", timeout=1000)
 
     # Verify relation is removed
-    trino_catalog_relations = get_status(juju).apps[APP_NAME].relations.get("trino-catalog", [])
+    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
     assert len(trino_catalog_relations) == 0
 
     # Requirer should be blocked

@@ -93,8 +93,8 @@ class TestPolicyManager:
 
         catalogs = get_catalogs(juju, USER_WITH_ACCESS, APP_NAME)
         assert catalogs == [["system"]]
-        logger.info(f"{USER_WITH_ACCESS} can access {catalogs}.")
+        logger.info("%s can access %s.", USER_WITH_ACCESS, catalogs)
 
         catalogs = get_catalogs(juju, USER_WITHOUT_ACCESS, APP_NAME)
-        logger.info(f"{USER_WITHOUT_ACCESS} can not access {catalogs}.")
+        logger.info("%s can not access %s.", USER_WITH_ACCESS, catalogs)
         assert catalogs == []

@@ -51,4 +51,6 @@ class TestUpgrade:
         """Validate config remains unchanged."""
         config = juju.config(APP_NAME)
         acl_mode_default = config["acl-mode-default"]
+
+        # Default is `owner` but we deploy with `none`.
         assert acl_mode_default == "none"

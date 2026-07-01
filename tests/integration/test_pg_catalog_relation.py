@@ -18,10 +18,8 @@ from helpers import (
     add_juju_secret,
     create_catalog_config,
     get_catalogs,
-    get_status,
     get_unit,
     scale,
-    unit_name,
     update_catalog_config,
     wait_for_app_gone,
     wait_for_apps,
@@ -206,7 +204,7 @@ def query_pg_catalog(juju: jubilant.Juju, catalog_name):
     Returns:
         List of schemas
     """
-    address = get_status(juju).apps[APP_NAME].units[f"{APP_NAME}/0"].address
+    address = get_unit(juju, APP_NAME).address
     return query_trino(address, TRINO_USER, f'SHOW SCHEMAS FROM "{catalog_name}"')
 
 
@@ -222,7 +220,7 @@ def get_properties_file(juju: jubilant.Juju, catalog_name):
     """
     try:
         return juju.ssh(
-            unit_name(APP_NAME),
+            f"{APP_NAME}/0",
             "cat",
             f"{CATALOG_DIR}/{catalog_name}.properties",
             container="trino",
@@ -347,11 +345,12 @@ class TestPostgresqlCatalogRelation:
             add_juju_secret(juju, "bigquery"),
             add_juju_secret(juju, "gsheets"),
         )
-        for app in [APP_NAME, WORKER_NAME]:
-            juju.grant_secret("mysql-secret", app)
-            juju.grant_secret("redshift-secret", app)
-            juju.grant_secret("bigquery-secret", app)
-            juju.grant_secret("gsheets-secret", app)
+
+        apps = [APP_NAME, WORKER_NAME]
+        juju.grant_secret("mysql-secret", apps)
+        juju.grant_secret("redshift-secret", apps)
+        juju.grant_secret("bigquery-secret", apps)
+        juju.grant_secret("gsheets-secret", apps)
 
         update_catalog_config(juju, catalog_config, TRINO_USER)
 
@@ -455,7 +454,7 @@ class TestPostgresqlCatalogRelation:
         schemas = query_pg_catalog(juju, "persist_catalog")
         assert any("public" in s for s in schemas)
 
-        juju.ssh(unit_name(APP_NAME), "/charm/bin/pebble", "restart", "trino", container="trino")
+        juju.ssh(f"{APP_NAME}/0", "/charm/bin/pebble", "restart", "trino", container="trino")
 
         wait_for_apps(juju, [APP_NAME, WORKER_NAME], status="active", timeout=600)
 

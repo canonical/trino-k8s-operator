@@ -7,7 +7,7 @@ import logging
 
 import jubilant
 import pytest
-from helpers import WORKER_NAME, get_active_workers, get_status, scale
+from helpers import WORKER_NAME, get_active_workers, scale
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class TestScaling:
     def test_scaling_up(self, juju: jubilant.Juju):
         """Scale Trino worker up to 2 units."""
         scale(juju, app=WORKER_NAME, units=2)
-        assert len(get_status(juju).apps[WORKER_NAME].units) == 2
+        assert len(juju.status().apps[WORKER_NAME].units) == 2
 
         active_workers = get_active_workers(juju)
         assert len(active_workers) == 2
@@ -28,7 +28,7 @@ class TestScaling:
     def test_scaling_down(self, juju: jubilant.Juju):
         """Scale Trino worker down to 1 unit."""
         scale(juju, app=WORKER_NAME, units=1)
-        assert len(get_status(juju).apps[WORKER_NAME].units) == 1
+        assert len(juju.status().apps[WORKER_NAME].units) == 1
 
         active_workers = get_active_workers(juju)
         assert len(active_workers) == 1
