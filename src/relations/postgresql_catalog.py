@@ -304,7 +304,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         catalog_dir = str(self.charm.catalog_abs_path)
         try:
             files = container.list_files(catalog_dir)
-        except (pebble.PathError, pebble.APIError):
+        except pebble.PathError:
             logger.debug("Catalog directory %s does not exist yet", catalog_dir)
             return {}
         except pebble.Error:
