@@ -37,12 +37,12 @@ class TestCatalogUpdates:
         bigquery_secret_id = add_juju_secret(juju, "bigquery")
         gsheet_secret_id = add_juju_secret(juju, "gsheets")
 
-        for app in ["trino-k8s", "trino-k8s-worker"]:
-            juju.grant_secret("postgresql-secret", app)
-            juju.grant_secret("mysql-secret", app)
-            juju.grant_secret("redshift-secret", app)
-            juju.grant_secret("bigquery-secret", app)
-            juju.grant_secret("gsheets-secret", app)
+        apps = ["trino-k8s", "trino-k8s-worker"]
+        juju.grant_secret("postgresql-secret", apps)
+        juju.grant_secret("mysql-secret", apps)
+        juju.grant_secret("redshift-secret", apps)
+        juju.grant_secret("bigquery-secret", apps)
+        juju.grant_secret("gsheets-secret", apps)
 
         catalog_config = create_catalog_config(
             postgresql_secret_id,

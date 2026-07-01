@@ -6,6 +6,7 @@
 
 import logging
 import os
+import textwrap
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -476,102 +477,70 @@ def create_catalog_config(
     Returns:
         the catalog configuration.
     """
+    catalogs = textwrap.dedent(f"""\
+        postgresql-1:
+            backend: dwh
+            database: example
+            secret-id: {postgresql_secret_id}
+        mysql:
+            backend: mysql
+            secret-id: {mysql_secret_id}
+        redshift:
+            backend: redshift
+            secret-id: {redshift_secret_id}
+        gsheets-1:
+            backend: gsheets
+            metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
+            secret-id: {gsheets_secret_id}
+    """)
+
+    backends = textwrap.dedent("""\
+        dwh:
+            connector: postgresql
+            url: jdbc:postgresql://example.com:5432
+            params: ssl=true&sslmode=require&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        mysql:
+            connector: mysql
+            url: jdbc:mysql://mysql.com:3306
+            params: sslMode=REQUIRED
+            config: |
+                case-insensitive-name-matching=true
+                decimal-mapping=allow_overflow
+                decimal-rounding-mode=HALF_UP
+        redshift:
+            connector: redshift
+            url: jdbc:redshift://redshift.com:5439/example
+            params: SSL=TRUE
+            config: |
+                case-insensitive-name-matching=true
+        gsheets:
+            connector: gsheets
+    """)
     if include_bigquery:
-        catalog_config = f"""\
-        catalogs:
-            postgresql-1:
-                backend: dwh
-                database: example
-                secret-id: {postgresql_secret_id}
-            mysql:
-                backend: mysql
-                secret-id: {mysql_secret_id}
-            redshift:
-                backend: redshift
-                secret-id: {redshift_secret_id}
+        catalogs += textwrap.dedent(f"""\
             bigquery:
                 backend: bigquery
                 project: project-12345
                 secret-id: {bigquery_secret_id}
-            gsheets-1:
-                backend: gsheets
-                metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
-                secret-id: {gsheets_secret_id}
-        backends:
-            dwh:
-                connector: postgresql
-                url: jdbc:postgresql://example.com:5432
-                params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
-                config: |
-                    case-insensitive-name-matching=true
-                    decimal-mapping=allow_overflow
-                    decimal-rounding-mode=HALF_UP
-            mysql:
-                connector: mysql
-                url: jdbc:mysql://mysql.com:3306
-                params: sslMode=REQUIRED
-                config: |
-                    case-insensitive-name-matching=true
-                    decimal-mapping=allow_overflow
-                    decimal-rounding-mode=HALF_UP
-            redshift:
-                connector: redshift
-                url: jdbc:redshift://redshift.com:5439/example
-                params: SSL=TRUE
-                config: |
-                    case-insensitive-name-matching=true
+        """)
+
+        backends += textwrap.dedent("""\
             bigquery:
                 connector: bigquery
                 config: |
                     bigquery.case-insensitive-name-matching=true
                     bigquery.arrow-serialization.enabled=false
-            gsheets:
-                connector: gsheets
-        """  # noqa: E501
-    else:
-        catalog_config = f"""\
-        catalogs:
-            postgresql-1:
-                backend: dwh
-                database: example
-                secret-id: {postgresql_secret_id}
-            mysql:
-                backend: mysql
-                secret-id: {mysql_secret_id}
-            redshift:
-                backend: redshift
-                secret-id: {redshift_secret_id}
-            gsheets-1:
-                backend: gsheets
-                metasheet-id: 1Es4HhWALUQjoa-bQh4a8B5HROz7dpGMfq_HbfoaW5LM
-                secret-id: {gsheets_secret_id}
-        backends:
-            dwh:
-                connector: postgresql
-                url: jdbc:postgresql://example.com:5432
-                params: ssl=true&sslmode=require&sslrootcert={{SSL_PATH}}&sslrootcertpassword={{SSL_PWD}}
-                config: |
-                    case-insensitive-name-matching=true
-                    decimal-mapping=allow_overflow
-                    decimal-rounding-mode=HALF_UP
-            mysql:
-                connector: mysql
-                url: jdbc:mysql://mysql.com:3306
-                params: sslMode=REQUIRED
-                config: |
-                    case-insensitive-name-matching=true
-                    decimal-mapping=allow_overflow
-                    decimal-rounding-mode=HALF_UP
-            redshift:
-                connector: redshift
-                url: jdbc:redshift://redshift.com:5439/example
-                params: SSL=TRUE
-                config: |
-                    case-insensitive-name-matching=true
-            gsheets:
-                connector: gsheets
-        """  # noqa: E501
-    return catalog_config
+        """)
+
+    ret = (
+        f"catalogs:\n{textwrap.indent(catalogs, '    ')}\n"
+        f"backends:\n{textwrap.indent(backends, '    ')}"
+    )
+    return ret
 
 
 def get_secret_id_by_label(juju: jubilant.Juju, label: str):
