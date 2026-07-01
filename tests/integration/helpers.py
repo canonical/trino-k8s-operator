@@ -118,14 +118,9 @@ def get_unit(
     return juju.status().apps[application].units[unit_name]
 
 
-def _exact_unit_counts(apps: list[str], wait_for_exact_units: int | dict[str, int] | None):
-    """Return expected unit counts for apps when exact counts are requested."""
-    if isinstance(wait_for_exact_units, int):
-        return dict.fromkeys(apps, wait_for_exact_units)
-    return wait_for_exact_units or {}
-
-
-def _apps_ready(model_status, apps: list[str], status: str, exact_units: dict[str, int]):
+def _apps_ready(
+    model_status: jubilant.Status, apps: list[str], status: str, exact_units: dict[str, int]
+) -> bool:
     """Return whether all selected applications match the expected state."""
     for app in apps:
         if app not in model_status.apps:
@@ -142,7 +137,9 @@ def _apps_ready(model_status, apps: list[str], status: str, exact_units: dict[st
     return True
 
 
-def _apps_in_error(model_status, apps: list[str], status: str, raise_on_blocked: bool):
+def _apps_in_error(
+    model_status: jubilant.Status, apps: list[str], status: str, raise_on_blocked: bool
+) -> bool:
     """Return whether any selected application is in a terminal wait state."""
     for app in apps:
         app_status = model_status.apps.get(app)
@@ -177,7 +174,11 @@ def wait_for_apps(
     delay: float = 2.0,
 ):
     """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
-    exact_units = _exact_unit_counts(apps, wait_for_exact_units)
+    exact_units: dict[str, int] = {}
+    if isinstance(wait_for_exact_units, dict):
+        exact_units = wait_for_exact_units
+    elif isinstance(wait_for_exact_units, int):
+        exact_units = dict.fromkeys(apps, wait_for_exact_units)
 
     successes = max(3, int(idle_period / delay)) if idle_period else 3
 
