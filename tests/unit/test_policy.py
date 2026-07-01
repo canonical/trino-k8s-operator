@@ -37,7 +37,7 @@ OPENSEARCH_TLS_CA = """-----BEGIN CERTIFICATE-----
 
 
 def _up_check_container(state):
-    """Return the container with a healthy ``up`` check applied."""
+    """Return the container with a healthy `up` check applied."""
     return dataclasses.replace(
         state.get_container("trino"),
         check_infos={
@@ -56,10 +56,10 @@ def _opensearch_setup(ctx):
     """Simulate a coordinator with Ranger and OpenSearch enabled.
 
     Args:
-        ctx: the Scenario ``Context`` for the charm.
+        ctx: the Scenario `Context` for the charm.
 
     Returns:
-        A ``(State, Relation)`` tuple with the OpenSearch index created and the
+        A `(State, Relation)` tuple with the OpenSearch index created and the
         OpenSearch relation object.
     """
     user_secret = observer_secret({"username": "testuser", "password": "testpassword"})  # nosec B105

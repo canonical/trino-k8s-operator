@@ -15,7 +15,7 @@ from charm import TrinoK8SCharm
 _CHARM_ROOT = pathlib.Path(__file__).parents[2]
 _CHARMCRAFT = yaml.safe_load((_CHARM_ROOT / "charmcraft.yaml").read_text())
 
-# Keys from the unified ``charmcraft.yaml`` that make up the charm metadata.
+# Keys from the unified `charmcraft.yaml` that make up the charm metadata.
 _META_KEYS = (
     "name",
     "summary",
@@ -31,13 +31,13 @@ _META_KEYS = (
 
 
 def _charm_meta() -> dict:
-    """Build the charm metadata mapping from ``charmcraft.yaml``."""
+    """Build the charm metadata mapping from `charmcraft.yaml`."""
     return {key: _CHARMCRAFT[key] for key in _META_KEYS if key in _CHARMCRAFT}
 
 
 @pytest.fixture
 def ctx():
-    """Return a Scenario ``Context`` for the Trino charm.
+    """Return a Scenario `Context` for the Trino charm.
 
     The Kubernetes statefulset patch is mocked for the duration of the test so
     that charm initialisation does not reach out to a real cluster.

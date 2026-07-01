@@ -139,10 +139,10 @@ def trino_container(can_connect=True, **kwargs):
 
     Args:
         can_connect: whether Pebble is reachable.
-        kwargs: extra keyword arguments forwarded to ``Container``.
+        kwargs: extra keyword arguments forwarded to `Container`.
 
     Returns:
-        A Scenario ``Container`` for the ``trino`` workload.
+        A Scenario `Container` for the `trino` workload.
     """
     return Container(
         "trino",
@@ -164,7 +164,7 @@ def observer_secret(content):
         content: the secret content mapping.
 
     Returns:
-        A Scenario ``Secret`` the charm can read with ``get_content(refresh=True)``.
+        A Scenario `Secret` the charm can read with `get_content(refresh=True)`.
     """
     return Secret(tracked_content=content, owner=None)
 
@@ -173,8 +173,8 @@ def catalog_secrets():
     """Create the standard set of catalog secrets used by the lifecycle helpers.
 
     Returns:
-        A ``SimpleNamespace`` with the individual secret objects, a ``catalogs``
-        set of all secrets, and the rendered ``catalog_config`` string.
+        A `SimpleNamespace` with the individual secret objects, a `catalogs`
+        set of all secrets, and the rendered `catalog_config` string.
     """
     bigquery = observer_secret({"service-accounts": BIGQUERY_SECRET})
     postgresql = observer_secret(
@@ -209,11 +209,11 @@ def build_coordinator_state(
     extra_secrets=(),
     container=None,
 ):
-    """Build the input ``State`` for a healthy Trino coordinator.
+    """Build the input `State` for a healthy Trino coordinator.
 
-    Mirrors the end-state established by the legacy ``simulate_lifecycle_coordinator``
+    Mirrors the end-state established by the legacy `simulate_lifecycle_coordinator`
     Harness helper: peer relation ready, catalog and user secrets present,
-    ``charm-function`` set to ``coordinator`` and a ``trino-coordinator`` relation.
+    `charm-function` set to `coordinator` and a `trino-coordinator` relation.
 
     Args:
         leader: whether the unit is the leader.
@@ -223,8 +223,8 @@ def build_coordinator_state(
         container: an explicit container to use instead of the default.
 
     Returns:
-        A ``(State, SimpleNamespace)`` tuple. The namespace carries the catalog
-        secret IDs, the ``catalog_config`` string and the relation objects so
+        A `(State, SimpleNamespace)` tuple. The namespace carries the catalog
+        secret IDs, the `catalog_config` string and the relation objects so
         tests can inspect the output databags.
     """
     cats = catalog_secrets()
@@ -272,11 +272,11 @@ def build_worker_state(
     extra_secrets=(),
     container=None,
 ):
-    """Build the input ``State`` for a Trino worker related to a coordinator.
+    """Build the input `State` for a Trino worker related to a coordinator.
 
-    Mirrors the end-state established by the legacy ``simulate_lifecycle_worker``
-    Harness helper. The ``trino-worker`` relation carries the coordinator's
-    published data so a ``relation-changed`` event reproduces worker behaviour.
+    Mirrors the end-state established by the legacy `simulate_lifecycle_worker`
+    Harness helper. The `trino-worker` relation carries the coordinator's
+    published data so a `relation-changed` event reproduces worker behaviour.
 
     Args:
         leader: whether the unit is the leader.
@@ -288,8 +288,8 @@ def build_worker_state(
         container: an explicit container to use instead of the default.
 
     Returns:
-        A ``(State, SimpleNamespace)`` tuple. The namespace carries the catalog
-        secret IDs, the ``catalog_config`` string, the int-comms secret and the
+        A `(State, SimpleNamespace)` tuple. The namespace carries the catalog
+        secret IDs, the `catalog_config` string, the int-comms secret and the
         relation objects.
     """
     cats = catalog_secrets()
@@ -340,16 +340,16 @@ def build_worker_state(
 
 
 def workload_path(state, ctx, path, container="trino"):
-    """Return a filesystem ``Path`` for a file inside the workload container.
+    """Return a filesystem `Path` for a file inside the workload container.
 
     Args:
-        state: the output ``State`` from ``ctx.run``.
-        ctx: the Scenario ``Context``.
+        state: the output `State` from `ctx.run`.
+        ctx: the Scenario `Context`.
         path: the absolute in-container path.
         container: the container name.
 
     Returns:
-        A ``pathlib.Path`` pointing at the mocked container file.
+        A `pathlib.Path` pointing at the mocked container file.
     """
     root = state.get_container(container).get_filesystem(ctx)
     return root / path.lstrip("/")
@@ -359,30 +359,30 @@ def peer_state_value(relation, name):
     """Decode a JSON-encoded value from the peer relation app databag.
 
     Args:
-        relation: the peer ``Relation`` taken from the output state.
+        relation: the peer `Relation` taken from the output state.
         name: the state attribute name.
 
     Returns:
-        The decoded value, or ``None`` when absent.
+        The decoded value, or `None` when absent.
     """
     raw = relation.local_app_data.get(name)
     return None if raw is None else json.loads(raw)
 
 
 def carry_forward(state, container="trino"):
-    """Return ``state`` prepared for a follow-up ``ctx.run``.
+    """Return `state` prepared for a follow-up `ctx.run`.
 
-    Scenario auto-populates a ``CheckInfo`` for plan checks with default
-    attributes (e.g. ``threshold=3``) that do not match the layer's check
-    definition. Carrying such a container straight into another ``ctx.run``
+    Scenario auto-populates a `CheckInfo` for plan checks with default
+    attributes (e.g. `threshold=3`) that do not match the layer's check
+    definition. Carrying such a container straight into another `ctx.run`
     trips the consistency checker, so the check statuses are cleared here.
 
     Args:
-        state: the output ``State`` from a previous ``ctx.run``.
+        state: the output `State` from a previous `ctx.run`.
         container: the container name to normalise.
 
     Returns:
-        A new ``State`` whose container reports no check statuses.
+        A new `State` whose container reports no check statuses.
     """
     cont = dataclasses.replace(state.get_container(container), check_infos=frozenset())
     return dataclasses.replace(state, containers={cont})
