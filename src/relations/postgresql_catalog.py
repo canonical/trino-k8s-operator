@@ -6,6 +6,7 @@
 import hashlib
 import json
 import logging
+import time
 from typing import Callable, Optional
 
 import pydantic
@@ -32,7 +33,7 @@ def _env_var_name(database: str) -> str:
         database: The database name.
 
     Returns:
-        Environment variable name, e.g. ``PG_PASS_MYDB``.
+        Environment variable name, e.g. `PG_PASS_MYDB`.
     """
     return PASS_ENV_VAR_PREFIX + database.upper().replace("-", "_")
 
@@ -194,8 +195,8 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         discrepancies.
 
         Before issuing SQL statements, ensures pebble env vars carry the
-        current passwords so that ``${ENV:…}`` references in CREATE CATALOG
-        resolve correctly.  Delegates replanning to ``self.charm._update()``.
+        current passwords so that `${ENV:…}` references in CREATE CATALOG
+        resolve correctly.  Delegates replanning to `self.charm._update()`.
 
         Args:
             event: The Juju event that triggered reconciliation (optional).
@@ -237,8 +238,8 @@ class PostgresqlCatalogRelationHandler(framework.Object):
 
         self._current_wanted_envs = None
 
-        if not self._is_trino_reachable():
-            logger.warning("Trino not reachable after replan, skipping catalog creates")
+        if not self._wait_for_trino_ready():
+            logger.warning("Trino not ready after replan, skipping catalog creates")
             return
 
         # CREATE new catalogs and UPDATE changed ones (drop + re-create)
@@ -273,7 +274,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
     def get_postgresql_env_vars(self) -> dict:
         """Return password env vars derived from PG relations.
 
-        If called during a ``reconcile_postgresql_catalogs()`` run, returns the cached value
+        If called during a `reconcile_postgresql_catalogs()` run, returns the cached value
         to avoid recomputing.  Otherwise computes fresh from relations.
 
         Returns:
@@ -290,7 +291,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         """Read dynamic catalogs from `.properties` files on disk.
 
         Scans the catalog directory for `.properties` files that contain
-        the ``query.comment-format=dynamic catalog`` marker and returns
+        the `query.comment-format=dynamic catalog` marker and returns
         a dict of catalog names to property hashes.
 
         Returns:
@@ -607,16 +608,43 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             logger.error("Failed to import TLS cert for relation %s: %s", relation_id, e)
 
     def _is_trino_reachable(self) -> bool:
-        """Check if Trino is reachable via HTTP.
+        """Check if Trino is reachable and finished initializing.
 
         Returns:
-            True if Trino responds to a health check.
+            True if Trino responds to a health check and is no longer starting.
         """
         try:
             resp = requests.get("http://localhost:8080/v1/info", timeout=5.0)
-            return resp.status_code == 200
+            if resp.status_code != 200:
+                return False
+            # /v1/info returns 200 while the server is still initializing, so
+            # also require the "starting" flag to be false before treating
+            # Trino as ready to accept CREATE/DROP CATALOG statements.
+            return resp.json().get("starting") is False
         except Exception:
             return False
+
+    def _wait_for_trino_ready(self, timeout: float = 300.0, interval: float = 5.0) -> bool:
+        """Poll Trino until it has finished initializing or the timeout elapses.
+
+        After an env-var replan Trino is restarted and briefly reports
+        `SERVER_STARTING_UP` for any query. Wait until it is ready before
+        issuing catalog statements.
+
+        Args:
+            timeout: Maximum total seconds to wait for readiness.
+            interval: Seconds to wait between checks.
+
+        Returns:
+            True if Trino became ready within the timeout, False otherwise.
+        """
+        deadline = time.time() + timeout
+        while True:
+            if self._is_trino_reachable():
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(interval)
 
     def _get_trino_user(self) -> str:
         """Get the Trino user for HTTP API calls.

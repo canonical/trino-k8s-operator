@@ -17,6 +17,7 @@ from helpers import (
     WORKER_NAME,
     add_juju_secret,
     create_catalog_config,
+    fast_forward_ctx,
     get_catalogs,
     get_unit,
     scale,
@@ -181,15 +182,18 @@ def wait_for_catalog(juju: jubilant.Juju, catalog_name, present=True, timeout=30
         TimeoutError: If the expected state isn't reached.
     """
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
-            found = catalog_name in str(catalogs)
-            if found == present:
-                return catalogs
-        except Exception:  # nosec
-            pass  # nosec
-        time.sleep(5)
+    # Fast-forward update-status so a failed/incomplete reconcile is retried
+    # promptly while we poll, instead of at the slow default hook interval.
+    with fast_forward_ctx(juju, "10s"):
+        while time.time() < deadline:
+            try:
+                catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
+                found = catalog_name in str(catalogs)
+                if found == present:
+                    return catalogs
+            except Exception:  # nosec
+                pass  # nosec
+            time.sleep(5)
     state = "not found" if present else "still present"
     raise TimeoutError(f"Catalog {catalog_name!r} {state} after {timeout}s")
 
