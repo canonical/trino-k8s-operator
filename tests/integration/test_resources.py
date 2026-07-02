@@ -6,39 +6,32 @@
 import logging
 import time
 
+import jubilant
 import pytest
-import pytest_asyncio
-from helpers import APP_NAME
+from helpers import APP_NAME, get_unit, wait_for_apps
 from lightkube import Client  # pyright: ignore
 from lightkube.resources.apps_v1 import StatefulSet
-from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
 
-@pytest_asyncio.fixture(name="deploy-resources", scope="module")
-async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
+@pytest.fixture(name="deploy-resources", scope="module")
+def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the app."""
     trino_config = {
         "charm-function": "all",
     }
     # Deploy trino with no resource constraints
-    async with ops_test.fast_forward():
-        await ops_test.model.deploy(
-            charm,
-            resources={"trino-image": charm_image},
-            application_name=APP_NAME,
-            config=trino_config,
-            num_units=1,
-            trust=True,
-        )
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=300,
-        )
-        assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
+    juju.deploy(
+        charm,
+        APP_NAME,
+        resources={"trino-image": charm_image},
+        config=trino_config,
+        num_units=1,
+        trust=True,
+    )
+    wait_for_apps(juju, [APP_NAME], status="active", timeout=900)
+    assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 
 @pytest.mark.abort_on_fail
@@ -46,22 +39,23 @@ async def deploy(ops_test: OpsTest, charm: str, charm_image: str):
 class TestResources:
     """Integration test for resource limits and requests."""
 
-    async def test_resources_set(self, ops_test):
+    def test_resources_set(self, juju: jubilant.Juju):
         """Test setting resources."""
-        await ops_test.model.applications[APP_NAME].set_config(
+        juju.config(
+            APP_NAME,
             {
                 "workload-memory-requests": "1Gi",
                 "workload-memory-limits": "2Gi",
                 "workload-cpu-requests": "1",
                 "workload-cpu-limits": "2",
-            }
+            },
         )
         time.sleep(10)
         client = Client()
         statefulset = client.get(
             StatefulSet,
             name=APP_NAME,
-            namespace=ops_test.model.name,
+            namespace=juju.model,
         )
 
         containers = statefulset.spec.template.spec.containers

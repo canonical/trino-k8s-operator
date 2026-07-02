@@ -6,11 +6,11 @@
 
 import json
 
+import jubilant
 import pytest
 import trino.exceptions
 from conftest import deploy  # noqa: F401, pylint: disable=W0611
-from helpers import APP_NAME, TRINO_USER, WORKER_NAME, run_query
-from pytest_operator.plugin import OpsTest
+from helpers import APP_NAME, TRINO_USER, WORKER_NAME, run_query, wait_for_apps
 
 
 def _resource_groups_config(user: str) -> str:
@@ -48,25 +48,25 @@ SESSION_PROPERTY_MANAGER_CONFIG = json.dumps(
 )
 
 
-async def _set_manager_config(
-    ops_test: OpsTest,
+def _set_manager_config(
+    juju: jubilant.Juju,
     resource_groups_config: str = "",
     session_property_manager_config: str = "",
 ):
     """Apply manager configuration and wait for Trino to settle."""
-    await ops_test.model.applications[APP_NAME].set_config(
+    juju.config(
+        APP_NAME,
         {
             "resource-groups-config": resource_groups_config,
             "session-property-manager-config": session_property_manager_config,
-        }
+        },
     )
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[APP_NAME, WORKER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=600,
-        )
+    wait_for_apps(
+        juju,
+        [APP_NAME, WORKER_NAME],
+        status="active",
+        timeout=600,
+    )
 
 
 @pytest.mark.abort_on_fail
@@ -74,32 +74,32 @@ async def _set_manager_config(
 class TestManagers:
     """Integration tests for Trino managers."""
 
-    async def test_resource_group_and_session_property_managers(self, ops_test: OpsTest):
+    def test_resource_group_and_session_property_managers(self, juju: jubilant.Juju):
         """Verify both managers affect query execution at runtime."""
         try:
-            await _set_manager_config(
-                ops_test,
+            _set_manager_config(
+                juju,
                 resource_groups_config=_resource_groups_config("nobody"),
                 session_property_manager_config=(SESSION_PROPERTY_MANAGER_CONFIG),
             )
 
             with pytest.raises(trino.exceptions.TrinoUserError) as exc_info:
-                await run_query(
-                    ops_test,
+                run_query(
+                    juju,
                     TRINO_USER,
                     "SHOW SESSION LIKE 'query_max_execution_time'",
                 )
 
             assert "No matching resource group found" in str(exc_info.value)
 
-            await _set_manager_config(
-                ops_test,
+            _set_manager_config(
+                juju,
                 resource_groups_config=_resource_groups_config(TRINO_USER),
                 session_property_manager_config=(SESSION_PROPERTY_MANAGER_CONFIG),
             )
 
-            session_rows = await run_query(
-                ops_test,
+            session_rows = run_query(
+                juju,
                 TRINO_USER,
                 "SHOW SESSION LIKE 'query_max_execution_time'",
             )
@@ -107,4 +107,4 @@ class TestManagers:
             assert session_rows[0][0] == "query_max_execution_time"
             assert session_rows[0][1] == "7m"
         finally:
-            await _set_manager_config(ops_test)
+            _set_manager_config(juju)

@@ -2,9 +2,17 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Literals used by the Trino K8s charm unit tests."""
+"""Literals and Scenario state builders for the Trino K8s charm unit tests."""
+
+import dataclasses
+import json
+from types import SimpleNamespace
+
+from ops.testing import Container, Exec, Model, PeerRelation, Relation, Secret, State
 
 SERVER_PORT = "8080"
+
+MODEL_NAME = "trino-model"
 
 GSHEET_SECRET = """\
 gsheets-1: |
@@ -126,200 +134,258 @@ UPDATED_JVM_OPTIONS = " ".join(
 )
 
 
-def simulate_lifecycle_worker(harness):
-    """Establish a relation between Trino worker and coordinator.
+def trino_container(can_connect=True, **kwargs):
+    """Build the Trino workload container with the standard mocked execs.
 
     Args:
-        harness: ops.testing.Harness object used to simulate trino relation.
+        can_connect: whether Pebble is reachable.
+        kwargs: extra keyword arguments forwarded to `Container`.
 
     Returns:
-        container: the trino application container.
-        event: the relation event.
+        A Scenario `Container` for the `trino` workload.
     """
-    # Simulate peer relation readiness.
-    harness.add_relation("peer", "trino")
-
-    # Simulate pebble readiness.
-    harness.handle_exec("trino", ["keytool"], result=0)
-    harness.handle_exec("trino", ["htpasswd"], result=0)
-    harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
-    harness.update_config({"charm-function": "worker"})
-
-    # Add catalog secrets
-    bigquery_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"service-accounts": BIGQUERY_SECRET},
-    )
-
-    postgresql_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {
-            "replicas": POSTGRESQL_REPLICA_SECRET,
-            "cert": POSTGRESQL_REPLICA_CERT,
+    return Container(
+        "trino",
+        can_connect=can_connect,
+        execs={
+            Exec(["htpasswd"], return_code=0),
+            Exec(["keytool"], return_code=0),
+            Exec(["/bin/sh"], stdout="/usr/lib/jvm/java-25-openjdk-amd64/"),
+            Exec(["bash"], return_code=0),
         },
-    )
-    mysql_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"replicas": MYSQL_REPLICA_SECRET},
-    )
-    redshift_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"replicas": REDSHIFT_REPLICA_SECRET},
-    )
-    gsheets_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"service-accounts": GSHEET_SECRET},
-    )
-    catalog_config = create_catalog_config(
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
+        **kwargs,
     )
 
-    container = harness.model.unit.get_container("trino")
-    harness.charm.on.trino_pebble_ready.emit(container)
 
-    rel_id = harness.add_relation("trino-worker", "trino-k8s")
-    harness.add_relation_unit(rel_id, "trino-k8s-worker/0")
+def observer_secret(content):
+    """Build an observer (remotely owned, granted) Juju secret.
 
-    # Simulate coordinator publishing the int-comms secret via Juju secrets.
-    # The secret is owned by the charm under test, so no explicit grant is needed
-    # in the harness — the charm can already resolve it by ID.
-    int_comms_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"secret": "test-int-comms-secret"},  # nosec
+    Args:
+        content: the secret content mapping.
+
+    Returns:
+        A Scenario `Secret` the charm can read with `get_content(refresh=True)`.
+    """
+    return Secret(tracked_content=content, owner=None)
+
+
+def catalog_secrets():
+    """Create the standard set of catalog secrets used by the lifecycle helpers.
+
+    Returns:
+        A `SimpleNamespace` with the individual secret objects, a `catalogs`
+        set of all secrets, and the rendered `catalog_config` string.
+    """
+    bigquery = observer_secret({"service-accounts": BIGQUERY_SECRET})
+    postgresql = observer_secret(
+        {"replicas": POSTGRESQL_REPLICA_SECRET, "cert": POSTGRESQL_REPLICA_CERT}
     )
+    mysql = observer_secret({"replicas": MYSQL_REPLICA_SECRET})
+    redshift = observer_secret({"replicas": REDSHIFT_REPLICA_SECRET})
+    gsheets = observer_secret({"service-accounts": GSHEET_SECRET})
+    ns = SimpleNamespace(
+        bigquery=bigquery,
+        postgresql=postgresql,
+        mysql=mysql,
+        redshift=redshift,
+        gsheets=gsheets,
+    )
+    ns.catalogs = {bigquery, postgresql, mysql, redshift, gsheets}
+    ns.catalog_config = create_catalog_config(
+        postgresql.id,
+        mysql.id,
+        redshift.id,
+        bigquery.id,
+        gsheets.id,
+    )
+    return ns
 
-    data = {
-        "trino-worker": {
-            "discovery-uri": "http://trino-k8s:8080",
-            "catalogs": catalog_config,
-            "int-comms-secret-id": int_comms_secret_id,
-        }
+
+def build_coordinator_state(
+    *,
+    leader=True,
+    config=None,
+    extra_relations=(),
+    extra_secrets=(),
+    container=None,
+):
+    """Build the input `State` for a healthy Trino coordinator.
+
+    Mirrors the end-state established by the legacy `simulate_lifecycle_coordinator`
+    Harness helper: peer relation ready, catalog and user secrets present,
+    `charm-function` set to `coordinator` and a `trino-coordinator` relation.
+
+    Args:
+        leader: whether the unit is the leader.
+        config: extra config options merged over the coordinator defaults.
+        extra_relations: additional relations to include in the state.
+        extra_secrets: additional secrets to include in the state.
+        container: an explicit container to use instead of the default.
+
+    Returns:
+        A `(State, SimpleNamespace)` tuple. The namespace carries the catalog
+        secret IDs, the `catalog_config` string and the relation objects so
+        tests can inspect the output databags.
+    """
+    cats = catalog_secrets()
+    user = observer_secret({"users": TEST_USERS})
+    coordinator_relation = Relation("trino-coordinator", remote_app_name="trino-k8s-worker")
+    peer_relation = PeerRelation("peer")
+
+    base_config = {
+        "catalog-config": cats.catalog_config,
+        "charm-function": "coordinator",
+        "user-secret-id": user.id,
     }
-    event = make_relation_event("trino-worker", rel_id, data)
-    harness.charm.trino_worker._on_relation_changed(event)
-    return (
-        container,
-        event,
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
+    if config:
+        base_config.update(config)
+
+    state = State(
+        leader=leader,
+        model=Model(name=MODEL_NAME),
+        config=base_config,
+        containers={container or trino_container()},
+        relations={peer_relation, coordinator_relation, *extra_relations},
+        secrets={user, *cats.catalogs, *extra_secrets},
     )
+    ids = SimpleNamespace(
+        postgresql=cats.postgresql.id,
+        mysql=cats.mysql.id,
+        redshift=cats.redshift.id,
+        bigquery=cats.bigquery.id,
+        gsheets=cats.gsheets.id,
+        user=user.id,
+        catalog_config=cats.catalog_config,
+        coordinator_relation=coordinator_relation,
+        peer_relation=peer_relation,
+    )
+    return state, ids
 
 
-def simulate_lifecycle_coordinator(harness):
-    """Simulate a healthy charm life-cycle.
+def build_worker_state(
+    *,
+    leader=True,
+    config=None,
+    catalogs=None,
+    include_int_comms=True,
+    extra_relations=(),
+    extra_secrets=(),
+    container=None,
+):
+    """Build the input `State` for a Trino worker related to a coordinator.
+
+    Mirrors the end-state established by the legacy `simulate_lifecycle_worker`
+    Harness helper. The `trino-worker` relation carries the coordinator's
+    published data so a `relation-changed` event reproduces worker behaviour.
 
     Args:
-        harness: ops.testing.Harness object used to simulate charm lifecycle.
+        leader: whether the unit is the leader.
+        config: extra config options merged over the worker defaults.
+        catalogs: explicit catalog-config to advertise (defaults to the standard one).
+        include_int_comms: whether the coordinator has published an int-comms secret.
+        extra_relations: additional relations to include in the state.
+        extra_secrets: additional secrets to include in the state.
+        container: an explicit container to use instead of the default.
 
     Returns:
-        rel_id: the relation ID of the trino coordinator:worker relation.
+        A `(State, SimpleNamespace)` tuple. The namespace carries the catalog
+        secret IDs, the `catalog_config` string, the int-comms secret and the
+        relation objects.
     """
-    # Simulate peer relation readiness.
-    harness.add_relation("peer", "trino")
+    cats = catalog_secrets()
+    catalog_config = cats.catalog_config if catalogs is None else catalogs
+    secrets = set(cats.catalogs)
 
-    # Simulate pebble readiness.
-    container = harness.model.unit.get_container("trino")
-    harness.handle_exec("trino", ["htpasswd"], result=0)
-    harness.handle_exec("trino", ["/bin/sh"], result="/usr/lib/jvm/java-25-openjdk-amd64/")
-    harness.handle_exec("trino", ["keytool"], result=0)
-    harness.charm.on.trino_pebble_ready.emit(container)
+    remote_data = {
+        "discovery-uri": "http://trino-k8s:8080",
+        "catalogs": catalog_config,
+    }
+    int_comms = None
+    if include_int_comms:
+        int_comms = observer_secret({"secret": "test-int-comms-secret"})  # nosec B105
+        secrets.add(int_comms)
+        remote_data["int-comms-secret-id"] = int_comms.id
 
-    secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"users": TEST_USERS},
+    worker_relation = Relation(
+        "trino-worker",
+        remote_app_name="trino-k8s-coordinator",
+        remote_app_data=remote_data,
     )
+    peer_relation = PeerRelation("peer")
 
-    harness.charm.on.trino_pebble_ready.emit(container)
+    base_config = {"charm-function": "worker"}
+    if config:
+        base_config.update(config)
 
-    # Add catalog secrets
-    bigquery_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"service-accounts": BIGQUERY_SECRET},
+    state = State(
+        leader=leader,
+        model=Model(name=MODEL_NAME),
+        config=base_config,
+        containers={container or trino_container()},
+        relations={peer_relation, worker_relation, *extra_relations},
+        secrets={*secrets, *extra_secrets},
     )
-
-    postgresql_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {
-            "replicas": POSTGRESQL_REPLICA_SECRET,
-            "cert": POSTGRESQL_REPLICA_CERT,
-        },
+    ids = SimpleNamespace(
+        postgresql=cats.postgresql.id,
+        mysql=cats.mysql.id,
+        redshift=cats.redshift.id,
+        bigquery=cats.bigquery.id,
+        gsheets=cats.gsheets.id,
+        catalog_config=catalog_config,
+        int_comms=int_comms,
+        worker_relation=worker_relation,
+        peer_relation=peer_relation,
     )
-    mysql_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {
-            "replicas": MYSQL_REPLICA_SECRET,
-        },
-    )
-    redshift_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {
-            "replicas": REDSHIFT_REPLICA_SECRET,
-        },
-    )
-    gsheets_secret_id = harness.add_model_secret(
-        "trino-k8s",
-        {"service-accounts": GSHEET_SECRET},
-    )
-
-    catalog_config = create_catalog_config(
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
-    )
-
-    # Add worker and coordinator relation
-    harness.update_config({"catalog-config": catalog_config})
-    harness.update_config({"charm-function": "coordinator"})
-    rel_id = harness.add_relation("trino-coordinator", "trino-k8s-worker")
-
-    harness.update_config({"user-secret-id": secret_id})
-    return (
-        rel_id,
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
-    )
+    return state, ids
 
 
-def make_relation_event(app, rel_id, data):
-    """Create and return a mock policy created event.
-
-        The event is generated by the relation with postgresql_db
+def workload_path(state, ctx, path, container="trino"):
+    """Return a filesystem `Path` for a file inside the workload container.
 
     Args:
-        app: name of the application.
-        rel_id: relation id.
-        data: relation data.
+        state: the output `State` from `ctx.run`.
+        ctx: the Scenario `Context`.
+        path: the absolute in-container path.
+        container: the container name.
 
     Returns:
-        Event dict.
+        A `pathlib.Path` pointing at the mocked container file.
     """
-    return type(
-        "Event",
-        (),
-        {
-            "app": app,
-            "relation": type(
-                "Relation",
-                (),
-                {
-                    "data": data,
-                    "id": rel_id,
-                },
-            ),
-        },
-    )
+    root = state.get_container(container).get_filesystem(ctx)
+    return root / path.lstrip("/")
+
+
+def peer_state_value(relation, name):
+    """Decode a JSON-encoded value from the peer relation app databag.
+
+    Args:
+        relation: the peer `Relation` taken from the output state.
+        name: the state attribute name.
+
+    Returns:
+        The decoded value, or `None` when absent.
+    """
+    raw = relation.local_app_data.get(name)
+    return None if raw is None else json.loads(raw)
+
+
+def carry_forward(state, container="trino"):
+    """Return `state` prepared for a follow-up `ctx.run`.
+
+    Scenario auto-populates a `CheckInfo` for plan checks with default
+    attributes (e.g. `threshold=3`) that do not match the layer's check
+    definition. Carrying such a container straight into another `ctx.run`
+    trips the consistency checker, so the check statuses are cleared here.
+
+    Args:
+        state: the output `State` from a previous `ctx.run`.
+        container: the container name to normalise.
+
+    Returns:
+        A new `State` whose container reports no check statuses.
+    """
+    cont = dataclasses.replace(state.get_container(container), check_infos=frozenset())
+    return dataclasses.replace(state, containers={cont})
 
 
 def create_catalog_config(
