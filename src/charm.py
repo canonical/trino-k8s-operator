@@ -291,6 +291,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return
         self.trino_coordinator._update_coordinator_relation_data(event)
         self._update(event)
+        self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)
         self.trino_catalog.reconcile_trino_catalog_relations()
 
     @log_event_handler(logger)

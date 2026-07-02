@@ -7,8 +7,8 @@
 import logging
 import time
 
+import jubilant
 import pytest
-import pytest_asyncio
 from helpers import (
     APP_NAME,
     POSTGRES_NAME,
@@ -19,8 +19,8 @@ from helpers import (
     get_catalogs,
     get_unit_url,
     update_policies,
+    wait_for_apps,
 )
-from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
@@ -30,50 +30,32 @@ TRINO_CONFIG = {
 }
 
 
-async def resolve_ranger_errors(ops_test: OpsTest):
+def resolve_ranger_errors(juju: jubilant.Juju):
     """Resolve Ranger error state if any.
 
     Args:
-        ops_test: The OpsTest instance.
+        juju: The Jubilant Juju instance.
     """
-    for unit in ops_test.model.applications[RANGER_NAME].units:
-        if unit.workload_status == "error":
-            logger.info("Resolving error on %s", unit.name)
-            await unit.resolved(retry=True)
+    for unit_name, unit_status in juju.status().apps[RANGER_NAME].units.items():
+        if unit_status.workload_status.current == "error":
+            logger.info("Resolving error on %s", unit_name)
+            juju.cli("resolved", "--retry", unit_name)
 
 
-@pytest_asyncio.fixture(name="deploy-policy", scope="module")
-async def deploy_policy_engine(ops_test: OpsTest):
+@pytest.fixture(name="deploy-policy", scope="module")
+def deploy_policy_engine(juju: jubilant.Juju):
     """Add Ranger relation and apply group configuration."""
-    await ops_test.model.deploy(POSTGRES_NAME, channel="14", trust=True)
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[POSTGRES_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
+    juju.deploy(POSTGRES_NAME, channel="14", trust=True)
+    wait_for_apps(juju, [POSTGRES_NAME], status="active", timeout=2000)
 
-    await ops_test.model.deploy(RANGER_NAME, channel="edge", revision=39, trust=True)
-    async with ops_test.fast_forward():
-        await ops_test.model.wait_for_idle(
-            apps=[RANGER_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
+    juju.deploy(RANGER_NAME, channel="edge", revision=39, trust=True)
+    wait_for_apps(juju, [RANGER_NAME], status="blocked", timeout=2000)
 
     logger.info("Integrating Ranger and PostgreSQL.")
-    await ops_test.model.integrate(RANGER_NAME, POSTGRES_NAME)
+    juju.integrate(RANGER_NAME, POSTGRES_NAME)
     time.sleep(60)
-    async with ops_test.fast_forward():
-        await resolve_ranger_errors(ops_test)
-        await ops_test.model.wait_for_idle(
-            apps=[POSTGRES_NAME, RANGER_NAME],
-            status="active",
-            raise_on_blocked=False,
-            timeout=2000,
-        )
+    resolve_ranger_errors(juju)
+    wait_for_apps(juju, [POSTGRES_NAME, RANGER_NAME], status="active", timeout=2000)
 
 
 @pytest.mark.abort_on_fail
@@ -81,50 +63,38 @@ async def deploy_policy_engine(ops_test: OpsTest):
 class TestPolicyManager:
     """Integration test for Ranger policy enforcement."""
 
-    async def test_policy_enforcement(self, ops_test, charm: str, charm_image: str):
+    def test_policy_enforcement(self, juju: jubilant.Juju, charm: str, charm_image: str):
         """Test Ranger integration."""
-        await ops_test.model.deploy(
+        juju.deploy(
             charm,
+            APP_NAME,
             resources={"trino-image": charm_image},
-            application_name=APP_NAME,
             config=TRINO_CONFIG,
             trust=True,
         )
 
-        async with ops_test.fast_forward():
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME],
-                status="active",
-                raise_on_blocked=False,
-                timeout=2000,
-            )
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=2000)
 
         logger.info("Creating test user.")
-        url = await get_unit_url(ops_test, application=RANGER_NAME, unit=0, port=6080)
-        await create_user(url)
+        url = get_unit_url(juju, application=RANGER_NAME, unit=0, port=6080)
+        create_user(url)
 
         # Integrate Trino and Ranger.
         logger.info("Integrating Trino and Ranger.")
-        await ops_test.model.integrate(RANGER_NAME, APP_NAME)
+        juju.integrate(RANGER_NAME, APP_NAME)
         time.sleep(30)
-        async with ops_test.fast_forward():
-            await resolve_ranger_errors(ops_test)
-            await ops_test.model.wait_for_idle(
-                apps=[APP_NAME, RANGER_NAME],
-                status="active",
-                raise_on_blocked=False,
-                timeout=2000,
-            )
+        resolve_ranger_errors(juju)
+        wait_for_apps(juju, [APP_NAME, RANGER_NAME], status="active", timeout=2000)
 
         logging.info("update default policies to authorize the new user")
-        await update_policies(url)
+        update_policies(url)
 
         time.sleep(30)  # wait 30 seconds for the policy to be synced.
 
-        catalogs = await get_catalogs(ops_test, USER_WITH_ACCESS, APP_NAME)
+        catalogs = get_catalogs(juju, USER_WITH_ACCESS, APP_NAME)
         assert catalogs == [["system"]]
-        logger.info(f"{USER_WITH_ACCESS} can access {catalogs}.")
+        logger.info("%s can access %s.", USER_WITH_ACCESS, catalogs)
 
-        catalogs = await get_catalogs(ops_test, USER_WITHOUT_ACCESS, APP_NAME)
-        logger.info(f"{USER_WITHOUT_ACCESS} can not access {catalogs}.")
+        catalogs = get_catalogs(juju, USER_WITHOUT_ACCESS, APP_NAME)
+        logger.info("%s can not access %s.", USER_WITH_ACCESS, catalogs)
         assert catalogs == []

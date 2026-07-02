@@ -18,6 +18,7 @@ from charms.trino_k8s.v0.trino_catalog import (
 from ops.charm import CharmBase
 from ops.framework import Object
 from ops.model import SecretNotFoundError
+from pydantic import ValidationError
 
 from literals import (
     POSTGRESQL_RELATION_NAME,
@@ -333,6 +334,12 @@ class TrinoCatalogRelationHandler(Object):
             return
 
         if not self.charm.unit.is_leader():
+            return
+
+        try:
+            _ = self.charm.config
+        except ValidationError:
+            logger.warning("Skipping trino catalog reconciliation: charm config is invalid")
             return
 
         # Get Trino URL
