@@ -4,6 +4,7 @@
 """Trino charm integration test config."""
 
 import logging
+import os
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -21,6 +22,47 @@ from helpers import (
 from pytest import FixtureRequest
 
 logger = logging.getLogger(__name__)
+
+LXD_CONTROLLER = "localhost-localhost"
+K8S_CLOUD = "canonical-k8s"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_canonical_k8s(request: FixtureRequest):
+    """Register Canonical Kubernetes as a Juju cloud before any tests run.
+
+    Args:
+        request: pytest request, used to read the --kube-config option.
+
+    Raises:
+        RuntimeError: If the canonical-k8s cloud cannot be registered.
+    """
+    logger.info("Bootstrapping the Juju controller and Canonical Kubernetes cloud.")
+
+    # Host the controller on LXD; canonical-k8s is added to it as a K8s cloud below.
+    subprocess.run(["/snap/bin/juju", "bootstrap", "localhost", LXD_CONTROLLER], check=False)  # nosec B603
+
+    # The kubeconfig path is supplied by operator-workflows via --kube-config;
+    # default to the conventional location.
+    kubeconfig = os.path.expanduser(request.config.getoption("--kube-config") or "~/.kube/config")
+
+    # Register the canonical-k8s cluster as a cloud on the LXD controller.
+    # `juju add-k8s` reads the cluster + credential from $KUBECONFIG.
+    result = subprocess.run(
+        ["/snap/bin/juju", "add-k8s", K8S_CLOUD, "--client", "--controller", LXD_CONTROLLER],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "KUBECONFIG": kubeconfig},
+    )  # nosec B603
+    if result.returncode != 0:
+        if "already exists" in result.stderr or "already exists" in result.stdout:
+            logger.info("Canonical Kubernetes cloud already configured")
+        else:
+            raise RuntimeError(
+                f"Failed to add canonical-k8s cloud.\n"
+                f"Stdout: {result.stdout}\nStderr: {result.stderr}"
+            )
 
 
 def pack_charm(source_dir: Path) -> Path:
