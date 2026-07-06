@@ -30,9 +30,6 @@ def pytest_addoption(parser: pytest.Parser):
     parser.addoption("--keep-models", action="store_true", default=False)
     parser.addoption("--series", action="store", default=None)
 
-    # Passed by operator-workflows when use-canonical-k8s: true.
-    parser.addoption("--kube-config", action="store", default=None)
-
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):

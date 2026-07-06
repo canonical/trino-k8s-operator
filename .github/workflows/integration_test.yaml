@@ -32,9 +32,5 @@ jobs:
       juju-channel: 3/stable
       use-canonical-k8s: true
       provider: k8s
-      extra-arguments: >-
-        --kube-config=~/.kube/config
-        --juju-controller=localhost-localhost
-        --juju-cloud=canonical-k8s
       trivy-severity-config: CRITICAL
       with-uv: true
