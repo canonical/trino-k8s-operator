@@ -209,6 +209,7 @@ class KubernetesStatefulsetPatch(Object):
 
             # Apply the patch if any updates were made
             if needs_patching:
+                statefulset.metadata.resourceVersion = None
                 client.patch(
                     StatefulSet,
                     name=self.statefulset_name,
