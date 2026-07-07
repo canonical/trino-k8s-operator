@@ -233,7 +233,7 @@ def get_properties_file(juju: jubilant.Juju, catalog_name):
         return None
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy")
 class TestPostgresqlCatalogRelation:
     """Integration tests for PostgreSQL catalog relation."""

@@ -27,7 +27,7 @@ def deploy(juju: jubilant.Juju):
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy-upgrade")
 class TestUpgrade:
     """Integration test for Trino charm upgrade from previous release."""

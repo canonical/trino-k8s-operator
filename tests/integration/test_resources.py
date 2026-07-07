@@ -34,7 +34,7 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     assert get_unit(juju, APP_NAME).workload_status.current == "active"
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy-resources")
 class TestResources:
     """Integration test for resource limits and requests."""

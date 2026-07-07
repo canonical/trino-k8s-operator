@@ -54,316 +54,293 @@ def deploy_trino(juju: jubilant.Juju, charm: str, charm_image: str):
     wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_01_requirer_deployment(juju: jubilant.Juju):
-    """Test that the requirer charm has been deployed."""
-    # Verify requirer is blocked waiting for relation
-    assert get_unit(juju, REQUIRER_APP).workload_status.current == "blocked"
+class TestTrinoCatalogRelation:
+    """Integration tests for the trino-catalog relation."""
 
+    def test_01_requirer_deployment(self, juju: jubilant.Juju):
+        """Test that the requirer charm has been deployed."""
+        # Verify requirer is blocked waiting for relation
+        assert get_unit(juju, REQUIRER_APP).workload_status.current == "blocked"
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_02_trino_catalog_relation_created(juju: jubilant.Juju):
-    """Test creating the trino-catalog relation."""
-    # Add the relation
-    juju.integrate(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
-    wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
+    def test_02_trino_catalog_relation_created(self, juju: jubilant.Juju):
+        """Test creating the trino-catalog relation."""
+        # Add the relation
+        juju.integrate(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
+        wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
 
-    # Verify relation exists
-    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
-    assert len(trino_catalog_relations) > 0
+        # Verify relation exists
+        trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
+        assert len(trino_catalog_relations) > 0
 
+    def test_03_auto_generated_credentials(self, juju: jubilant.Juju):
+        """Test that per-relation credentials are auto-generated."""
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_03_auto_generated_credentials(juju: jubilant.Juju):
-    """Test that per-relation credentials are auto-generated."""
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+        # Verify auto-generated username follows pattern app-{app_name}-{relation_id}
+        result_username = action.results.get("trino-username")
+        assert result_username.startswith(f"app-{REQUIRER_APP}-"), (
+            f"Expected username starting with 'app-{REQUIRER_APP}-', got '{result_username}'"
+        )
 
-    # Verify auto-generated username follows pattern app-{app_name}-{relation_id}
-    result_username = action.results.get("trino-username")
-    assert result_username.startswith(f"app-{REQUIRER_APP}-"), (
-        f"Expected username starting with 'app-{REQUIRER_APP}-', got '{result_username}'"
-    )
+        # Verify password is a non-empty random string
+        result_password = action.results.get("trino-password")
+        assert result_password and len(result_password) > 0, (
+            "Expected non-empty auto-generated password"
+        )
 
-    # Verify password is a non-empty random string
-    result_password = action.results.get("trino-password")
-    assert result_password and len(result_password) > 0, (
-        "Expected non-empty auto-generated password"
-    )
+        # Verify internal URL (no nginx relation at this point)
+        result_url = action.results.get("trino-url")
+        expected_internal_url = f"{APP_NAME}.{juju.model}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
+        assert result_url == expected_internal_url, (
+            f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
+        )
 
-    # Verify internal URL (no nginx relation at this point)
-    result_url = action.results.get("trino-url")
-    expected_internal_url = f"{APP_NAME}.{juju.model}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
-    assert result_url == expected_internal_url, (
-        f"Expected internal URL '{expected_internal_url}', got '{result_url}'"
-    )
+        logger.info(
+            "Verified auto-generated credentials: username='%s', URL='%s'",
+            result_username,
+            result_url,
+        )
 
-    logger.info(
-        "Verified auto-generated credentials: username='%s', URL='%s'",
-        result_username,
-        result_url,
-    )
+    def test_04_trino_catalog_relation_set_catalogs(self, juju: jubilant.Juju):
+        """Test that catalog-config changes propagate to the requirer."""
+        # Create catalog secrets
+        postgresql_secret_id = add_juju_secret(juju, "postgresql")
+        mysql_secret_id = add_juju_secret(juju, "mysql")
+        redshift_secret_id = add_juju_secret(juju, "redshift")
+        bigquery_secret_id = add_juju_secret(juju, "bigquery")
+        gsheets_secret_id = add_juju_secret(juju, "gsheets")
 
+        # Grant secrets to Trino
+        juju.grant_secret("postgresql-secret", APP_NAME)
+        juju.grant_secret("mysql-secret", APP_NAME)
+        juju.grant_secret("redshift-secret", APP_NAME)
+        juju.grant_secret("bigquery-secret", APP_NAME)
+        juju.grant_secret("gsheets-secret", APP_NAME)
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_04_trino_catalog_relation_set_catalogs(juju: jubilant.Juju):
-    """Test that catalog-config changes propagate to the requirer."""
-    # Create catalog secrets
-    postgresql_secret_id = add_juju_secret(juju, "postgresql")
-    mysql_secret_id = add_juju_secret(juju, "mysql")
-    redshift_secret_id = add_juju_secret(juju, "redshift")
-    bigquery_secret_id = add_juju_secret(juju, "bigquery")
-    gsheets_secret_id = add_juju_secret(juju, "gsheets")
+        # Create catalog config
+        catalog_config = create_catalog_config(
+            postgresql_secret_id,
+            mysql_secret_id,
+            redshift_secret_id,
+            bigquery_secret_id,
+            gsheets_secret_id,
+            include_bigquery=True,
+        )
 
-    # Grant secrets to Trino
-    juju.grant_secret("postgresql-secret", APP_NAME)
-    juju.grant_secret("mysql-secret", APP_NAME)
-    juju.grant_secret("redshift-secret", APP_NAME)
-    juju.grant_secret("bigquery-secret", APP_NAME)
-    juju.grant_secret("gsheets-secret", APP_NAME)
+        # Update Trino with catalog config
+        juju.config(APP_NAME, {"catalog-config": catalog_config})
+        wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
 
-    # Create catalog config
-    catalog_config = create_catalog_config(
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
-        include_bigquery=True,
-    )
+        # Verify the requirer received the catalogs
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-    # Update Trino with catalog config
-    juju.config(APP_NAME, {"catalog-config": catalog_config})
-    wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
+        # Parse the catalogs list from string representation
+        catalogs_str = action.results.get("trino-catalogs", "[]")
+        catalogs = ast.literal_eval(catalogs_str)
+        catalogs_count = len(catalogs)
 
-    # Verify the requirer received the catalogs
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+        assert catalogs_count == 5, f"Expected 5 catalogs, got {catalogs_count}"
 
-    # Parse the catalogs list from string representation
-    catalogs_str = action.results.get("trino-catalogs", "[]")
-    catalogs = ast.literal_eval(catalogs_str)
-    catalogs_count = len(catalogs)
+        # Verify catalog names are present
+        catalog_names = {cat["name"] for cat in catalogs}
+        expected_catalogs = {
+            "postgresql-1",
+            "mysql",
+            "redshift",
+            "bigquery",
+            "gsheets-1",
+        }
+        assert expected_catalogs.issubset(catalog_names), (
+            f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+        )
 
-    assert catalogs_count == 5, f"Expected 5 catalogs, got {catalogs_count}"
+        logger.info(
+            "Verified requirer received %s catalogs: %s",
+            catalogs_count,
+            catalog_names,
+        )
 
-    # Verify catalog names are present
-    catalog_names = {cat["name"] for cat in catalogs}
-    expected_catalogs = {
-        "postgresql-1",
-        "mysql",
-        "redshift",
-        "bigquery",
-        "gsheets-1",
-    }
-    assert expected_catalogs.issubset(catalog_names), (
-        f"Expected catalogs {expected_catalogs}, got {catalog_names}"
-    )
+    def test_05_catalog_exclusions(self, juju: jubilant.Juju):
+        """Test that catalog-exclusions filters catalogs for a specific requirer."""
+        # Exclude one catalog for the requirer app
+        exclusion_config = f"{REQUIRER_APP}:\n  - postgresql-1"
 
-    logger.info(
-        "Verified requirer received %s catalogs: %s",
-        catalogs_count,
-        catalog_names,
-    )
+        juju.config(APP_NAME, {"catalog-exclusions": exclusion_config})
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
+        # Verify the requirer receives 4 catalogs (postgresql-1 excluded)
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_05_catalog_exclusions(juju: jubilant.Juju):
-    """Test that catalog-exclusions filters catalogs for a specific requirer."""
-    # Exclude one catalog for the requirer app
-    exclusion_config = f"{REQUIRER_APP}:\n  - postgresql-1"
+        catalogs_str = action.results.get("trino-catalogs", "[]")
+        catalogs = ast.literal_eval(catalogs_str)
+        catalog_names = {cat["name"] for cat in catalogs}
 
-    juju.config(APP_NAME, {"catalog-exclusions": exclusion_config})
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        assert "postgresql-1" not in catalog_names, (
+            f"postgresql-1 should be excluded, but found in {catalog_names}"
+        )
+        assert len(catalogs) == 4, f"Expected 4 catalogs, got {len(catalogs)}"
 
-    # Verify the requirer receives 4 catalogs (postgresql-1 excluded)
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+        # Reset exclusions and verify all catalogs are restored
+        juju.config(APP_NAME, reset=["catalog-exclusions"])
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
-    catalogs_str = action.results.get("trino-catalogs", "[]")
-    catalogs = ast.literal_eval(catalogs_str)
-    catalog_names = {cat["name"] for cat in catalogs}
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-    assert "postgresql-1" not in catalog_names, (
-        f"postgresql-1 should be excluded, but found in {catalog_names}"
-    )
-    assert len(catalogs) == 4, f"Expected 4 catalogs, got {len(catalogs)}"
+        catalogs_str = action.results.get("trino-catalogs", "[]")
+        catalogs = ast.literal_eval(catalogs_str)
+        catalog_names = {cat["name"] for cat in catalogs}
 
-    # Reset exclusions and verify all catalogs are restored
-    juju.config(APP_NAME, reset=["catalog-exclusions"])
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        assert "postgresql-1" in catalog_names, (
+            f"postgresql-1 should be restored after clearing exclusions, got {catalog_names}"
+        )
+        assert len(catalogs) == 5, f"Expected 5 catalogs, got {len(catalogs)}"
 
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+        logger.info("Verified catalog exclusions work correctly")
 
-    catalogs_str = action.results.get("trino-catalogs", "[]")
-    catalogs = ast.literal_eval(catalogs_str)
-    catalog_names = {cat["name"] for cat in catalogs}
+    def test_06_trino_catalog_external_url_with_nginx(self, juju: jubilant.Juju):
+        """Test that the requirer receives external URL when nginx-route relation exists."""
+        # Deploy nginx-ingress-integrator
+        juju.deploy(NGINX_NAME, trust=True)
+        wait_for_apps(juju, [NGINX_NAME], status="waiting", timeout=1000)
 
-    assert "postgresql-1" in catalog_names, (
-        f"postgresql-1 should be restored after clearing exclusions, got {catalog_names}"
-    )
-    assert len(catalogs) == 5, f"Expected 5 catalogs, got {len(catalogs)}"
+        # Relate Trino to nginx-ingress-integrator
+        juju.integrate(APP_NAME, NGINX_NAME)
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
-    logger.info("Verified catalog exclusions work correctly")
+        # Set external-hostname config
+        juju.config(APP_NAME, {"external-hostname": "trino.test.com"})
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
+        # Verify the requirer received the external URL
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_06_trino_catalog_external_url_with_nginx(
-    juju: jubilant.Juju,
-):
-    """Test that the requirer receives external URL when nginx-route relation exists."""
-    # Deploy nginx-ingress-integrator
-    juju.deploy(NGINX_NAME, trust=True)
-    wait_for_apps(juju, [NGINX_NAME], status="waiting", timeout=1000)
+        result_url = action.results.get("trino-url")
+        expected_external_url = f"trino.test.com:{TRINO_PORTS['HTTPS']}"
+        assert result_url == expected_external_url, (
+            f"Expected external URL '{expected_external_url}', got '{result_url}'"
+        )
+        logger.info("Verified requirer received external Trino URL: %s", result_url)
 
-    # Relate Trino to nginx-ingress-integrator
-    juju.integrate(APP_NAME, NGINX_NAME)
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        # Clean up: remove nginx relation and reset external-hostname
+        juju.remove_relation(APP_NAME, NGINX_NAME)
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        juju.config(APP_NAME, reset=["external-hostname"])
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
-    # Set external-hostname config
-    juju.config(APP_NAME, {"external-hostname": "trino.test.com"})
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+    def test_07_catalog_config_propagation(self, juju: jubilant.Juju):
+        """Test that catalog-config changes propagate to the requirer."""
+        # Get catalog secrets
+        postgresql_secret_id = get_secret_id_by_label(juju, "postgresql-secret")
+        mysql_secret_id = get_secret_id_by_label(juju, "mysql-secret")
+        redshift_secret_id = get_secret_id_by_label(juju, "redshift-secret")
+        bigquery_secret_id = get_secret_id_by_label(juju, "bigquery-secret")
+        gsheets_secret_id = get_secret_id_by_label(juju, "gsheets-secret")
 
-    # Verify the requirer received the external URL
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+        logger.info("PostgreSQL secret ID: %s", postgresql_secret_id)
+        logger.info("MySQL secret ID: %s", mysql_secret_id)
+        logger.info("Redshift secret ID: %s", redshift_secret_id)
+        logger.info("BigQuery secret ID: %s", bigquery_secret_id)
+        logger.info("GSheets secret ID: %s", gsheets_secret_id)
 
-    result_url = action.results.get("trino-url")
-    expected_external_url = f"trino.test.com:{TRINO_PORTS['HTTPS']}"
-    assert result_url == expected_external_url, (
-        f"Expected external URL '{expected_external_url}', got '{result_url}'"
-    )
-    logger.info("Verified requirer received external Trino URL: %s", result_url)
+        # Update to remove bigquery
+        catalog_config_without_bigquery = create_catalog_config(
+            postgresql_secret_id,
+            mysql_secret_id,
+            redshift_secret_id,
+            bigquery_secret_id,
+            gsheets_secret_id,
+            include_bigquery=False,
+        )
 
-    # Clean up: remove nginx relation and reset external-hostname
-    juju.remove_relation(APP_NAME, NGINX_NAME)
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
-    juju.config(APP_NAME, reset=["external-hostname"])
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        juju.config(APP_NAME, {"catalog-config": catalog_config_without_bigquery})
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
+        # Verify the requirer received the updated catalogs (without bigquery)
+        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        assert action.status == "completed"
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_07_catalog_config_propagation(juju: jubilant.Juju):
-    """Test that catalog-config changes propagate to the requirer."""
-    # Get catalog secrets
-    postgresql_secret_id = get_secret_id_by_label(juju, "postgresql-secret")
-    mysql_secret_id = get_secret_id_by_label(juju, "mysql-secret")
-    redshift_secret_id = get_secret_id_by_label(juju, "redshift-secret")
-    bigquery_secret_id = get_secret_id_by_label(juju, "bigquery-secret")
-    gsheets_secret_id = get_secret_id_by_label(juju, "gsheets-secret")
+        # Parse the catalogs list from string representation
+        catalogs_str = action.results.get("trino-catalogs", "[]")
+        catalogs = ast.literal_eval(catalogs_str)
+        catalogs_count = len(catalogs)
 
-    logger.info("PostgreSQL secret ID: %s", postgresql_secret_id)
-    logger.info("MySQL secret ID: %s", mysql_secret_id)
-    logger.info("Redshift secret ID: %s", redshift_secret_id)
-    logger.info("BigQuery secret ID: %s", bigquery_secret_id)
-    logger.info("GSheets secret ID: %s", gsheets_secret_id)
+        assert catalogs_count == 4, (
+            f"Expected 4 catalogs after removing bigquery, got {catalogs_count}"
+        )
 
-    # Update to remove bigquery
-    catalog_config_without_bigquery = create_catalog_config(
-        postgresql_secret_id,
-        mysql_secret_id,
-        redshift_secret_id,
-        bigquery_secret_id,
-        gsheets_secret_id,
-        include_bigquery=False,
-    )
+        # Verify bigquery is no longer present
+        catalog_names = {cat["name"] for cat in catalogs}
+        assert "bigquery" not in catalog_names, (
+            f"bigquery should be removed, but found in {catalog_names}"
+        )
+        expected_catalogs = {"postgresql-1", "mysql", "redshift", "gsheets-1"}
+        assert expected_catalogs.issubset(catalog_names), (
+            f"Expected catalogs {expected_catalogs}, got {catalog_names}"
+        )
 
-    juju.config(APP_NAME, {"catalog-config": catalog_config_without_bigquery})
-    wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        logger.info(
+            "Verified catalog count reduced to %s after removing bigquery: %s",
+            catalogs_count,
+            catalog_names,
+        )
 
-    # Verify the requirer received the updated catalogs (without bigquery)
-    action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    assert action.status == "completed"
+    def test_08_multiple_requirers(self, juju: jubilant.Juju):
+        """Test that multiple requirers each get separate auto-generated credentials."""
+        # Deploy a second requirer
+        requirer_charm = pack_charm(Path(REQUIRER_CHARM_PATH))
+        requirer_app_2 = "second-requirer"
 
-    # Parse the catalogs list from string representation
-    catalogs_str = action.results.get("trino-catalogs", "[]")
-    catalogs = ast.literal_eval(catalogs_str)
-    catalogs_count = len(catalogs)
+        juju.deploy(requirer_charm, requirer_app_2, num_units=1)
+        wait_for_apps(juju, [requirer_app_2], status="blocked", timeout=1000)
 
-    assert catalogs_count == 4, (
-        f"Expected 4 catalogs after removing bigquery, got {catalogs_count}"
-    )
+        # Relate second requirer to Trino
+        juju.integrate(f"{APP_NAME}:trino-catalog", f"{requirer_app_2}:trino-catalog")
+        wait_for_apps(juju, [requirer_app_2], status="active", timeout=1000)
 
-    # Verify bigquery is no longer present
-    catalog_names = {cat["name"] for cat in catalogs}
-    assert "bigquery" not in catalog_names, (
-        f"bigquery should be removed, but found in {catalog_names}"
-    )
-    expected_catalogs = {"postgresql-1", "mysql", "redshift", "gsheets-1"}
-    assert expected_catalogs.issubset(catalog_names), (
-        f"Expected catalogs {expected_catalogs}, got {catalog_names}"
-    )
+        # Verify both requirers are connected
+        trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
+        # Should have at least 2 relations
+        assert len(trino_catalog_relations) >= 2
 
-    logger.info(
-        "Verified catalog count reduced to %s after removing bigquery: %s",
-        catalogs_count,
-        catalog_names,
-    )
+        # Verify each requirer got different credentials
+        action_1 = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+        action_2 = juju.run(f"{requirer_app_2}/0", "get-relation-data")
 
+        username_1 = action_1.results.get("trino-username")
+        username_2 = action_2.results.get("trino-username")
 
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_08_multiple_requirers(juju: jubilant.Juju):
-    """Test that multiple requirers each get separate auto-generated credentials."""
-    # Deploy a second requirer
-    requirer_charm = pack_charm(Path(REQUIRER_CHARM_PATH))
-    requirer_app_2 = "second-requirer"
+        assert username_1.startswith(f"app-{REQUIRER_APP}-")
+        assert username_2.startswith(f"app-{requirer_app_2}-")
+        assert username_1 != username_2, (
+            f"Each requirer should get a unique username, got '{username_1}' and '{username_2}'"
+        )
 
-    juju.deploy(requirer_charm, requirer_app_2, num_units=1)
-    wait_for_apps(juju, [requirer_app_2], status="blocked", timeout=1000)
+        logger.info(
+            "Verified separate credentials: requirer1='%s', requirer2='%s'",
+            username_1,
+            username_2,
+        )
 
-    # Relate second requirer to Trino
-    juju.integrate(f"{APP_NAME}:trino-catalog", f"{requirer_app_2}:trino-catalog")
-    wait_for_apps(juju, [requirer_app_2], status="active", timeout=1000)
+        # Clean up second requirer
+        juju.remove_application(requirer_app_2)
+        wait_for_app_gone(juju, requirer_app_2)
 
-    # Verify both requirers are connected
-    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
-    # Should have at least 2 relations
-    assert len(trino_catalog_relations) >= 2
+    def test_09_relation_broken(self, juju: jubilant.Juju):
+        """Test that relation can be broken cleanly."""
+        # Remove the relation
+        juju.remove_relation(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
+        wait_for_apps(juju, [REQUIRER_APP], status="blocked", timeout=1000)
 
-    # Verify each requirer got different credentials
-    action_1 = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-    action_2 = juju.run(f"{requirer_app_2}/0", "get-relation-data")
+        # Verify relation is removed
+        trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
+        assert len(trino_catalog_relations) == 0
 
-    username_1 = action_1.results.get("trino-username")
-    username_2 = action_2.results.get("trino-username")
-
-    assert username_1.startswith(f"app-{REQUIRER_APP}-")
-    assert username_2.startswith(f"app-{requirer_app_2}-")
-    assert username_1 != username_2, (
-        f"Each requirer should get a unique username, got '{username_1}' and '{username_2}'"
-    )
-
-    logger.info(
-        "Verified separate credentials: requirer1='%s', requirer2='%s'",
-        username_1,
-        username_2,
-    )
-
-    # Clean up second requirer
-    juju.remove_application(requirer_app_2)
-    wait_for_app_gone(juju, requirer_app_2)
-
-
-@pytest.mark.abort_on_fail
-@pytest.mark.usefixtures("deploy-trino", "deploy-requirer")
-def test_09_relation_broken(juju: jubilant.Juju):
-    """Test that relation can be broken cleanly."""
-    # Remove the relation
-    juju.remove_relation(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
-    wait_for_apps(juju, [REQUIRER_APP], status="blocked", timeout=1000)
-
-    # Verify relation is removed
-    trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
-    assert len(trino_catalog_relations) == 0
-
-    # Requirer should be blocked
-    assert get_unit(juju, REQUIRER_APP).workload_status.current == "blocked"
+        # Requirer should be blocked
+        assert get_unit(juju, REQUIRER_APP).workload_status.current == "blocked"
