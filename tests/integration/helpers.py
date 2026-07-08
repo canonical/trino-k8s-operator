@@ -6,6 +6,7 @@
 
 import logging
 import os
+import subprocess  # nosec B404
 import textwrap
 import time
 from contextlib import contextmanager
@@ -371,40 +372,26 @@ def get_active_workers(juju: jubilant.Juju):
     return active_workers
 
 
-def simulate_crash_and_restart(juju: jubilant.Juju, charm, charm_image):
-    """Simulate the crash of the Trino coordinator.
+def simulate_crash_and_restart(juju: jubilant.Juju):
+    """Simulate the crash of the Trino coordinator by force-deleting its pod.
+
+    The coordinator unit is part of a Kubernetes StatefulSet, so Juju recreates
+    the pod automatically while the application, its relations, peer databag,
+    storage and secrets remain intact.
 
     Args:
         juju: Jubilant Juju object.
-        charm: charm path.
-        charm_image: path to rock image to be used.
     """
-    # Destroy charm
-    juju.remove_application(APP_NAME)
-    wait_for_app_gone(juju, APP_NAME)
-
-    # Deploy charm again
-    juju.deploy(
-        charm,
-        APP_NAME,
-        resources={"trino-image": charm_image},
-        config=COORDINATOR_CONFIG,
-        num_units=1,
-        trust=True,
+    pod = f"{APP_NAME}-0"
+    subprocess.run(  # nosec B603 B607
+        ["kubectl", "delete", "pod", pod, "-n", juju.model, "--grace-period=0", "--force"],
+        check=True,
     )
-
-    wait_for_apps(
-        juju,
-        [APP_NAME],
-        status="blocked",
-        timeout=1000,
-    )
-
-    juju.integrate(f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker")
     wait_for_apps(
         juju,
         [APP_NAME, WORKER_NAME],
         status="active",
+        idle_period=30,
         timeout=1000,
     )
 

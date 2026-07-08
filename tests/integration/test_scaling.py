@@ -12,7 +12,7 @@ from helpers import WORKER_NAME, get_active_workers, scale
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy")
 class TestScaling:
     """Integration tests for Trino worker scaling."""

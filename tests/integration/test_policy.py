@@ -58,7 +58,7 @@ def deploy_policy_engine(juju: jubilant.Juju):
     wait_for_apps(juju, [POSTGRES_NAME, RANGER_NAME], status="active", timeout=2000)
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy-policy")
 class TestPolicyManager:
     """Integration test for Ranger policy enforcement."""
@@ -96,5 +96,5 @@ class TestPolicyManager:
         logger.info("%s can access %s.", USER_WITH_ACCESS, catalogs)
 
         catalogs = get_catalogs(juju, USER_WITHOUT_ACCESS, APP_NAME)
-        logger.info("%s can not access %s.", USER_WITH_ACCESS, catalogs)
+        logger.info("%s can not access %s.", USER_WITHOUT_ACCESS, catalogs)
         assert catalogs == []

@@ -69,7 +69,7 @@ def _set_manager_config(
     )
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy")
 class TestManagers:
     """Integration tests for Trino managers."""

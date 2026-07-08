@@ -3,7 +3,6 @@
 
 """Trino charm integration test config."""
 
-import logging
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -19,8 +18,6 @@ from helpers import (
     wait_for_apps,
 )
 from pytest import FixtureRequest
-
-logger = logging.getLogger(__name__)
 
 
 def pack_charm(source_dir: Path) -> Path:
@@ -91,19 +88,9 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     )
     juju.deploy(NGINX_NAME, trust=True)
 
-    wait_for_apps(
-        juju,
-        [APP_NAME, WORKER_NAME],
-        status="blocked",
-        timeout=600,
-    )
-    wait_for_apps(
-        juju,
-        [NGINX_NAME],
-        status="waiting",
-        timeout=600,
-    )
-
+    # Integrate immediately so relation processing overlaps with workload startup.
+    # This avoids the deploy->wait(blocked)->integrate->wait(active) sequencing
+    # that depends on a deferred relation-changed to clear stale blocked status.
     juju.integrate(f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker")
     juju.integrate(APP_NAME, NGINX_NAME)
 
@@ -111,6 +98,7 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         juju,
         [APP_NAME, WORKER_NAME],
         status="active",
-        timeout=900,
+        idle_period=30,
+        timeout=1200,  # Extend timeout as we do not wait for apps to go `active` first anymore.
     )
     assert get_unit(juju, APP_NAME).workload_status.current == "active"

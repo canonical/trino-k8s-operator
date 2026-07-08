@@ -23,7 +23,7 @@ from helpers import (
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy")
 class TestCatalogUpdates:
     """Integration tests for catalog changes in Trino charm."""

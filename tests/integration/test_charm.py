@@ -24,7 +24,7 @@ from helpers import (
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.abort_on_fail
+@pytest.mark.incremental
 @pytest.mark.usefixtures("deploy")
 class TestDeployment:
     """Integration tests for Trino charm."""
@@ -90,15 +90,13 @@ class TestDeployment:
         assert "bigquery" not in str(catalogs)
         assert "gsheets-1" in str(catalogs)
 
-    def test_simulate_crash(self, juju: jubilant.Juju, charm: str, charm_image: str):
-        """Simulate the crash of the Trino coordinator charm.
+    def test_simulate_crash(self, juju: jubilant.Juju):
+        """Simulate the crash of the Trino coordinator charm by force-deleting its pod.
 
         Args:
             juju: Jubilant Juju object.
-            charm: charm path.
-            charm_image: path to rock image to be used.
         """
-        simulate_crash_and_restart(juju, charm, charm_image)
+        simulate_crash_and_restart(juju)
         response = curl_unit_ip(juju)
         assert response.status_code == 200
 

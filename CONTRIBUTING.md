@@ -233,3 +233,37 @@ make clean-rockcraft
 lxc project switch rockcraft
 lxc delete rockcraft-trino-amd64-4
 ```
+
+## Writing tests
+
+### Incremental test classes
+
+Integration tests that must run in order use the `@pytest.mark.incremental` marker. When a
+test in an incremental class fails, pytest xfails all subsequent tests in that class instead
+of running them (avoiding cascading failures that obscure the root cause).
+
+Apply the marker at the **class level** alongside any fixture decorators:
+
+```python
+@pytest.mark.incremental
+@pytest.mark.usefixtures("deploy")
+class TestMyFeature:
+    def test_01_setup(self, juju): ...
+    def test_02_behaviour(self, juju): ...
+```
+
+> **Important:** incremental tests **must** live inside a class. The implementation keys
+> on `str(item.cls)` to track failures. Bare module-level functions with
+> `@pytest.mark.incremental` all map to the same `"None"` key and will collide across
+> modules, causing spurious xfails in unrelated tests. Wrap them in a class instead.
+
+### Running the integration suite
+
+Integration tests only run on CI. You can verify collection locally without deploying:
+
+```bash
+uv tool tox run -e integration -- --collect-only
+```
+
+Use the per-file tox environments for targeted runs (e.g. `integration-scaling`,
+`integration-charm`). See `tox.ini` for the full list.
