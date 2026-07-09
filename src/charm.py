@@ -25,8 +25,12 @@ from charms.data_platform_libs.v0.data_interfaces import OpenSearchRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
-from charms.nginx_ingress_integrator.v0.nginx_route import require_nginx_route
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.traefik_k8s.v2.ingress import (
+    IngressPerAppReadyEvent,
+    IngressPerAppRequirer,
+    IngressPerAppRevokedEvent,
+)
 from ops.charm import ConfigChangedEvent, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -92,7 +96,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
     Attrs:
         state: Used to store data that is persisted across invocations.
-        external_hostname: DNS listing used for external connections.
         trino_abs_path: The absolute path for Trino home directory.
         catalog_abs_path: The absolute path for the catalog directory.
         conf_abs_path: The absolute path for the conf directory.
@@ -100,11 +103,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     """
 
     config_type = CharmConfig
-
-    @property
-    def external_hostname(self):
-        """Return the DNS listing used for external connections."""
-        return self.config.external_hostname or self.app.name
 
     @property
     def _cluster_local_coordinator_uri(self):
@@ -172,7 +170,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.framework.observe(self.on.secret_changed, self._on_secret_changed)
 
         # Handle Ingress
-        self._require_nginx_route()
+        self.ingress = IngressPerAppRequirer(
+            self,
+            relation_name="ingress",
+            port=TRINO_PORTS["HTTP"],
+            scheme="http",
+            strip_prefix=True,
+            redirect_https=True,
+        )
+        self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
+        self.framework.observe(self.ingress.on.revoked, self._on_ingress_revoked)
 
         # Prometheus
         self._prometheus_scraping = MetricsEndpointProvider(
@@ -220,20 +227,41 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             refresh_event=[self.on.trino_pebble_ready, self.on.config_changed],
         )
 
-    def _require_nginx_route(self):
-        """Require nginx-route relation based on current configuration."""
-        # Use raw model config here for bootstrap-safety: this method is called
-        # from __init__ before any hook handler runs, so a persisted invalid
-        # config must not prevent the charm from starting.
-        raw = self.model.config
-        require_nginx_route(
-            charm=self,
-            service_hostname=raw.get("external-hostname") or self.app.name,
-            service_name=self.app.name,
-            service_port=TRINO_PORTS["HTTP"],
-            tls_secret_name=raw.get("tls-secret-name"),
-            backend_protocol="HTTP",
-        )
+    def _on_ingress_ready(self, event: IngressPerAppReadyEvent):
+        """Handle the ingress-ready event: store the URL and reconcile catalog relations.
+
+        Args:
+            event: The IngressPerAppReadyEvent with the new ingress URL.
+        """
+        if not self.unit.is_leader():
+            return
+        self.state.ingress_url = event.url or ""
+        self.trino_catalog.reconcile_trino_catalog_relations()
+
+    def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent):
+        """Handle the ingress-revoked event: clear the stored URL and reconcile catalog relations.
+
+        Args:
+            event: The IngressPerAppRevokedEvent.
+        """
+        if not self.unit.is_leader():
+            return
+        self.state.ingress_url = ""
+        self.trino_catalog.reconcile_trino_catalog_relations()
+
+    def _warn_deprecated_config(self):
+        """Log deprecation warnings if obsolete config options are still set."""
+        cfg = self.model.config
+        if cfg.get("external-hostname"):
+            logger.warning(
+                "Config option 'external-hostname' is deprecated and has no effect. "
+                "The ingress hostname is now managed by the ingress provider charm."
+            )
+        if cfg.get("tls-secret-name"):
+            logger.warning(
+                "Config option 'tls-secret-name' is deprecated and has no effect. "
+                "TLS is now managed by the ingress provider charm."
+            )
 
     @log_event_handler(logger)
     def _on_install(self, event):
@@ -289,6 +317,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         except ValidationError as err:
             self.unit.status = BlockedStatus(_format_config_error(err))
             return
+        self._warn_deprecated_config()
         self.trino_coordinator._update_coordinator_relation_data(event)
         self._update(event)
         self.postgresql_catalog_handler.reconcile_postgresql_catalogs(event)

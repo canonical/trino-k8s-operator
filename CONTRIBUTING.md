@@ -213,8 +213,8 @@ SHOW CATALOGS;
 ## Cleanup
 
 ```bash
-# Remove TLS relation:
-juju remove-relation nginx-ingress-integrator trino-k8s
+# Remove ingress relation:
+juju remove-relation traefik-k8s trino-k8s
 
 # Remove the application before retrying
 juju remove-application trino-k8s --force

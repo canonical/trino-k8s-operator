@@ -32,7 +32,7 @@ METADATA = yaml.safe_load(Path(f"{BASE_DIR}/charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 WORKER_NAME = f"{APP_NAME}-worker"
 POSTGRES_NAME = "postgresql-k8s"
-NGINX_NAME = "nginx-ingress-integrator"
+TRAEFIK_NAME = "traefik-k8s"
 
 # Database configuration literals
 BIGQUERY_SECRET = """\

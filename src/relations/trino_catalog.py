@@ -9,6 +9,7 @@ Parses catalog configuration and shares structured catalog information.
 
 import logging
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import yaml
 from charms.trino_k8s.v0.trino_catalog import (
@@ -90,21 +91,26 @@ class TrinoCatalogRelationHandler(Object):
         self.charm._update_password_db_and_restart()
 
     def _get_url(self) -> Optional[str]:
-        """Get the Trino URL from configuration.
+        """Get the Trino URL from the stored ingress URL or fall back to the internal service URL.
 
         Returns:
-            Trino URL or None if not configured
+            Trino URL as `host:port`, or None if ingress is related but not yet ready.
         """
-        # Use external hostname with HTTPS port when nginx ingress is related
-        nginx_relation = self.charm.model.get_relation("nginx-route")
-        if nginx_relation:
-            external_hostname = self.charm.config.external_hostname
-            if not external_hostname:
-                return None
-            port = TRINO_PORTS["HTTPS"]
-            return f"{external_hostname}:{port}"
+        ingress_url = self.charm.state.ingress_url
+        if ingress_url:
+            parsed = urlparse(ingress_url)
+            if parsed.path.strip("/"):
+                logger.warning(
+                    "Ingress URL '%s' contains a path prefix '%s'. "
+                    "Only host-based (subdomain) routing is supported; "
+                    "the path will be dropped from the advertised trino-catalog URL.",
+                    ingress_url,
+                    parsed.path,
+                )
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            return f"{parsed.hostname}:{port}"
 
-        # Use internal service URL with HTTP port when no nginx ingress
+        # Fall back to the internal Kubernetes service URL when no ingress is related.
         host = self.charm.app.name
         port = TRINO_PORTS["HTTP"]
         namespace = self.charm.model.name
