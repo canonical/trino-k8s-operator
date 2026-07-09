@@ -209,6 +209,7 @@ def wait_for_apps(
     delay: float = 2.0,
     fast_forward: str | None = "10s",
     grace_period: float = 300,
+    error_grace: float = 60,
 ):
     """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
     exact_units: dict[str, int] = {}
@@ -218,12 +219,21 @@ def wait_for_apps(
         exact_units = dict.fromkeys(apps, wait_for_exact_units)
 
     successes = max(3, int(idle_period / delay)) if idle_period else 3
+    error_tolerance = max(1, int(error_grace / delay))
+    error_streak = 0
 
     def ready(model_status):
         return _apps_ready(model_status, apps, status, exact_units)
 
     def error(model_status):
-        return _apps_in_error(model_status, apps, status, raise_on_blocked)
+        # Give charms that throw errors and recover by themselves
+        # a chance to retry their hooks before failing the test suite.
+        nonlocal error_streak
+        if _apps_in_error(model_status, apps, status, raise_on_blocked):
+            error_streak += 1
+            return error_streak >= error_tolerance
+        error_streak = 0
+        return False
 
     def _do_wait(t: float):
         if not fast_forward:

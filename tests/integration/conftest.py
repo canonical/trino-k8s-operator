@@ -86,7 +86,11 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         num_units=1,
         trust=True,
     )
-    juju.deploy(TRAEFIK_NAME, config={"routing_mode": "subdomain"}, trust=True)
+    juju.deploy(
+        TRAEFIK_NAME,
+        config={"routing_mode": "subdomain", "external_hostname": "example.com"},
+        trust=True,
+    )
 
     # Integrate immediately so relation processing overlaps with workload startup.
     # This avoids the deploy->wait(blocked)->integrate->wait(active) sequencing
