@@ -206,7 +206,13 @@ class TestTrinoCatalogRelation:
     def test_06_trino_catalog_external_url_with_ingress(self, juju: jubilant.Juju):
         """Test that the requirer receives an external URL when the ingress relation is active."""
         # Deploy traefik in subdomain mode so each app gets a per-app external hostname.
-        juju.deploy(TRAEFIK_NAME, config={"routing_mode": "subdomain"}, trust=True)
+        # external_hostname is required when using routing_mode=subdomain; without it traefik
+        # stays blocked and never reaches active.
+        juju.deploy(
+            TRAEFIK_NAME,
+            config={"routing_mode": "subdomain", "external_hostname": "example.com"},
+            trust=True,
+        )
         wait_for_apps(juju, [TRAEFIK_NAME], status="active", timeout=1000)
 
         # Relate Trino to traefik.
