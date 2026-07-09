@@ -5,6 +5,7 @@
 
 import ast
 import logging
+import time
 from pathlib import Path
 
 import jubilant
@@ -217,17 +218,24 @@ class TestTrinoCatalogRelation:
 
         # Relate Trino to traefik.
         juju.integrate(f"{APP_NAME}:ingress", f"{TRAEFIK_NAME}:ingress")
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        wait_for_apps(juju, [APP_NAME, TRAEFIK_NAME], status="active", timeout=1000)
 
-        # Retrieve the URL advertised to the requirer.
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
-
-        result_url = action.results.get("trino-url")
-        assert result_url is not None, "trino-url was not set in the relation data"
-
-        # The URL must have switched away from the internal service address.
+        # The external URL propagates asynchronously: traefik publishes its per-app URL,
+        # trino receives ingress `on.ready`, reconciles, then rewrites the trino-catalog
+        # databag. Workload status stays "active" throughout, so poll the requirer
+        # relation data until the external URL takes effect.
         internal_url = f"{APP_NAME}.{juju.model}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
+        result_url = None
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+            assert action.status == "completed"
+            result_url = action.results.get("trino-url")
+            if result_url and result_url != internal_url:
+                break
+            time.sleep(5)
+
+        assert result_url is not None, "trino-url was not set in the relation data"
         assert result_url != internal_url, (
             f"Expected an external URL but still got the internal URL '{result_url}'"
         )
