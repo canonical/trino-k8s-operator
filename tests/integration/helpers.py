@@ -113,6 +113,9 @@ COORDINATOR_CONFIG = {
     "max-concurrent-queries": 5,
 }
 
+# Helper constants
+_INSTALLING_AGENT_MSG = "installing agent"
+
 
 def get_unit(
     juju: jubilant.Juju, application: str, unit: int = 0
@@ -177,6 +180,23 @@ def _apps_in_error(
     return False
 
 
+def _has_straggler(model_status: jubilant.Status, apps: list[str], status: str) -> bool:
+    """Return whether any not-ready unit is still allocating or installing its agent."""
+    for app in apps:
+        app_status = model_status.apps.get(app)
+        if app_status is None:
+            continue
+        for unit in app_status.units.values():
+            if unit.workload_status.current == status:
+                continue
+            if (
+                unit.juju_status.current == "allocating"
+                or unit.workload_status.message == _INSTALLING_AGENT_MSG
+            ):
+                return True
+    return False
+
+
 def wait_for_apps(
     juju: jubilant.Juju,
     apps: list[str],
@@ -188,6 +208,7 @@ def wait_for_apps(
     idle_period: int | None = None,
     delay: float = 2.0,
     fast_forward: str | None = "10s",
+    grace_period: float = 300,
 ):
     """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
     exact_units: dict[str, int] = {}
@@ -204,11 +225,24 @@ def wait_for_apps(
     def error(model_status):
         return _apps_in_error(model_status, apps, status, raise_on_blocked)
 
-    if not fast_forward:
-        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+    def _do_wait(t: float):
+        if not fast_forward:
+            return juju.wait(ready, error=error, delay=delay, timeout=t, successes=successes)
+        with fast_forward_ctx(juju, fast_forward):
+            return juju.wait(ready, error=error, delay=delay, timeout=t, successes=successes)
 
-    with fast_forward_ctx(juju, fast_forward):
-        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+    try:
+        return _do_wait(timeout)
+    except TimeoutError:
+        if grace_period and _has_straggler(juju.status(), apps, status):
+            logger.warning(
+                "Apps %s still installing after %ss; granting %ss grace period.",
+                apps,
+                timeout,
+                grace_period,
+            )
+            return _do_wait(grace_period)
+        raise
 
 
 def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay: float = 2.0):
