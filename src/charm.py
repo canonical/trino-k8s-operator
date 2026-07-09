@@ -233,9 +233,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Args:
             event: The IngressPerAppReadyEvent with the new ingress URL.
         """
-        if not self.unit.is_leader():
-            return
-        self.state.ingress_url = event.url or ""
         self.trino_catalog.reconcile_trino_catalog_relations()
 
     def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent):
@@ -244,9 +241,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Args:
             event: The IngressPerAppRevokedEvent.
         """
-        if not self.unit.is_leader():
-            return
-        self.state.ingress_url = ""
         self.trino_catalog.reconcile_trino_catalog_relations()
 
     def _warn_deprecated_config(self):

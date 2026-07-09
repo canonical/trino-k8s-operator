@@ -96,7 +96,7 @@ class TrinoCatalogRelationHandler(Object):
         Returns:
             Trino URL as `host:port`, or None if ingress is related but not yet ready.
         """
-        ingress_url = self.charm.state.ingress_url
+        ingress_url = self.charm.ingress.url
         if ingress_url:
             parsed = urlparse(ingress_url)
             if parsed.path.strip("/"):
