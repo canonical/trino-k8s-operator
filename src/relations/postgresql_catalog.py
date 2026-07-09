@@ -638,11 +638,11 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             True if Trino became ready within the timeout, False otherwise.
         """
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         while True:
             if self._is_trino_reachable():
                 return True
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 return False
             time.sleep(interval)
 

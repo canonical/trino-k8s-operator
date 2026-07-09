@@ -237,7 +237,7 @@ class TestTrinoReadiness(TestCase):
         self.assertTrue(handler._wait_for_trino_ready(timeout=10, interval=0))
 
     @mock.patch("relations.postgresql_catalog.time.sleep")
-    @mock.patch("relations.postgresql_catalog.time.time")
+    @mock.patch("relations.postgresql_catalog.time.monotonic")
     def test_wait_returns_true_after_retry(self, mock_time, _mock_sleep):
         """Verify wait retries until Trino becomes ready."""
         mock_time.side_effect = [0.0, 0.0, 5.0]
@@ -246,7 +246,7 @@ class TestTrinoReadiness(TestCase):
         self.assertTrue(handler._wait_for_trino_ready(timeout=300, interval=5))
 
     @mock.patch("relations.postgresql_catalog.time.sleep")
-    @mock.patch("relations.postgresql_catalog.time.time")
+    @mock.patch("relations.postgresql_catalog.time.monotonic")
     def test_wait_returns_false_on_timeout(self, mock_time, _mock_sleep):
         """Verify wait returns False when the timeout elapses."""
         mock_time.side_effect = [0.0, 301.0]

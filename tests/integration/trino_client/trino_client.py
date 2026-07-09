@@ -40,14 +40,23 @@ def query_trino(host, user, query, max_wait=120, retry_interval=10) -> str:
     )
     cur = conn.cursor()
 
-    deadline = time.time() + max_wait
+    deadline = time.monotonic() + max_wait
     while True:
         try:
             cur.execute(query)
             result = cur.fetchall()
             return result
         except trino.exceptions.TrinoQueryError as err:
-            if err.error_name != "SERVER_STARTING_UP" or time.time() >= deadline:
+            # While we are not past the deadline
+            # retry after server initializing errors.
+            retry = time.monotonic() < deadline and (
+                err.error_name == "SERVER_STARTING_UP"  # Coordinator initializing
+                or (
+                    err.error_name == "PAGE_TRANSPORT_ERROR"
+                    and "server is still initializing" in err.message
+                )  # Worker initializing
+            )
+            if not retry:
                 raise
             logger.info("Trino server is still initializing, retrying in %ss", retry_interval)
             time.sleep(retry_interval)

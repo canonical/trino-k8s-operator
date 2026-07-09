@@ -247,8 +247,8 @@ def wait_for_apps(
 
 def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay: float = 2.0):
     """Wait until an application no longer appears in model status."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if app not in juju.status().apps:
             return
         time.sleep(delay)
