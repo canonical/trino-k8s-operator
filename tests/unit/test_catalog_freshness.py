@@ -11,7 +11,7 @@
 import dataclasses
 import logging
 
-from ops.model import MaintenanceStatus
+from ops.model import ActiveStatus
 from ops.testing import Mount
 
 from tests.unit.helpers import (
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def test_config_changed(ctx):
     """The pebble plan changes according to config changes."""
-    state_in, ids = build_coordinator_state(
+    state_in, _ = build_coordinator_state(
         config={
             "google-client-id": "test-client-id",
             "google-client-secret": "test-client-secret",
@@ -51,9 +51,8 @@ def test_config_changed(ctx):
             "summary": "trino server",
             "command": "./entrypoint.sh",
             "startup": "enabled",
-            "on-check-failure": {"up": "ignore"},
+            "on-check-failure": {"up": "restart"},
             "environment": {
-                "CATALOG_CONFIG": ids.catalog_config,
                 "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                 "LOG_LEVEL": "info",
                 "OAUTH_CLIENT_ID": "test-client-id",
@@ -99,8 +98,15 @@ def test_config_changed(ctx):
     environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
     environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
 
+    # Per-file content hashes drive Pebble restarts; assert they are present as
+    # freshness triggers, then drop them to compare the stable environment.
+    hash_keys = {key for key in environment if key.startswith("HASH_")}
+    assert hash_keys
+    for key in hash_keys:
+        del environment[key]
+
     assert got_services == want_services
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
 
 def test_catalog_added(ctx):

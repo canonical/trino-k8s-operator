@@ -5,7 +5,14 @@
 """Literals used by the Trino K8s charm."""
 
 APP_NAME = "trino-k8s"
+PEER_RELATION_NAME = "peer"
 POSTGRESQL_RELATION_NAME = "postgresql"
+TRINO_COORDINATOR_RELATION_NAME = "trino-coordinator"
+TRINO_WORKER_RELATION_NAME = "trino-worker"
+TRINO_CATALOG_RELATION_NAME = "trino-catalog"
+POLICY_RELATION_NAME = "policy"
+OPENSEARCH_RELATION_NAME = "opensearch"
+INGRESS_RELATION_NAME = "ingress"
 TRINO_PORTS = {
     "HTTPS": 443,
     "HTTP": 8080,
@@ -17,6 +24,9 @@ JMX_PORT = 9081
 
 # Configuration literals
 TRINO_HOME = "/usr/lib/trino/etc"
+# JAVA_HOME is baked into the rock image (see trino_rock/rockcraft.yaml); update
+# this literal when the rock's bundled JDK version changes.
+JAVA_HOME = "/usr/lib/jvm/java-25-openjdk-amd64"
 CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
@@ -64,6 +74,12 @@ USER_SECRET_LABEL = "trino-user-management"  # nosec
 TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
 INT_COMMS_SECRET_LABEL = "trino-int-comms-secret"  # nosec
 INT_COMMS_SECRET_RELATION_KEY = "int-comms-secret-id"  # nosec
+TRUSTSTORE_SECRET_LABEL = "trino-truststore-password"  # nosec
+
+# Sidecar manifests tracking managed truststore aliases (under CONF_DIR).
+TRUSTSTORE_MANIFEST = ".truststore-manifest.json"  # nosec
+CACERTS_MANIFEST = ".cacerts-manifest.json"  # nosec
+CACERTS_PATH = "lib/security/cacerts"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string", "nullable": True},

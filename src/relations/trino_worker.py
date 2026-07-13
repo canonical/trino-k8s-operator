@@ -10,8 +10,7 @@ from ops.charm import CharmBase
 from ops.framework import Object
 from ops.model import SecretNotFoundError
 
-from literals import CATALOG_DIR, INT_COMMS_SECRET_RELATION_KEY
-from log import log_event_handler
+from literals import INT_COMMS_SECRET_RELATION_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,8 @@ logger = logging.getLogger(__name__)
 class TrinoWorker(Object):
     """Defines worker functionality for the relation between the Trino coordinator and worker.
 
-    Hook events observed:
-        - relation-created
-        - relation-updated
-        - relation-broken
+    Event observation is centralized in the charm; this object exposes logic
+    methods invoked by the charm reconciler.
     """
 
     def __init__(self, charm: CharmBase, relation_name: str = "trino-worker") -> None:
@@ -36,40 +33,26 @@ class TrinoWorker(Object):
         self.relation_name = relation_name
 
         super().__init__(charm, self.relation_name)
-        self.framework.observe(
-            charm.on[self.relation_name].relation_created,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_changed,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
 
-    @log_event_handler(logger)
-    def _on_relation_changed(self, event):
-        """Worker updates `state` based on relation event data.
+    def gather_from_coordinator(self):
+        """Persist coordinator-published data from the relation databag.
 
-        Args:
-            event: the relation changed event.
+        Reads the `trino-worker` relation databag via the model so the worker
+        can be reconciled from current state rather than an event payload.
+        Only the leader persists to peer state.
         """
-        if not self.charm.state.is_ready():
-            event.defer()
+        if not self.charm.unit.is_leader():
             return
 
-        if self.charm.unit.is_leader():
-            event_data = event.relation.data[event.app]
-            self.charm.state.discovery_uri = event_data.get("discovery-uri")
-            self.charm.state.user_secret_id = event_data.get("user-secret-id")
-            self.charm.state.catalog_config = event_data.get("catalogs")
+        relation = self.charm.model.get_relation(self.relation_name)
+        if relation is None or relation.app is None:
+            return
 
-            int_comms_secret_id = event_data.get(INT_COMMS_SECRET_RELATION_KEY, "")
-            self.charm.state.int_comms_secret_id = int_comms_secret_id
-
-        self.charm._update(event)
+        event_data = relation.data[relation.app]
+        self.charm.state.discovery_uri = event_data.get("discovery-uri")
+        self.charm.state.user_secret_id = event_data.get("user-secret-id")
+        self.charm.state.catalog_config = event_data.get("catalogs")
+        self.charm.state.int_comms_secret_id = event_data.get(INT_COMMS_SECRET_RELATION_KEY, "")
 
     def _resolve_int_comms_secret(self, secret_id: str) -> str | None:
         """Resolve the internal communication secret value by Juju secret ID.
@@ -89,33 +72,6 @@ class TrinoWorker(Object):
         except SecretNotFoundError:
             logger.warning("int-comms-secret id %r could not be resolved", secret_id)
             return None
-
-    def _on_relation_broken(self, event):
-        """Worker updates `state` following relation broken event.
-
-        Args:
-            event: the relation broken event.
-        """
-        if not self.charm.state.is_ready():
-            return
-
-        container = self.charm.model.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        catalog_path = self.charm.trino_abs_path.joinpath(CATALOG_DIR)
-        if container.exists(catalog_path):
-            container.remove_path(catalog_path, recursive=True)
-
-        if not self.charm.unit.is_leader():
-            return
-
-        self.charm.state.discovery_uri = ""
-        self.charm.state.catalog_config = ""
-        self.charm.state.catalog_config = ""
-
-        self.charm._update(event)
 
     def get_postgresql_secrets_from_coordinator(self) -> dict:
         """Read PG password env vars from the coordinator relation databag.

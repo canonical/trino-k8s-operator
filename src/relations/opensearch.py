@@ -6,19 +6,20 @@
 import logging
 import re
 
-from charms.data_platform_libs.v0.data_interfaces import IndexCreatedEvent
 from ops import framework
-from ops.model import BlockedStatus, WaitingStatus
-from ops.pebble import ExecError
 
-from literals import CERTIFICATE_NAME, INDEX_NAME
-from log import log_event_handler
+from literals import INDEX_NAME
 
 logger = logging.getLogger(__name__)
 
 
 class OpensearchRelationHandler(framework.Object):
-    """Client for ranger:postgresql relations."""
+    """Client for ranger:opensearch relations.
+
+    Event observation is centralized in the charm; this object exposes logic
+    methods invoked by the charm reconciler to read connection and certificate
+    data from the relation via the model.
+    """
 
     def __init__(self, charm, relation_name="opensearch"):
         """Construct.
@@ -31,105 +32,17 @@ class OpensearchRelationHandler(framework.Object):
         self.charm = charm
 
         super().__init__(charm, self.relation_name)
-        self.framework.observe(
-            self.charm.opensearch_relation.on.index_created,
-            self._on_index_created,
-        )
-        self.framework.observe(
-            self.charm.on[relation_name].relation_broken,
-            self._on_relation_broken,
-        )
 
-    @log_event_handler(logger)
-    def _on_index_created(self, event: IndexCreatedEvent) -> None:
-        """Handle openserach relation changed events.
+    def _get_relation(self):
+        """Return the opensearch relation, or None when absent.
 
-        Args:
-            event: The event triggered when the relation changed.
+        Returns:
+            The opensearch relation or None.
         """
-        if not self.charm.unit.is_leader():
-            return
-
-        if not self.charm.state.ranger_enabled:
-            self.charm.unit.status = BlockedStatus(
-                "A Ranger relation is required to use OpenSearch."
-            )
-            return
-
-        if self.charm.config.charm_function != "coordinator":
-            self.charm.unit.status = BlockedStatus(
-                "Only Trino coordinator can relate to Opensearch"
-            )
-            return
-
-        self.charm.unit.status = WaitingStatus(f"handling {self.relation_name} change")
-        self.update(event)
-
-    @log_event_handler(logger)
-    def _on_relation_broken(self, event) -> None:
-        """Handle broken relations with opensearch.
-
-        Args:
-            event: The event triggered when the relation changed.
-        """
-        if self.charm.config.charm_function != "coordinator":
-            return
-
-        if not self.charm.state.ranger_enabled:
-            return
-
-        if self.charm.unit.is_leader():
-            self.update(event, True)
-
-    def update_certificates(self, relation_broken=False) -> None:
-        """Add/remove the Opensearch certificate in the Java truststore.
-
-        Args:
-            relation_broken: If the event is a relation broken event.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
-
-        if not self.charm.state.java_truststore_pwd:
-            return
-
-        certificate = self.charm.state.opensearch_certificate
-
-        out, _ = container.exec(["/bin/sh", "-c", "echo $JAVA_HOME"]).wait_output()
-        java_home = out.strip()
-
-        if certificate and not relation_broken:
-            container.push("/opensearch.crt", certificate)
-            command = [
-                "keytool",
-                "-importcert",
-                "-keystore",
-                f"{java_home}/lib/security/cacerts",
-                "-file",
-                "/opensearch.crt",
-                "-alias",
-                CERTIFICATE_NAME,
-                "-storepass",
-                self.charm.state.java_truststore_pwd,
-                "--no-prompt",
-            ]
-        else:
-            container.remove_path("/opensearch.crt")
-            command = [
-                "keytool",
-                "-delete",
-                "-keystore",
-                f"{java_home}/lib/security/cacerts",
-                "-alias",
-                CERTIFICATE_NAME,
-                "-storepass",
-                self.charm.state.java_truststore_pwd,
-            ]
-        try:
-            container.exec(command).wait_output()
-        except ExecError as e:
-            if e.stdout and "already exists" in e.stdout:
-                return
-            logger.error(e.stdout)
+        relation = self.charm.model.get_relation(self.relation_name)
+        if relation is None or relation.app is None:
+            return None
+        return relation
 
     def get_secret_content(self, secret_id) -> dict:
         """Get the content of a juju secret by id.
@@ -144,34 +57,42 @@ class OpensearchRelationHandler(framework.Object):
         content = secret.get_content(refresh=True)
         return content
 
-    def get_cert_value(self, event) -> None:
-        """Get certificate from opensearch secret.
+    def gather_certificate(self):
+        """Read the OpenSearch CA certificate from the relation via the model.
 
-        Args:
-            event: The index created event.
+        Returns:
+            The CA certificate (PEM), or None when unavailable.
         """
-        event_data = event.relation.data[event.app]
-        secret_id = event_data.get("secret-tls")
+        relation = self._get_relation()
+        if relation is None:
+            return None
+        secret_id = relation.data[relation.app].get("secret-tls")
+        if not secret_id:
+            return None
         content = self.get_secret_content(secret_id)
         tls_ca = content["tls-ca"]
         pattern = r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----"
         certificates_list = re.findall(pattern, tls_ca, re.DOTALL)
-        self.charm.state.opensearch_certificate = certificates_list[1]
+        return certificates_list[1]
 
-    def get_conn_values(self, event) -> dict:
-        """Get the connection values from the relation to Opensearch.
-
-        Args:
-            event: The event triggered by index created or relation broken events.
+    def gather_connection(self) -> dict:
+        """Read OpenSearch connection values from the relation via the model.
 
         Returns:
-            A dictionary of connection values.
+            A dictionary of connection values, disabled when unavailable.
         """
-        event_data = event.relation.data[event.app]
-        secret_id = event_data.get("secret-user")
-        user_credentials = self.get_secret_content(secret_id)
+        relation = self._get_relation()
+        if relation is None:
+            return {"is_enabled": False}
 
-        host, port = event_data.get("endpoints").split(",", 1)[0].split(":")
+        event_data = relation.data[relation.app]
+        secret_id = event_data.get("secret-user")
+        endpoints = event_data.get("endpoints")
+        if not secret_id or not endpoints:
+            return {"is_enabled": False}
+
+        user_credentials = self.get_secret_content(secret_id)
+        host, port = endpoints.split(",", 1)[0].split(":")
         return {
             "index": INDEX_NAME,
             "host": host,
@@ -180,19 +101,3 @@ class OpensearchRelationHandler(framework.Object):
             "username": user_credentials["username"],
             "is_enabled": True,
         }
-
-    def update(self, event, relation_broken=False) -> None:
-        """Assign nested value in peer relation.
-
-        Args:
-            event: The event triggered when the relation changed.
-            relation_broken: true if opensearch connection is broken.
-        """
-        env = {"is_enabled": False}
-        if not relation_broken:
-            env = self.get_conn_values(event)
-            self.get_cert_value(event)
-        self.update_certificates(relation_broken)
-        self.charm.state.opensearch = env
-
-        self.charm.policy.restart_ranger_plugin(event)

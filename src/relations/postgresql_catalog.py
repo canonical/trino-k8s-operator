@@ -6,7 +6,6 @@
 import hashlib
 import json
 import logging
-import time
 from typing import Callable, Optional
 
 import pydantic
@@ -16,8 +15,6 @@ from ops import framework, pebble
 from ops.model import SecretNotFoundError
 
 from literals import DEFAULT_CREDENTIALS, POSTGRESQL_RELATION_NAME
-from log import log_event_handler
-from utils import add_cert_to_truststore
 
 REQUESTED_SECRETS = ["username", "password", "tls", "tls-ca"]
 PASS_ENV_VAR_PREFIX = "PG_PASS_"  # nosec
@@ -142,51 +139,8 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
-        self._current_wanted_envs = None
 
-        self.framework.observe(
-            charm.on[self.relation_name].relation_created,
-            self._on_relation_created,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_changed,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
-
-    @log_event_handler(logger)
-    def _on_relation_created(self, event):
-        """Handle relation created: trigger reconciliation.
-
-        Args:
-            event: The relation created event.
-        """
-        self.reconcile_postgresql_catalogs(event)
-
-    @log_event_handler(logger)
-    def _on_relation_changed(self, event):
-        """Handle relation changed: trigger reconciliation.
-
-        Args:
-            event: The relation changed event.
-        """
-        self.reconcile_postgresql_catalogs(event)
-        self.charm.trino_catalog.reconcile_trino_catalog_relations()
-
-    @log_event_handler(logger)
-    def _on_relation_broken(self, event):
-        """Handle relation broken: trigger reconciliation.
-
-        Args:
-            event: The relation broken event.
-        """
-        self.reconcile_postgresql_catalogs(event)
-        self.charm.trino_catalog.reconcile_trino_catalog_relations()
-
-    def reconcile_postgresql_catalogs(self, event=None):
+    def reconcile_postgresql_catalogs(self):
         """Reconcile wanted vs tracked catalog state via CREATE/DROP CATALOG.
 
         Compares what catalogs should exist (from relations and config) against
@@ -194,12 +148,10 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         catalog marker), then issues CREATE/DROP CATALOG SQL to correct
         discrepancies.
 
-        Before issuing SQL statements, ensures pebble env vars carry the
-        current passwords so that `${ENV:…}` references in CREATE CATALOG
-        resolve correctly.  Delegates replanning to `self.charm._update()`.
-
-        Args:
-            event: The Juju event that triggered reconciliation (optional).
+        Trino must already be running with the current password env vars (the
+        charm reconciler applies the Pebble plan before calling this). No-ops
+        when Trino is unreachable or still initializing; convergence happens on
+        the next hook.
         """
         # While invalid configuration is caught during config changes
         # other hooks can still fire afterwards even if the charm is blocked.
@@ -214,33 +166,19 @@ class PostgresqlCatalogRelationHandler(framework.Object):
 
         self._write_databag()
 
-        wanted_catalogs, wanted_envs = self._compute_wanted_catalogs()
-        self._current_wanted_envs = wanted_envs
+        wanted_catalogs, _ = self._compute_wanted_catalogs()
 
         if not self._is_trino_reachable():
             logger.warning("Trino not reachable, skipping catalog reconciliation")
-            self._current_wanted_envs = None
             return
 
         tracked_catalogs = self._read_tracked_catalogs()
 
-        # DROP catalogs that should no longer exist while Trino is still
-        # running with the current env vars (before any replan/restart).
+        # DROP catalogs that should no longer exist.
         to_drop = set(tracked_catalogs) - set(wanted_catalogs)
         for name in to_drop:
             logger.info("Dropping relation catalog %r", name)
             self._drop_catalog(name)
-
-        # Replan if password env vars changed so ${ENV:…} references resolve
-        if self._env_vars_changed(wanted_envs):
-            self.charm._update(event)
-            self.charm.trino_coordinator.update_coordinator_relation_data()
-
-        self._current_wanted_envs = None
-
-        if not self._wait_for_trino_ready():
-            logger.warning("Trino not ready after replan, skipping catalog creates")
-            return
 
         # CREATE new catalogs and UPDATE changed ones (drop + re-create)
         for name, props in wanted_catalogs.items():
@@ -260,6 +198,24 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 self._drop_catalog(name)
             self._create_catalog(name, props)
 
+    def get_desired_tls_certs(self) -> dict:
+        """Return the desired TLS CA certificates for PostgreSQL relations.
+
+        Returns:
+            Mapping of truststore alias to CA certificate (PEM) for each
+            TLS-enabled PostgreSQL relation.
+        """
+        if self.charm.config.charm_function not in ("coordinator", "all"):
+            return {}
+
+        certs = {}
+        for relation in self.charm.model.relations[self.relation_name]:
+            pg = self._load_relation_data(relation)
+            if pg is None or not pg.tls or not pg.tls_ca:
+                continue
+            certs[f"pg-relation-{relation.id}"] = pg.tls_ca
+        return certs
+
     def get_postgresql_relation_catalogs(self) -> list:
         """Return catalog names managed by this handler.
 
@@ -274,14 +230,9 @@ class PostgresqlCatalogRelationHandler(framework.Object):
     def get_postgresql_env_vars(self) -> dict:
         """Return password env vars derived from PG relations.
 
-        If called during a `reconcile_postgresql_catalogs()` run, returns the cached value
-        to avoid recomputing.  Otherwise computes fresh from relations.
-
         Returns:
             Dict mapping env var names to password values.
         """
-        if getattr(self, "_current_wanted_envs", None) is not None:
-            return self._current_wanted_envs
         if self.charm.config.charm_function not in ("coordinator", "all"):
             return {}
         _, env_vars = self._compute_wanted_catalogs()
@@ -336,29 +287,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 props.pop("connector.name", None)
                 tracked[catalog_name] = self._hash_properties(props)
         return tracked
-
-    def _env_vars_changed(self, wanted_envs) -> bool:
-        """Check if PG password env vars differ from the current pebble plan.
-
-        Args:
-            wanted_envs: Dict of wanted env var names to values.
-
-        Returns:
-            True if any PG password env var is missing or changed.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            return bool(wanted_envs)
-
-        try:
-            plan = container.get_plan().to_dict()
-            services = plan.get("services", {})
-            current_env = services.get(self.charm.name, {}).get("environment", {})
-        except Exception:
-            return bool(wanted_envs)
-
-        current_pg = {k: v for k, v in current_env.items() if k.startswith(PASS_ENV_VAR_PREFIX)}
-        return current_pg != (wanted_envs or {})
 
     @staticmethod
     def _parse_properties(raw: str) -> dict:
@@ -571,7 +499,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             params.append("ssl=true")
             params.append("sslmode=require")
             if pg.tls_ca:
-                self._import_tls_cert(relation_id, pg.tls_ca)
                 params.append(f"sslrootcert={self.charm.truststore_abs_path}")
                 params.append("sslrootcertpassword=${ENV:JAVA_TRUSTSTORE_PWD}")
         else:
@@ -579,33 +506,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
 
         url = f"jdbc:postgresql://{pg.all_endpoints}/{database}"
         return f"{url}?{'&'.join(params)}"
-
-    def _import_tls_cert(self, relation_id, tls_ca):
-        """Import TLS CA certificate into the Java truststore.
-
-        Args:
-            relation_id: The relation ID (used as cert alias).
-            tls_ca: The CA certificate content.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            return
-
-        truststore_pwd = self.charm.state.java_truststore_pwd
-        if not truststore_pwd:
-            return
-
-        alias = f"pg-relation-{relation_id}"
-        try:
-            add_cert_to_truststore(
-                container,
-                alias,
-                tls_ca,
-                truststore_pwd,
-                str(self.charm.conf_abs_path),
-            )
-        except Exception as e:
-            logger.error("Failed to import TLS cert for relation %s: %s", relation_id, e)
 
     def _is_trino_reachable(self) -> bool:
         """Check if Trino is reachable and finished initializing.
@@ -623,28 +523,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             return resp.json().get("starting") is False
         except Exception:
             return False
-
-    def _wait_for_trino_ready(self, timeout: float = 300.0, interval: float = 5.0) -> bool:
-        """Poll Trino until it has finished initializing or the timeout elapses.
-
-        After an env-var replan Trino is restarted and briefly reports
-        `SERVER_STARTING_UP` for any query. Wait until it is ready before
-        issuing catalog statements.
-
-        Args:
-            timeout: Maximum total seconds to wait for readiness.
-            interval: Seconds to wait between checks.
-
-        Returns:
-            True if Trino became ready within the timeout, False otherwise.
-        """
-        deadline = time.monotonic() + timeout
-        while True:
-            if self._is_trino_reachable():
-                return True
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(interval)
 
     def _get_trino_user(self) -> str:
         """Get the Trino user for HTTP API calls.

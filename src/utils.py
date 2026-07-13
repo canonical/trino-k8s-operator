@@ -4,6 +4,8 @@
 
 """Collection of helper methods for Trino Charm."""
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -14,6 +16,7 @@ import textwrap
 
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
+from ops.pebble import Error as PebbleError
 from ops.pebble import ExecError
 
 from literals import REPLICA_SCHEMA
@@ -28,6 +31,173 @@ def generate_password() -> str:
         String of 32 randomized letter+digit characters
     """
     return "".join([secrets.choice(string.ascii_letters + string.digits) for _ in range(32)])
+
+
+def content_hash(content: str) -> str:
+    """Return a stable SHA-256 hex digest of file content.
+
+    Used to encode a managed file's desired content into the Pebble plan so
+    that Pebble's own change detection triggers a restart only when the
+    content actually changes.
+
+    Args:
+        content: The rendered desired file content.
+
+    Returns:
+        Hex-encoded SHA-256 digest of the content.
+    """
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+def _certificate_fingerprint(cert: str) -> str:
+    """Return a stable identity for a certificate for change detection.
+
+    Hashes the PEM text directly: matching the exact bytes keytool records is
+    unnecessary because reconciliation tracks its own manifest of what it
+    installed rather than reading back the keystore.
+
+    Args:
+        cert: The certificate content (PEM).
+
+    Returns:
+        Hex-encoded SHA-256 digest of the certificate text.
+    """
+    return hashlib.sha256(cert.encode()).hexdigest()
+
+
+def truststore_manifest_hash(certs: dict) -> str:
+    """Return a deterministic hash of a desired truststore cert set.
+
+    JKS files embed per-entry timestamps, so hashing the keystore bytes is not
+    reproducible. Hashing a sorted `alias:fingerprint` manifest instead yields
+    a stable value that changes only when the desired cert set changes, making
+    it safe to place in the Pebble plan as a restart trigger.
+
+    Args:
+        certs: Mapping of alias to certificate content (PEM).
+
+    Returns:
+        Hex-encoded SHA-256 digest of the sorted manifest.
+    """
+    manifest = sorted(f"{alias}:{_certificate_fingerprint(cert)}" for alias, cert in certs.items())
+    return hashlib.sha256("\n".join(manifest).encode()).hexdigest()
+
+
+def _read_truststore_manifest(container, manifest_path) -> dict:
+    """Read the tracked truststore manifest, or an empty dict if absent.
+
+    Args:
+        container: The Trino container.
+        manifest_path: Path to the sidecar manifest file.
+
+    Returns:
+        Mapping of alias to fingerprint of the last-installed certs.
+    """
+    try:
+        return json.loads(container.pull(manifest_path).read())
+    except PebbleError:
+        return {}
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Corrupt truststore manifest at %s, treating as empty", manifest_path)
+        return {}
+
+
+def _keytool_delete_alias(container, keystore_path, storepass, alias) -> None:
+    """Delete an alias from a keystore, ignoring a missing entry.
+
+    Args:
+        container: The Trino container.
+        keystore_path: Path to the JKS/PKCS12 keystore.
+        storepass: The keystore password.
+        alias: The alias to delete.
+    """
+    command = [
+        "keytool",
+        "-delete",
+        "-alias",
+        alias,
+        "-keystore",
+        keystore_path,
+        "-storepass",
+        storepass,
+        "-noprompt",
+    ]
+    try:
+        container.exec(command).wait_output()
+    except ExecError as e:
+        if e.stderr and "does not exist" in e.stderr:
+            return
+        logger.warning("Failed to delete alias %r from %s: %s", alias, keystore_path, e.stderr)
+
+
+def _keytool_import_cert(container, keystore_path, storepass, alias, cert, working_dir) -> None:
+    """Import a PEM certificate into a keystore under the given alias.
+
+    Args:
+        container: The Trino container.
+        keystore_path: Path to the JKS/PKCS12 keystore.
+        storepass: The keystore password.
+        alias: The alias to import under.
+        cert: The certificate content (PEM).
+        working_dir: Directory used to stage the certificate file.
+    """
+    cert_file = f"{alias}.crt"
+    container.push(os.path.join(working_dir, cert_file), cert, make_dirs=True)
+    command = [
+        "keytool",
+        "-import",
+        "-v",
+        "-alias",
+        alias,
+        "-file",
+        cert_file,
+        "-keystore",
+        keystore_path,
+        "-storepass",
+        storepass,
+        "-noprompt",
+    ]
+    try:
+        container.exec(command, working_dir=working_dir).wait_output()
+    finally:
+        try:
+            container.remove_path(os.path.join(working_dir, cert_file))
+        except PebbleError:
+            pass
+
+
+def reconcile_truststore(container, keystore_path, storepass, desired, working_dir, manifest_path):
+    """Reconcile a keystore's managed certificates to the desired set in place.
+
+    Adds missing or changed certificates, removes obsolete ones, and leaves
+    unchanged entries untouched. Only aliases recorded in the sidecar manifest
+    are considered managed, so default CA entries in a shared keystore (e.g.
+    the JVM `cacerts`) are never removed. Avoids the churn of deleting and
+    recreating the keystore on every reconcile.
+
+    Args:
+        container: The Trino container.
+        keystore_path: Path to the JKS/PKCS12 keystore.
+        storepass: The keystore password.
+        desired: Mapping of alias to certificate content (PEM) that should exist.
+        working_dir: Directory used to stage certificate files for import.
+        manifest_path: Path to the sidecar manifest tracking managed aliases.
+    """
+    tracked = _read_truststore_manifest(container, manifest_path)
+    desired_fps = {alias: _certificate_fingerprint(cert) for alias, cert in desired.items()}
+
+    # Remove certs that are managed but no longer desired, or whose content changed.
+    for alias, fingerprint in tracked.items():
+        if desired_fps.get(alias) != fingerprint:
+            _keytool_delete_alias(container, keystore_path, storepass, alias)
+
+    # Import certs that are new or whose content changed.
+    for alias, cert in desired.items():
+        if tracked.get(alias) == desired_fps[alias]:
+            continue
+        _keytool_import_cert(container, keystore_path, storepass, alias, cert, working_dir)
+
+    container.push(manifest_path, json.dumps(desired_fps), make_dirs=True)
 
 
 def render(template_name, env=None):

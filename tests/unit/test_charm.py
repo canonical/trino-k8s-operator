@@ -71,19 +71,18 @@ def test_waiting_on_peer_relation_not_ready(ctx):
     # No plans are set yet.
     assert state_out.get_container("trino").plan.to_dict() == {}
 
-    # The BlockStatus is set with a message.
-    assert state_out.unit_status == BlockedStatus("peer relation not ready")
+    # The WaitingStatus is set with a message.
+    assert state_out.unit_status == WaitingStatus("waiting for peer relation")
 
 
 def test_ready(ctx):
     """The pebble plan is correctly generated when the charm is ready."""
-    state_in, ids = build_coordinator_state()
-    catalog_config = ids.catalog_config
+    state_in, _ = build_coordinator_state()
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    # Asserts status is set to replanning.
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    # The status reflects the healthy `up` check reported by Scenario.
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
     # The plan is generated after config is applied.
     want_plan = {
@@ -93,9 +92,8 @@ def test_ready(ctx):
                 "summary": "trino server",
                 "command": "./entrypoint.sh",
                 "startup": "enabled",
-                "on-check-failure": {"up": "ignore"},
+                "on-check-failure": {"up": "restart"},
                 "environment": {
-                    "CATALOG_CONFIG": catalog_config,
                     "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                     "LOG_LEVEL": "info",
                     "OAUTH_CLIENT_ID": None,
@@ -137,6 +135,13 @@ def test_ready(ctx):
     environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
     environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
     environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
+
+    # Per-file content hashes drive Pebble restarts; assert they are present as
+    # freshness triggers, then drop them to compare the stable environment.
+    hash_keys = {key for key in environment if key.startswith("HASH_")}
+    assert hash_keys
+    for key in hash_keys:
+        del environment[key]
 
     assert got_services == want_plan["services"]
 
@@ -349,7 +354,7 @@ def test_incomplete_pebble_plan(ctx):
 
     state_out = ctx.run(ctx.on.update_status(), state_in)
 
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
     assert state_out.get_container("trino").plan.to_dict() != mock_incomplete_pebble_plan
 
 
@@ -446,8 +451,8 @@ def test_trino_single_node_deployment(ctx):
     # There is a valid pebble plan.
     assert _services(state_out)["trino"]["environment"]["CHARM_FUNCTION"] == "all"
 
-    # The MaintenanceStatus is set.
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    # The status reflects the healthy `up` check reported by Scenario.
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
 
 def test_resource_management_config(ctx):

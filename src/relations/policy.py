@@ -6,18 +6,19 @@
 import logging
 
 from ops import framework
-from ops.model import MaintenanceStatus
-from ops.pebble import ExecError
 
 from literals import RANGER_PLUGIN_FILES, TRINO_HOME, TRINO_PORTS
-from log import log_event_handler
 from utils import handle_exec_error, render
 
 logger = logging.getLogger(__name__)
 
 
 class PolicyRelationHandler(framework.Object):
-    """Client for trino policy relations."""
+    """Client for trino policy relations.
+
+    Event observation is centralized in the charm; this object exposes logic
+    methods invoked by the charm reconciler.
+    """
 
     def __init__(self, charm, relation_name="policy"):
         """Construct.
@@ -30,66 +31,34 @@ class PolicyRelationHandler(framework.Object):
         self.charm = charm
         self.relation_name = relation_name
 
-        # Handle database relation.
-        self.framework.observe(
-            charm.on[self.relation_name].relation_created,
-            self._on_relation_created,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_changed,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
-
-    @log_event_handler(logger)
-    def _on_relation_created(self, event):
-        """Handle policy relation created.
-
-        Args:
-            event: The relation created event.
-        """
+    def publish_service_data(self):
+        """Publish the Trino service definition to related Ranger managers."""
         if not self.charm.unit.is_leader():
             return
 
-        service = self._prepare_service(event)
+        for relation in self.charm.model.relations[self.relation_name]:
+            service = self._prepare_service(relation)
+            relation.data[self.charm.app].update(service)
 
-        if event.relation:
-            event.relation.data[self.charm.app].update(service)
+    def read_policy_manager_url(self):
+        """Return the policy manager URL published by the Ranger provider.
 
-    @log_event_handler(logger)
-    def _on_relation_changed(self, event):
-        """Handle policy relation changed.
-
-        Args:
-            event: Relation changed event.
+        Returns:
+            The policy manager URL, or None when unavailable.
         """
-        if not self.charm.unit.is_leader():
-            return
+        for relation in self.charm.model.relations[self.relation_name]:
+            if relation.app is None:
+                continue
+            url = relation.data[relation.app].get("policy_manager_url")
+            if url:
+                return url
+        return None
 
-        container = self.charm.model.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        self.charm.state.policy_manager_url = event.relation.data[event.app].get(
-            "policy_manager_url"
-        )
-        if not self.charm.state.policy_manager_url:
-            return
-
-        self.charm.state.policy_relation = f"relation_{event.relation.id}"
-        self._configure_ranger_plugin(container)
-
-        self.charm._restart_trino()
-
-    def _prepare_service(self, event):
+    def _prepare_service(self, relation):
         """Prepare service to be created in Ranger.
 
         Args:
-            event: Relation created event
+            relation: The policy relation.
 
         Returns:
             service: Service values to be set in relation databag
@@ -99,7 +68,7 @@ class PolicyRelationHandler(framework.Object):
         namespace = self.model.name
         uri = f"{host}.{namespace}.svc.cluster.local:{port}"
 
-        service_name = self.charm.config.ranger_service_name or f"relation_{event.relation.id}"
+        service_name = self.charm.config.ranger_service_name or f"relation_{relation.id}"
         service = {
             "name": service_name,
             "type": "trino",
@@ -108,46 +77,23 @@ class PolicyRelationHandler(framework.Object):
         }
         return service
 
-    @log_event_handler(logger)
-    def _on_relation_broken(self, event):
-        """Handle policy relation broken.
-
-        Args:
-            event: Relation broken event.
-
-        Raises:
-            ExecError: When failure to disable Ranger plugin.
-        """
-        if not self.charm.unit.is_leader():
-            return
-
-        container = self.charm.model.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            event.defer()
-            return
-
-        try:
-            self.charm.state.ranger_enabled = False
-            logger.info("Ranger plugin disabled successfully")
-        except ExecError as err:
-            raise ExecError(f"Unable to disable Ranger plugin: {err}") from err
-
-        self.charm._update(event)
-
     @handle_exec_error
     def _configure_ranger_plugin(self, container):
-        """Enable the ranger plugin for Trino.
+        """Render and push the Ranger plugin files.
 
         Args:
             container: The application container.
+
+        Returns:
+            Mapping of pushed file name to rendered content, for plan hashing.
         """
-        self._push_plugin_files(
+        rendered = self._push_plugin_files(
             container,
             self.charm.state.policy_manager_url,
             self.charm.state.policy_relation,
         )
-        self.charm.state.ranger_enabled = True
         logger.info("Ranger plugin is enabled.")
+        return rendered
 
     def _push_plugin_files(self, container, policy_manager_url, policy_relation):
         """Configure the Ranger plugin install.properties file.
@@ -156,10 +102,11 @@ class PolicyRelationHandler(framework.Object):
             container: The application container
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
+
+        Returns:
+            Mapping of pushed file name to rendered content.
         """
         opensearch = self.charm.state.opensearch or {}
-        if opensearch.get("is_enabled") and not container.exists("/opensearch.crt"):
-            self.charm.opensearch_relation_handler.update_certificates()
         policy_context = {
             "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
@@ -172,21 +119,10 @@ class PolicyRelationHandler(framework.Object):
             "OPENSEARCH_USER": opensearch.get("username"),
             "OPENSEARCH_ENABLED": opensearch.get("is_enabled"),
         }
+        rendered = {}
         for template, file in RANGER_PLUGIN_FILES.items():
             content = render(template, policy_context)
             path = self.charm.trino_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
-
-    def restart_ranger_plugin(self, event):
-        """Restart Ranger plugin for Trino.
-
-        Args:
-            event: the relation changed event.
-        """
-        container = self.charm.model.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            event.fail("Failed to connect to the container")
-            return
-
-        self.charm.unit.status = MaintenanceStatus("Restarting Ranger plugin")
-        self._configure_ranger_plugin(container)
+            rendered[file] = content
+        return rendered

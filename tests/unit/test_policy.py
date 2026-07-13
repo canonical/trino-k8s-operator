@@ -12,7 +12,7 @@ import dataclasses
 import logging
 import re
 
-from ops.model import ActiveStatus, MaintenanceStatus
+from ops.model import ActiveStatus
 from ops.pebble import CheckLevel, CheckStartup, CheckStatus
 from ops.testing import CheckInfo, Relation
 
@@ -87,10 +87,12 @@ def _opensearch_setup(ctx):
     state = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
     # Enable the Ranger plugin via the policy relation.
+    policy_rel = state.get_relation(policy_rel.id)
     state = carry_forward(ctx.run(ctx.on.relation_changed(policy_rel), state))
 
     # Create the OpenSearch index. The OpenSearch credentials and certificate
     # are resolved from real Juju secrets shared over the relation.
+    opensearch_rel = state.get_relation(opensearch_rel.id)
     state = ctx.run(ctx.on.relation_changed(opensearch_rel), state)
 
     return state, opensearch_rel
@@ -122,6 +124,7 @@ def test_policy_relation_changed(ctx):
     state_in, _ = build_coordinator_state(extra_relations=[policy_rel])
     bootstrapped = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
+    policy_rel = bootstrapped.get_relation(policy_rel.id)
     state_out = ctx.run(ctx.on.relation_changed(policy_rel), bootstrapped)
 
     ranger_config = workload_path(state_out, ctx, RANGER_SECURITY_PATH).read_text()
@@ -134,6 +137,7 @@ def test_policy_relation_broken(ctx):
     state_in, _ = build_coordinator_state(extra_relations=[policy_rel])
     bootstrapped = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
+    policy_rel = bootstrapped.get_relation(policy_rel.id)
     state_out = ctx.run(ctx.on.relation_broken(policy_rel), bootstrapped)
 
     relation_data = state_out.get_relation(policy_rel.id).local_app_data
@@ -143,9 +147,6 @@ def test_policy_relation_broken(ctx):
 def test_on_opensearch_index_created(ctx):
     """Test handling of opensearch relation changed events."""
     state, _ = _opensearch_setup(ctx)
-
-    assert state.unit_status == MaintenanceStatus("Restarting Ranger plugin")
-    assert workload_path(state, ctx, "/opensearch.crt").exists()
 
     ranger_config = workload_path(state, ctx, RANGER_AUDIT_PATH).read_text()
     ranger_config = re.sub(r"\s", "", ranger_config)
@@ -165,17 +166,7 @@ def test_on_opensearch_relation_broken(ctx):
     state = carry_forward(state)
     opensearch_rel = state.get_relation(opensearch_rel.id)
 
-    # The OpenSearch certificate was installed when the index was created; seed
-    # it so the broken handler can remove it (the workload filesystem is reset
-    # between Scenario runs).
-    with ctx(ctx.on.relation_broken(opensearch_rel), state) as mgr:
-        mgr.charm.unit.get_container("trino").push(
-            "/opensearch.crt", "certificate", make_dirs=True
-        )
-        state = mgr.run()
-
-    assert state.unit_status == MaintenanceStatus("Restarting Ranger plugin")
-    assert not workload_path(state, ctx, "/opensearch.crt").exists()
+    state = ctx.run(ctx.on.relation_broken(opensearch_rel), state)
 
     ranger_config = workload_path(state, ctx, RANGER_AUDIT_PATH).read_text()
     assert "testuser" not in ranger_config

@@ -11,7 +11,6 @@ from ops.framework import Object
 from ops.model import SecretNotFoundError
 
 from literals import INT_COMMS_SECRET_LABEL, INT_COMMS_SECRET_RELATION_KEY
-from log import log_event_handler
 from utils import generate_password
 
 logger = logging.getLogger(__name__)
@@ -20,10 +19,8 @@ logger = logging.getLogger(__name__)
 class TrinoCoordinator(Object):
     """Defines coordinator functionality for the relation between the Trino coordinator and worker.
 
-    Hook events observed:
-        - relation-created
-        - relation-updated
-        - relation-broken
+    Event observation is centralized in the charm; this object exposes logic
+    methods invoked by the charm reconciler.
     """
 
     def __init__(self, charm: CharmBase, relation_name: str = "trino-coordinator") -> None:
@@ -37,44 +34,6 @@ class TrinoCoordinator(Object):
         self.relation_name = relation_name
 
         super().__init__(charm, self.relation_name)
-        self.framework.observe(
-            charm.on[self.relation_name].relation_created,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_changed,
-            self._on_relation_changed,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
-
-    @log_event_handler(logger)
-    def _on_relation_changed(self, event):
-        """Handle the relation changed event.
-
-        Args:
-            event: the relation changed or update config event.
-        """
-        if not self.charm.state.is_ready():
-            event.defer()
-            return
-
-        self._update_coordinator_relation_data(event)
-        self.charm._update(event)
-
-    def _update_coordinator_relation_data(self, event):
-        """Update the `trino-coordinator` relation databag.
-
-        Args:
-            event: the relation changed or config changed event.
-        """
-        if not self.charm.state.is_ready():
-            event.defer()
-            return
-
-        self.update_coordinator_relation_data()
 
     def _get_or_create_int_comms_secret(self):
         """Get or create the singleton app-owned Juju secret for internal communication.
@@ -135,14 +94,6 @@ class TrinoCoordinator(Object):
                 int_comms_secret.grant(relation)
                 relation_data[INT_COMMS_SECRET_RELATION_KEY] = int_comms_secret.id
             relation.data[self.charm.app].update(relation_data)
-
-    def _on_relation_broken(self, event):
-        """Coordinator updates and re-validates relations on relation broken.
-
-        Args:
-            event: the relation broken event.
-        """
-        self.charm._update(event)
 
     def _validate(self):
         """Check if the trino coordinator relation is available.
