@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(name="deploy-upgrade", scope="module")
 def deploy(juju: jubilant.Juju):
     """Deploy the app."""
-    # Deploy trino and nginx charms
+    # Deploy trino charm
     trino_config = {
         "acl-mode-default": "none",
         "charm-function": "all",

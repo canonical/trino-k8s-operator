@@ -89,16 +89,6 @@ def deploy_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME, db_name="testdb", unit
     wait_for_apps(juju, [di_name], status="active", timeout=900)
 
 
-def wait_for_idle_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
-    """Wait for PG and Trino to be idle and active.
-
-    Args:
-        juju: Jubilant Juju object.
-        pg_name: PG application name.
-    """
-    wait_for_apps(juju, [APP_NAME, WORKER_NAME, pg_name], status="active", timeout=900)
-
-
 def destroy_pg(juju: jubilant.Juju, pg_name):
     """Destroy a PG app and its associated data-integrator.
 
@@ -121,7 +111,7 @@ def relate_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
         pg_name: PG application name.
     """
     juju.integrate(APP_NAME, pg_name)
-    wait_for_idle_pg(juju, pg_name)
+    wait_for_apps(juju, [APP_NAME, WORKER_NAME, pg_name], status="active", timeout=900)
 
 
 def remove_pg_relation(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
@@ -136,8 +126,8 @@ def remove_pg_relation(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
 
     # Wait for the relation to be fully removed from Juju's state
     # to avoid "relation is dying, but not yet removed" errors on re-integrate.
-    deadline = time.time() + 300
-    while time.time() < deadline:
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
         status = juju.status()
         app_status = status.apps.get(APP_NAME)
         if app_status is None:
@@ -181,11 +171,11 @@ def wait_for_catalog(juju: jubilant.Juju, catalog_name, present=True, timeout=30
     Raises:
         TimeoutError: If the expected state isn't reached.
     """
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
     # Fast-forward update-status so a failed/incomplete reconcile is retried
     # promptly while we poll, instead of at the slow default hook interval.
     with fast_forward_ctx(juju, "10s"):
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
                 found = catalog_name in str(catalogs)

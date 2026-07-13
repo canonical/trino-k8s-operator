@@ -17,7 +17,6 @@ jobs:
       packages: write
       pull-requests: write
     with:
-      runs-on: "self-hosted-linux-amd64-noble-xlarge"
       channel: 1.35-classic/stable
       modules: >-
         ["test_charm.py",

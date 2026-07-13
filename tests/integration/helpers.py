@@ -32,7 +32,7 @@ METADATA = yaml.safe_load(Path(f"{BASE_DIR}/charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 WORKER_NAME = f"{APP_NAME}-worker"
 POSTGRES_NAME = "postgresql-k8s"
-NGINX_NAME = "nginx-ingress-integrator"
+TRAEFIK_NAME = "traefik-k8s"
 
 # Database configuration literals
 BIGQUERY_SECRET = """\
@@ -113,6 +113,9 @@ COORDINATOR_CONFIG = {
     "max-concurrent-queries": 5,
 }
 
+# Helper constants
+_INSTALLING_AGENT_MSG = "installing agent"
+
 
 def get_unit(
     juju: jubilant.Juju, application: str, unit: int = 0
@@ -177,6 +180,23 @@ def _apps_in_error(
     return False
 
 
+def _has_straggler(model_status: jubilant.Status, apps: list[str], status: str) -> bool:
+    """Return whether any not-ready unit is still allocating or installing its agent."""
+    for app in apps:
+        app_status = model_status.apps.get(app)
+        if app_status is None:
+            continue
+        for unit in app_status.units.values():
+            if unit.workload_status.current == status:
+                continue
+            if (
+                unit.juju_status.current == "allocating"
+                or unit.workload_status.message == _INSTALLING_AGENT_MSG
+            ):
+                return True
+    return False
+
+
 def wait_for_apps(
     juju: jubilant.Juju,
     apps: list[str],
@@ -188,6 +208,8 @@ def wait_for_apps(
     idle_period: int | None = None,
     delay: float = 2.0,
     fast_forward: str | None = "10s",
+    grace_period: float = 300,
+    error_grace: float = 60,
 ):
     """Approximate OpsTest wait_for_idle semantics with Jubilant waits."""
     exact_units: dict[str, int] = {}
@@ -197,24 +219,46 @@ def wait_for_apps(
         exact_units = dict.fromkeys(apps, wait_for_exact_units)
 
     successes = max(3, int(idle_period / delay)) if idle_period else 3
+    error_tolerance = max(1, int(error_grace / delay))
+    error_streak = 0
 
     def ready(model_status):
         return _apps_ready(model_status, apps, status, exact_units)
 
     def error(model_status):
-        return _apps_in_error(model_status, apps, status, raise_on_blocked)
+        # Give charms that throw errors and recover by themselves
+        # a chance to retry their hooks before failing the test suite.
+        nonlocal error_streak
+        if _apps_in_error(model_status, apps, status, raise_on_blocked):
+            error_streak += 1
+            return error_streak >= error_tolerance
+        error_streak = 0
+        return False
 
-    if not fast_forward:
-        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+    def _do_wait(t: float):
+        if not fast_forward:
+            return juju.wait(ready, error=error, delay=delay, timeout=t, successes=successes)
+        with fast_forward_ctx(juju, fast_forward):
+            return juju.wait(ready, error=error, delay=delay, timeout=t, successes=successes)
 
-    with fast_forward_ctx(juju, fast_forward):
-        return juju.wait(ready, error=error, delay=delay, timeout=timeout, successes=successes)
+    try:
+        return _do_wait(timeout)
+    except TimeoutError:
+        if grace_period and _has_straggler(juju.status(), apps, status):
+            logger.warning(
+                "Apps %s still installing after %ss; granting %ss grace period.",
+                apps,
+                timeout,
+                grace_period,
+            )
+            return _do_wait(grace_period)
+        raise
 
 
 def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay: float = 2.0):
     """Wait until an application no longer appears in model status."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if app not in juju.status().apps:
             return
         time.sleep(delay)

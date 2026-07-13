@@ -26,7 +26,6 @@ from ops.testing import CheckInfo, Mount, PeerRelation, Relation, State
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     DEFAULT_JVM_STRING,
-    MODEL_NAME,
     POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_1_DEVELOPER_CATALOG_PATH,
     POSTGRESQL_REPLICA_SECRET,
@@ -142,53 +141,39 @@ def test_ready(ctx):
     assert got_services == want_plan["services"]
 
 
-def test_ingress(ctx):
-    """Test ingress relation.
+def test_ingress_publishes_app_data(ctx):
+    """The charm publishes the correct app data to the ingress relation databag.
 
-    The charm relates correctly to the nginx ingress charm
-    and can be configured.
+    The IngressPerAppRequirer library publishes app data on ingress relation events.
+    We fire a relation-joined event on the ingress endpoint and verify the databag.
     """
-    nginx_route = Relation("nginx-route", remote_app_name="ingress")
-    state_in, _ = build_coordinator_state(extra_relations=(nginx_route,))
+    ingress = Relation("ingress", remote_app_name="traefik-k8s")
+    state_in, _ = build_coordinator_state(extra_relations=(ingress,))
 
-    state_out = ctx.run(ctx.on.config_changed(), state_in)
+    state_out = ctx.run(ctx.on.relation_changed(ingress, remote_unit=0), state_in)
 
-    relation_data = state_out.get_relation(nginx_route.id).local_app_data
-    assert relation_data == {
-        "service-namespace": MODEL_NAME,
-        "service-hostname": "trino-k8s",
-        "service-name": "trino-k8s",
-        "service-port": SERVER_PORT,
-        "backend-protocol": "HTTP",
-    }
+    app_data = state_out.get_relation(ingress.id).local_app_data
+    assert app_data.get("port") == str(int(SERVER_PORT))
+    assert app_data.get("strip-prefix") == "true"
+    assert app_data.get("redirect-https") == "true"
+    assert app_data.get("model") is not None
+    assert app_data.get("name") is not None
 
 
-def test_ingress_tls_secret_name_set(ctx):
-    """An explicit tls-secret-name is forwarded to the nginx-route relation."""
-    nginx_route = Relation("nginx-route", remote_app_name="ingress")
+def test_deprecated_config_no_validation_error(ctx):
+    """Deprecated config options external-hostname and tls-secret-name are accepted as no-ops."""
     state_in, _ = build_coordinator_state(
-        config={"tls-secret-name": "my-tls-secret"},
-        extra_relations=(nginx_route,),
+        config={"external-hostname": "trino.example.com", "tls-secret-name": "my-tls-secret"},
     )
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    relation_data = state_out.get_relation(nginx_route.id).local_app_data
-    assert relation_data.get("tls-secret-name") == "my-tls-secret"
-
-
-def test_ingress_tls_secret_name_unset(ctx):
-    """When tls-secret-name is not set, the key is absent from the nginx-route relation.
-
-    This allows an external operator (e.g. lego) to provide the TLS secret instead.
-    """
-    nginx_route = Relation("nginx-route", remote_app_name="ingress")
-    state_in, _ = build_coordinator_state(extra_relations=(nginx_route,))
-
-    state_out = ctx.run(ctx.on.config_changed(), state_in)
-
-    relation_data = state_out.get_relation(nginx_route.id).local_app_data
-    assert "tls-secret-name" not in relation_data
+    # Charm must not block on these deprecated values.
+    assert state_out.unit_status != BlockedStatus(
+        "tls-secret-name must be a valid Kubernetes resource name "
+        "(lowercase alphanumeric and hyphens), got 'my-tls-secret'"
+    )
+    assert not isinstance(state_out.unit_status, BlockedStatus)
 
 
 def test_invalid_config_value(ctx):

@@ -24,9 +24,6 @@ _TRINO_MEMORY_RE = re.compile(r"^\d+(\.\d+)?(B|kB|MB|GB|TB|PB)$")
 # Kubernetes resource quantity: plain number or number + binary/decimal suffix
 _K8S_QUANTITY_RE = re.compile(r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|Ei|K|M|G|T|P|E|m)?$")
 
-# Valid Kubernetes / DNS resource name (lowercase alphanumeric + hyphens)
-_K8S_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$")
-
 
 def _validate_duration(v: str, field_label: str) -> str:
     """Validate a Trino duration string (e.g. '10m', '30s', '1h').
@@ -165,16 +162,6 @@ class CharmConfig(BaseConfigModel):
         if v < 1:
             raise ValueError(f"max-concurrent-queries must be at least 1, got {v!r}")
         return v
-
-    @validator("tls_secret_name")
-    def validate_tls_secret_name(cls, v):
-        """Validate tls_secret_name is a legal Kubernetes resource name when provided."""
-        if v and not _K8S_NAME_RE.match(v):
-            raise ValueError(
-                f"tls-secret-name must be a valid Kubernetes resource name "
-                f"(lowercase alphanumeric and hyphens), got {v!r}"
-            )
-        return v or None
 
     # ── Regex validators ───────────────────────────────────────────────────
 

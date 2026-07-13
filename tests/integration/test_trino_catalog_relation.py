@@ -5,6 +5,7 @@
 
 import ast
 import logging
+import time
 from pathlib import Path
 
 import jubilant
@@ -12,7 +13,7 @@ import pytest
 from conftest import pack_charm
 from helpers import (
     APP_NAME,
-    NGINX_NAME,
+    TRAEFIK_NAME,
     add_juju_secret,
     create_catalog_config,
     get_secret_id_by_label,
@@ -91,7 +92,7 @@ class TestTrinoCatalogRelation:
             "Expected non-empty auto-generated password"
         )
 
-        # Verify internal URL (no nginx relation at this point)
+        # Verify internal URL (no ingress relation at this point)
         result_url = action.results.get("trino-url")
         expected_internal_url = f"{APP_NAME}.{juju.model}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
         assert result_url == expected_internal_url, (
@@ -203,35 +204,51 @@ class TestTrinoCatalogRelation:
 
         logger.info("Verified catalog exclusions work correctly")
 
-    def test_06_trino_catalog_external_url_with_nginx(self, juju: jubilant.Juju):
-        """Test that the requirer receives external URL when nginx-route relation exists."""
-        # Deploy nginx-ingress-integrator
-        juju.deploy(NGINX_NAME, trust=True)
-        wait_for_apps(juju, [NGINX_NAME], status="waiting", timeout=1000)
+    def test_06_trino_catalog_external_url_with_ingress(self, juju: jubilant.Juju):
+        """Test that the requirer receives an external URL when the ingress relation is active."""
+        # Deploy traefik in subdomain mode so each app gets a per-app external hostname.
+        # external_hostname is required when using routing_mode=subdomain; without it traefik
+        # stays blocked and never reaches active.
+        juju.deploy(
+            TRAEFIK_NAME,
+            config={"routing_mode": "subdomain", "external_hostname": "example.com"},
+            trust=True,
+        )
+        wait_for_apps(juju, [TRAEFIK_NAME], status="active", timeout=1000)
 
-        # Relate Trino to nginx-ingress-integrator
-        juju.integrate(APP_NAME, NGINX_NAME)
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        # Relate Trino to traefik.
+        juju.integrate(f"{APP_NAME}:ingress", f"{TRAEFIK_NAME}:ingress")
+        wait_for_apps(juju, [APP_NAME, TRAEFIK_NAME], status="active", timeout=1000)
 
-        # Set external-hostname config
-        juju.config(APP_NAME, {"external-hostname": "trino.test.com"})
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
+        # The external URL propagates asynchronously: traefik publishes its per-app URL,
+        # trino receives ingress `on.ready`, reconciles, then rewrites the trino-catalog
+        # databag. Workload status stays "active" throughout, so poll the requirer
+        # relation data until the external URL takes effect.
+        internal_url = f"{APP_NAME}.{juju.model}.svc.cluster.local:{TRINO_PORTS['HTTP']}"
+        result_url = None
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
+            assert action.status == "completed"
+            result_url = action.results.get("trino-url")
+            if result_url and result_url != internal_url:
+                break
+            time.sleep(5)
 
-        # Verify the requirer received the external URL
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
+        assert result_url is not None, "trino-url was not set in the relation data"
+        assert result_url != internal_url, (
+            f"Expected an external URL but still got the internal URL '{result_url}'"
+        )
 
-        result_url = action.results.get("trino-url")
-        expected_external_url = f"trino.test.com:{TRINO_PORTS['HTTPS']}"
-        assert result_url == expected_external_url, (
-            f"Expected external URL '{expected_external_url}', got '{result_url}'"
+        # The URL must be bare host:port with no scheme or path (host-based routing).
+        assert "://" not in result_url, f"URL must not contain a scheme, got '{result_url}'"
+        assert "/" not in result_url, (
+            f"URL must not contain a path prefix (host-based routing required), got '{result_url}'"
         )
         logger.info("Verified requirer received external Trino URL: %s", result_url)
 
-        # Clean up: remove nginx relation and reset external-hostname
-        juju.remove_relation(APP_NAME, NGINX_NAME)
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
-        juju.config(APP_NAME, reset=["external-hostname"])
+        # Clean up: remove ingress relation.
+        juju.remove_relation(f"{APP_NAME}:ingress", f"{TRAEFIK_NAME}:ingress")
         wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
     def test_07_catalog_config_propagation(self, juju: jubilant.Juju):

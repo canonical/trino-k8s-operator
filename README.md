@@ -27,42 +27,60 @@ juju config trino-k8s discovery-uri=https://trino-coordinator.example.com
 ```
 
 ## HTTPS
-The Trino Charm is configured to secure communications with relation to a load balancer or proxy server such as Nginx Ingress. Nginx must be configured with a valid, globally trusted TLS certificate.
+The Trino Charm is configured to secure communications via a load balancer or proxy server that
+terminates TLS. The ingress provider accepts TLS connections from clients and forwards plain HTTP
+to the Trino coordinator on port 8080. Client tools access Trino through the URL exposed by the
+ingress provider.
 
-The load balancer or proxy server accepts TLS connections and forwards them to the Trino coordinator, which runs with default HTTP configuration on the default port, 8080. Client tools can access Trino with the URL exposed by the load balancer.
+Trino is configured with `http-server.process-forwarded=true` so that it reads the
+`X-Forwarded-Proto` and `X-Forwarded-Host` headers injected by the ingress provider and behaves
+as though the connection is HTTPS (correct OAuth2 redirects, cookie flags, etc.).
 
 ![trino-communication](trino-tls.svg)
 
 ### Ingress
-The Trino operator exposes its ports using the Nginx Ingress Integrator operator. You must first make sure to have an Nginx Ingress Controller deployed. To enable TLS connections, you can either supply the name of a pre-existing k8s TLS secret via the `tls-secret-name` config option, or leave it unset and relate `nginx-ingress-integrator` to a `lego` operator so that lego manages the certificate automatically. A self-signed certificate for development purposes can be created and supplied as follows:
+The Trino operator exposes its HTTP port using a charm that provides the `ingress`
+charm-relation-interface. Two supported options are:
+
+- [traefik-k8s](https://charmhub.io/traefik-k8s) (requires `routing_mode=subdomain`)
+- [gateway-api-integrator](https://charmhub.io/gateway-api-integrator) (host-based routing by default)
+
+Both charms handle TLS termination via their own `certificates` relation (e.g. related to
+`self-signed-certificates` for development or a production CA charm). No TLS configuration is
+required on the Trino charm itself.
+
+To deploy with traefik-k8s:
 
 ```
-# Generate private key
-openssl genrsa -out server.key 2048
+# Deploy traefik with subdomain-based routing so each app gets its own hostname
+juju deploy traefik-k8s --config routing_mode=subdomain --config external_hostname=example.com
+juju deploy self-signed-certificates
+juju integrate traefik-k8s self-signed-certificates
 
-# Generate a certificate signing request
-openssl req -new -key server.key -out server.csr -subj "/CN=trino-k8s"
-
-# Create self-signed certificate
-openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt -extfile <(printf "subjectAltName=DNS:trino-k8s")
-
-# Create a k8s secret
-kubectl create secret tls trino-tls --cert=server.crt --key=server.key
-
-# Configure the application
-juju config trino-k8s tls-secret-name=trino-tls
-```
-This operator can then be deployed and connected to the Trino operator using the Juju command line as follows:
-
-```
-# Deploy ingress controller.
-microk8s enable ingress:default-ssl-certificate=trino-k8s/trino-tls
-
-juju deploy nginx-ingress-integrator --channel edge --revision 71
-juju relate trino-k8s nginx-ingress-integrator
+# Relate Trino to traefik
+juju integrate trino-k8s:ingress traefik-k8s:ingress
 ```
 
-Once deployed, the hostname will default to the name of the application (trino-k8s), and can be configured using the external-hostname configuration on the Trino operator.
+To deploy with gateway-api-integrator:
+
+```
+# Ensure a Gateway API controller is installed in the cluster (e.g. Cilium on Canonical K8s)
+juju config gateway-api-integrator gateway-class=cilium
+juju deploy gateway-api-integrator --config external-hostname=example.com
+juju deploy self-signed-certificates
+juju integrate gateway-api-integrator self-signed-certificates
+
+# Relate Trino to the gateway
+juju integrate trino-k8s:ingress gateway-api-integrator:gateway
+```
+
+Once related, the ingress provider advertises the external URL to the Trino charm. The charm
+publishes this URL (as `host:port`) to any connected `trino-catalog` relation consumers so they
+can reach Trino externally.
+
+> **Note:** Only host-based (subdomain) routing is supported. Path-based routing (where the
+> ingress URL contains a path prefix such as `/model-app`) is not supported and will be logged
+> as a warning.
 
 ## Trino catalogs
 Adding a catalog to Trino requires user or service account credentials. For this we use Juju secrets.

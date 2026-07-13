@@ -27,8 +27,9 @@ storage:
     location: /etc/ranger
 
 requires:
-  nginx-route:
-    interface: nginx-route
+  ingress:
+    interface: ingress
+    limit: 1
   policy:
     interface: ranger_client
     limit: 1
@@ -104,12 +105,12 @@ charm-libs:
     version: "0"
   - lib: "loki_k8s.loki_push_api"
     version: "1"
-  - lib: "nginx_ingress_integrator.nginx_route"
-    version: "0"
   - lib: "prometheus_k8s.prometheus_scrape"
     version: "0"
   - lib: "trino_k8s.trino_catalog"
     version: "0"
+  - lib: "traefik_k8s.ingress"
+    version: "2"
 
 actions:
   restart:
@@ -144,15 +145,16 @@ config:
       type: string
     external-hostname:
       description: |
-          The DNS listing used for external connections. 
-          Will default to the name of the deployed application.
+          DEPRECATED. This option is no longer used and has no effect.
+          The ingress hostname is now managed entirely by the ingress provider charm
+          (e.g. traefik-k8s or gateway-api-integrator) via its own configuration.
       type: string
     tls-secret-name:
       description: |
-          Name of the k8s secret which contains the TLS certificate to be used by ingress.
-          When set, this takes precedence over any TLS secret managed externally (e.g. by lego).
-          Leave unset to let nginx-ingress-integrator obtain the TLS certificate from a related
-          lego operator instead.
+          DEPRECATED. This option is no longer used and has no effect.
+          TLS termination and certificate management are now handled by the ingress
+          provider charm (e.g. traefik-k8s or gateway-api-integrator) via its own
+          certificates relation.
       type: string
     charm-function:
       description: |

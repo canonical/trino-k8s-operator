@@ -11,7 +11,7 @@ import pytest
 from helpers import (
     APP_NAME,
     COORDINATOR_CONFIG,
-    NGINX_NAME,
+    TRAEFIK_NAME,
     WORKER_CONFIG,
     WORKER_NAME,
     get_unit,
@@ -69,7 +69,7 @@ def charm_fixture(request: FixtureRequest) -> str | Path:
 @pytest.fixture(name="deploy", scope="module")
 def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy the app."""
-    # Deploy trino and nginx charms
+    # Deploy trino and traefik charms
     juju.deploy(
         charm,
         APP_NAME,
@@ -86,13 +86,17 @@ def deploy(juju: jubilant.Juju, charm: str, charm_image: str):
         num_units=1,
         trust=True,
     )
-    juju.deploy(NGINX_NAME, trust=True)
+    juju.deploy(
+        TRAEFIK_NAME,
+        config={"routing_mode": "subdomain", "external_hostname": "example.com"},
+        trust=True,
+    )
 
     # Integrate immediately so relation processing overlaps with workload startup.
     # This avoids the deploy->wait(blocked)->integrate->wait(active) sequencing
     # that depends on a deferred relation-changed to clear stale blocked status.
     juju.integrate(f"{APP_NAME}:trino-coordinator", f"{WORKER_NAME}:trino-worker")
-    juju.integrate(APP_NAME, NGINX_NAME)
+    juju.integrate(f"{APP_NAME}:ingress", f"{TRAEFIK_NAME}:ingress")
 
     wait_for_apps(
         juju,
