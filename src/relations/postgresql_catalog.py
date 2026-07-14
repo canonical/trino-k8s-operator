@@ -318,6 +318,11 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         for relation in self.charm.model.relations[self.relation_name]:
             app_databag = relation.data.get(self.charm.app, {})
             if app_databag.get("database"):
+                logger.debug(
+                    "PG relation %s already requests database prefix %r",
+                    relation.app.name,
+                    app_databag.get("database"),
+                )
                 continue
 
             config_entry = self._find_config_for_relation(relation)
@@ -331,6 +336,11 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             app_databag = relation.data[self.charm.app]
             app_databag["database"] = config_entry["database_prefix"]
             app_databag["requested-secrets"] = json.dumps(REQUESTED_SECRETS)
+            logger.info(
+                "Requested PG database prefix %r on relation %s",
+                config_entry["database_prefix"],
+                relation.app.name,
+            )
 
     def _find_config_for_relation(self, relation) -> Optional[dict]:
         """Find the postgresql-catalog-config entry matching a relation.
@@ -445,7 +455,19 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 relation.app,
                 decoder=PostgresqlRelationModel.decode(self.charm),
             )
-        except (pydantic.ValidationError, SecretNotFoundError):
+        except pydantic.ValidationError as err:
+            # Log which provider keys are present (names only, not secret
+            # values) to distinguish an incomplete handshake from a missing
+            # secret when diagnosing why no catalog is created.
+            logger.warning(
+                "PG relation %s databag incomplete; provider keys present=%s; error=%s",
+                relation.app.name,
+                sorted(relation.data[relation.app].keys()),
+                err,
+            )
+            return None
+        except SecretNotFoundError as err:
+            logger.warning("PG relation %s secret not yet available: %s", relation.app.name, err)
             return None
 
     def _build_catalog_props(self, pg, database, config_entry, relation_id, target_server_type):

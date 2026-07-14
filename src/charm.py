@@ -1076,6 +1076,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 self.trino_coordinator.update_coordinator_relation_data()
             if not restarting:
                 self.postgresql_catalog_handler.reconcile_postgresql_catalogs()
+            else:
+                logger.info(
+                    "Workload restarting; deferring PostgreSQL catalog reconcile to next hook"
+                )
 
 
 if __name__ == "__main__":
