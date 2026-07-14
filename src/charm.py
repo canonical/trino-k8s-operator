@@ -1060,26 +1060,18 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         else:
             self.model.unit.close_port(port=8080, protocol="tcp")
 
-        # The service environment embeds every managed file's content hash, so a
-        # change here means replan will restart the workload. Live reconciliation
-        # would then race the restart, so defer it to the next hook in that case.
-        current = container.get_plan().services.get(self.name)
-        restarting = current is None or current.environment != env
-
         container.add_layer(self.name, self._pebble_layer(env, is_coordinator), combine=True)
         container.replan()
 
         # Publishing coordinator relation data is a pure databag write and is
-        # always safe; the PostgreSQL live reconcile needs a running workload.
+        # always safe. reconcile_postgresql_catalogs writes its request databag
+        # unconditionally and self-guards the live CREATE/DROP CATALOG SQL with a
+        # reachability check, so calling it during a workload restart still lets
+        # the provider start provisioning; the live SQL converges on a later hook.
         if is_coordinator:
             if self.unit.is_leader():
                 self.trino_coordinator.update_coordinator_relation_data()
-            if not restarting:
-                self.postgresql_catalog_handler.reconcile_postgresql_catalogs()
-            else:
-                logger.info(
-                    "Workload restarting; deferring PostgreSQL catalog reconcile to next hook"
-                )
+            self.postgresql_catalog_handler.reconcile_postgresql_catalogs()
 
 
 if __name__ == "__main__":
