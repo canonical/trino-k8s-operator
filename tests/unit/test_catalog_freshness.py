@@ -23,6 +23,7 @@ from tests.unit.helpers import (
     build_worker_state,
     carry_forward,
     create_added_catalog_config,
+    observer_secret,
     peer_state_value,
     trino_container,
     workload_path,
@@ -33,14 +34,17 @@ logger = logging.getLogger(__name__)
 
 def test_config_changed(ctx):
     """The pebble plan changes according to config changes."""
+    oidc = observer_secret(
+        {"google-client-id": "test-client-id", "google-client-secret": "test-client-secret"}
+    )
     state_in, _ = build_coordinator_state(
         config={
-            "google-client-id": "test-client-id",
-            "google-client-secret": "test-client-secret",
+            "oidc-secret-id": oidc.id,
             "web-proxy": "proxy:port",
             "charm-function": "all",
             "additional-jvm-options": USER_JVM_STRING,
-        }
+        },
+        extra_secrets=(oidc,),
     )
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)

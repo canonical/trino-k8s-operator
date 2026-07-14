@@ -10,7 +10,7 @@ from ops.charm import CharmBase
 from ops.framework import Object
 from ops.model import SecretNotFoundError
 
-from literals import INT_COMMS_SECRET_RELATION_KEY
+from literals import INT_COMMS_SECRET_RELATION_KEY, POSTGRESQL_SECRET_RELATION_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +74,28 @@ class TrinoWorker(Object):
             return None
 
     def get_postgresql_secrets_from_coordinator(self) -> dict:
-        """Read PG password env vars from the coordinator relation databag.
+        """Resolve PG password env vars from the coordinator's Juju secret.
+
+        The coordinator publishes the secret id in the relation databag and
+        grants the secret to the relation, so only the id crosses the databag.
 
         Returns:
-            Dict mapping env var names to password values.
+            Dict mapping env var names to password values, empty if unavailable.
         """
         relation = self.charm.model.get_relation(self.relation_name)
         if relation is None or relation.app is None:
             return {}
-        raw = relation.data[relation.app].get("postgresql-secrets", "{}")
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        secret_id = relation.data[relation.app].get(POSTGRESQL_SECRET_RELATION_KEY)
+        if not secret_id:
             return {}
+        try:
+            secret = self.charm.model.get_secret(id=secret_id)
+            content = secret.get_content(refresh=True)
+        except SecretNotFoundError:
+            logger.warning("postgresql-secrets id %r could not be resolved", secret_id)
+            return {}
+        # The env var map is JSON-encoded under a single Juju-valid secret key.
+        return json.loads(content.get("envvars", "{}"))
 
     def _validate(self):
         """Check if the trino worker relation is available.

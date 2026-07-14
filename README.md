@@ -337,12 +337,26 @@ No manual secret granting is required. Each requirer gets a unique username in t
 By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
 
 ### Google Oauth
-Configure Google Oauth by adding the following config values to the coordinator charm:
-```
-juju config trino-k8s google-client-id=<id>
-juju config trino-k8s google-client-secret=<secret>
+Google OAuth credentials are provided through a Juju secret.
 
 ```
+# Create the secret and grant access to Trino.
+juju add-secret trino-oidc --file=/path/to/oidc-secrets.yaml
+juju grant-secret trino-oidc trino-k8s
+
+# Get the secret id and pass this to the charm via the config.
+juju config trino-k8s oidc-secret-id=<juju-secret-id>
+```
+
+Where the `oidc-secrets.yaml` has the below format:
+```
+google-client-id: <id>
+google-client-secret: <secret>
+```
+
+> **Note:** The `google-client-id` and `google-client-secret` config options are
+> deprecated. Setting either one puts the charm into a blocked state; migrate to
+> `oidc-secret-id` above. Unsetting `oidc-secret-id` disables Google OAuth.
 
 ### User/password
 Additionally user/password authentication can be enabled via a Juju secret.

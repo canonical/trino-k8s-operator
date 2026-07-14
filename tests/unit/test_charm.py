@@ -10,6 +10,7 @@
 
 import dataclasses
 import logging
+from unittest import mock
 
 import pytest
 import yaml
@@ -23,6 +24,7 @@ from ops.model import (
 from ops.pebble import CheckLevel, CheckStartup, CheckStatus, Layer
 from ops.testing import CheckInfo, Mount, PeerRelation, Relation, State
 
+from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     DEFAULT_JVM_STRING,
@@ -741,3 +743,95 @@ def test_worker_no_plaintext_secret_in_relation_databag(ctx):
             raise AssertionError(
                 f"Plaintext int-comms field {key!r} found in worker app relation data: {value!r}"
             )
+
+
+def test_oidc_credentials_resolved_from_secret(ctx):
+    """OAuth credentials are read from the oidc-secret-id Juju secret."""
+    oidc = observer_secret(
+        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
+    )
+    state_in, _ = build_coordinator_state(
+        config={"oidc-secret-id": oidc.id}, extra_secrets=(oidc,)
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert environment["OAUTH_CLIENT_ID"] == "client-123"
+    assert environment["OAUTH_CLIENT_SECRET"] == "shhh"  # nosec
+
+
+@pytest.mark.parametrize("option", ["google-client-id", "google-client-secret"])
+def test_deprecated_oidc_plaintext_blocks(ctx, option):
+    """Setting a deprecated plaintext OIDC option blocks the charm."""
+    state_in, _ = build_coordinator_state(config={option: "some-value"})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "deprecated" in state_out.unit_status.message
+
+
+def test_oidc_secret_id_unresolvable_blocks(ctx):
+    """An oidc-secret-id that cannot be resolved blocks the charm."""
+    # The secret is referenced but never granted to (added to) the state.
+    oidc = observer_secret(
+        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
+    )
+    state_in, _ = build_coordinator_state(config={"oidc-secret-id": oidc.id})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "oidc-secret-id" in state_out.unit_status.message
+
+
+def test_coordinator_publishes_pg_secret_id(ctx):
+    """Coordinator publishes a PG secret id, never the plaintext passwords."""
+    state_in, ids = build_coordinator_state()
+
+    with mock.patch.object(
+        PostgresqlCatalogRelationHandler,
+        "get_postgresql_env_vars",
+        return_value={"PG_PASS_TESTDB": "super-secret-pw"},  # nosec
+    ):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert relation_data["postgresql-secrets-id"].startswith("secret:")
+    for value in relation_data.values():
+        assert "super-secret-pw" not in value
+
+
+def test_coordinator_no_pg_secret_id_without_catalogs(ctx):
+    """Coordinator omits the PG secret id when there are no PostgreSQL catalogs."""
+    state_in, ids = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert "postgresql-secrets-id" not in relation_data
+
+
+def test_worker_resolves_pg_secret_from_coordinator(ctx):
+    """Worker resolves PG password env vars from the coordinator's granted secret."""
+    state_in, ids = build_worker_state(
+        postgresql_secrets={"PG_PASS_TESTDB": "super-secret-pw"}  # nosec
+    )
+
+    with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
+        mgr.run()
+        resolved = mgr.charm.trino_worker.get_postgresql_secrets_from_coordinator()
+
+    assert resolved == {"PG_PASS_TESTDB": "super-secret-pw"}  # nosec
+
+
+def test_worker_pg_secret_empty_without_id(ctx):
+    """Worker returns an empty map when the coordinator publishes no PG secret."""
+    state_in, ids = build_worker_state()
+
+    with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
+        mgr.run()
+        resolved = mgr.charm.trino_worker.get_postgresql_secrets_from_coordinator()
+
+    assert resolved == {}

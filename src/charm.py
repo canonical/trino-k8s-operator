@@ -349,6 +349,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        try:
+            self._resolve_oidc_credentials()
+        except ValueError as err:
+            event.add_status(BlockedStatus(str(err)))
+            return
+
         if cfg.charm_function in ("coordinator", "all"):
             if self._get_int_comms_secret_value() is None:
                 event.add_status(
@@ -502,6 +508,34 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             logger.error(f"secret {secret_id!r} not found.")
             raise
         return content
+
+    def _resolve_oidc_credentials(self) -> tuple[str | None, str | None]:
+        """Resolve Google OIDC credentials from the configured Juju secret.
+
+        Returns:
+            A (client_id, client_secret) tuple, or (None, None) when
+            oidc-secret-id is unset (OAuth2 disabled).
+
+        Raises:
+            ValueError: if oidc-secret-id is set but the secret cannot be
+                resolved or is missing the required keys.
+        """
+        secret_id = self.config.oidc_secret_id
+        if not secret_id:
+            return None, None
+        try:
+            content = self._get_secret_content(secret_id)
+        except SecretNotFoundError:
+            raise ValueError(
+                f"oidc-secret-id {secret_id!r} could not be resolved; ensure the "
+                "secret exists and is granted to this application"
+            ) from None
+        try:
+            return content["google-client-id"], content["google-client-secret"]
+        except KeyError:
+            raise ValueError(
+                "oidc secret must contain 'google-client-id' and 'google-client-secret' keys"
+            ) from None
 
     def _compute_credentials(self):
         """Return the full set of authentication credentials for `password.db`.
@@ -811,10 +845,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
+        oauth_client_id, oauth_client_secret = self._resolve_oidc_credentials()
+
         env = {
             "LOG_LEVEL": cfg.log_level,
-            "OAUTH_CLIENT_ID": cfg.google_client_id,
-            "OAUTH_CLIENT_SECRET": cfg.google_client_secret,
+            "OAUTH_CLIENT_ID": oauth_client_id,
+            "OAUTH_CLIENT_SECRET": oauth_client_secret,
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
@@ -1016,6 +1052,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             and self.model.relations[TRINO_WORKER_RELATION_NAME]
             and int_comms_secret is None
         ):
+            return
+
+        # A misconfigured OIDC secret must not converge with broken auth; the
+        # blocking status is reported by collect-unit-status.
+        try:
+            self._resolve_oidc_credentials()
+        except ValueError:
             return
 
         truststore_pwd = self._ensure_truststore_password()

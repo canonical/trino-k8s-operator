@@ -74,6 +74,8 @@ USER_SECRET_LABEL = "trino-user-management"  # nosec
 TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
 INT_COMMS_SECRET_LABEL = "trino-int-comms-secret"  # nosec
 INT_COMMS_SECRET_RELATION_KEY = "int-comms-secret-id"  # nosec
+POSTGRESQL_SECRET_LABEL = "trino-postgresql-secrets"  # nosec
+POSTGRESQL_SECRET_RELATION_KEY = "postgresql-secrets-id"  # nosec
 TRUSTSTORE_SECRET_LABEL = "trino-truststore-password"  # nosec
 
 # Sidecar manifests tracking managed truststore aliases (under CONF_DIR).
