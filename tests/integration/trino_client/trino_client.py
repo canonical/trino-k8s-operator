@@ -13,19 +13,21 @@ from trino.dbapi import connect
 logger = logging.getLogger(__name__)
 
 
-def query_trino(host, user, query, max_wait=120, retry_interval=10) -> str:
+def query_trino(host, user, query, max_wait=300, retry_interval=10) -> str:
     """Trino catalogs.
 
-    Retries transient `SERVER_STARTING_UP` errors, which occur when the Trino
-    server process is up but still initializing (e.g. shortly after a restart
-    triggered by a config change). All other errors are raised immediately.
+    Retries while the coordinator is unavailable after a config-triggered
+    restart: connection-refused errors (process down, port 8080 not yet bound)
+    and transient `SERVER_STARTING_UP` errors (process up but initializing).
+    A cold JVM restart can take minutes, so the deadline is generous. All other
+    errors are raised immediately.
 
     Args:
         host: trino server address.
         user: the user with which to access Trino.
         query: query to execute.
         max_wait: maximum total seconds to keep retrying while the server is
-            still initializing.
+            unreachable or still initializing.
         retry_interval: seconds to wait between retries.
 
     Returns:
@@ -46,6 +48,13 @@ def query_trino(host, user, query, max_wait=120, retry_interval=10) -> str:
             cur.execute(query)
             result = cur.fetchall()
             return result
+        except trino.exceptions.TrinoConnectionError:
+            # Connection refused while Pebble restarts the service to apply a
+            # config change and port 8080 is not yet bound. Retry until it binds.
+            if time.monotonic() >= deadline:
+                raise
+            logger.info("Trino server is unreachable, retrying in %ss", retry_interval)
+            time.sleep(retry_interval)
         except trino.exceptions.TrinoQueryError as err:
             # While we are not past the deadline
             # retry after server initializing errors.
