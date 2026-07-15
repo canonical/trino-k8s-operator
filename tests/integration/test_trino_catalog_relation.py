@@ -3,7 +3,6 @@
 
 """Integration tests for trino-catalog relation."""
 
-import ast
 import logging
 import time
 from pathlib import Path
@@ -20,6 +19,7 @@ from helpers import (
     get_unit,
     wait_for_app_gone,
     wait_for_apps,
+    wait_for_requirer_catalogs,
 )
 
 from literals import TRINO_PORTS
@@ -136,12 +136,7 @@ class TestTrinoCatalogRelation:
         wait_for_apps(juju, [APP_NAME, REQUIRER_APP], status="active", timeout=1000)
 
         # Verify the requirer received the catalogs
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
-
-        # Parse the catalogs list from string representation
-        catalogs_str = action.results.get("trino-catalogs", "[]")
-        catalogs = ast.literal_eval(catalogs_str)
+        catalogs = wait_for_requirer_catalogs(juju, f"{REQUIRER_APP}/0", expected_count=5)
         catalogs_count = len(catalogs)
 
         assert catalogs_count == 5, f"Expected 5 catalogs, got {catalogs_count}"
@@ -174,11 +169,7 @@ class TestTrinoCatalogRelation:
         wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
         # Verify the requirer receives 4 catalogs (postgresql-1 excluded)
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
-
-        catalogs_str = action.results.get("trino-catalogs", "[]")
-        catalogs = ast.literal_eval(catalogs_str)
+        catalogs = wait_for_requirer_catalogs(juju, f"{REQUIRER_APP}/0", expected_count=4)
         catalog_names = {cat["name"] for cat in catalogs}
 
         assert "postgresql-1" not in catalog_names, (
@@ -190,11 +181,7 @@ class TestTrinoCatalogRelation:
         juju.config(APP_NAME, reset=["catalog-exclusions"])
         wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
-
-        catalogs_str = action.results.get("trino-catalogs", "[]")
-        catalogs = ast.literal_eval(catalogs_str)
+        catalogs = wait_for_requirer_catalogs(juju, f"{REQUIRER_APP}/0", expected_count=5)
         catalog_names = {cat["name"] for cat in catalogs}
 
         assert "postgresql-1" in catalog_names, (
@@ -280,12 +267,7 @@ class TestTrinoCatalogRelation:
         wait_for_apps(juju, [APP_NAME], status="active", timeout=1000)
 
         # Verify the requirer received the updated catalogs (without bigquery)
-        action = juju.run(f"{REQUIRER_APP}/0", "get-relation-data")
-        assert action.status == "completed"
-
-        # Parse the catalogs list from string representation
-        catalogs_str = action.results.get("trino-catalogs", "[]")
-        catalogs = ast.literal_eval(catalogs_str)
+        catalogs = wait_for_requirer_catalogs(juju, f"{REQUIRER_APP}/0", expected_count=4)
         catalogs_count = len(catalogs)
 
         assert catalogs_count == 4, (
