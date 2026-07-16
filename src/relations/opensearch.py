@@ -7,6 +7,7 @@ import logging
 import re
 
 from ops import framework
+from ops.model import ModelError, SecretNotFoundError
 
 from literals import INDEX_NAME
 
@@ -69,10 +70,20 @@ class OpensearchRelationHandler(framework.Object):
         secret_id = relation.data[relation.app].get("secret-tls")
         if not secret_id:
             return None
-        content = self.get_secret_content(secret_id)
-        tls_ca = content["tls-ca"]
+        try:
+            content = self.get_secret_content(secret_id)
+            tls_ca = content["tls-ca"]
+        except (SecretNotFoundError, ModelError, KeyError) as e:
+            logger.warning("Could not read OpenSearch tls-ca secret: %s", e)
+            return None
         pattern = r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----"
         certificates_list = re.findall(pattern, tls_ca, re.DOTALL)
+        if len(certificates_list) < 2:
+            logger.warning(
+                "OpenSearch tls-ca bundle has %d certificate(s); expected at least 2",
+                len(certificates_list),
+            )
+            return None
         return certificates_list[1]
 
     def gather_connection(self) -> dict:
@@ -91,13 +102,17 @@ class OpensearchRelationHandler(framework.Object):
         if not secret_id or not endpoints:
             return {"is_enabled": False}
 
-        user_credentials = self.get_secret_content(secret_id)
-        host, port = endpoints.split(",", 1)[0].split(":")
-        return {
-            "index": INDEX_NAME,
-            "host": host,
-            "port": port,
-            "password": user_credentials["password"],
-            "username": user_credentials["username"],
-            "is_enabled": True,
-        }
+        try:
+            user_credentials = self.get_secret_content(secret_id)
+            host, port = endpoints.split(",", 1)[0].split(":")
+            return {
+                "index": INDEX_NAME,
+                "host": host,
+                "port": port,
+                "password": user_credentials["password"],
+                "username": user_credentials["username"],
+                "is_enabled": True,
+            }
+        except (SecretNotFoundError, ModelError, ValueError, KeyError) as e:
+            logger.warning("Could not read OpenSearch connection data: %s", e)
+            return {"is_enabled": False}

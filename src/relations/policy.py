@@ -87,10 +87,17 @@ class PolicyRelationHandler(framework.Object):
         Returns:
             Mapping of pushed file name to rendered content, for plan hashing.
         """
+        relations = self.charm.model.relations[self.relation_name]
+        if not relations:
+            return {}
+
+        # REPOSITORY_NAME must match the service name published by
+        # _prepare_service for the same relation.
+        policy_relation = f"relation_{relations[0].id}"
         rendered = self._push_plugin_files(
             container,
             self.charm.state.policy_manager_url,
-            self.charm.state.policy_relation,
+            policy_relation,
         )
         logger.info("Ranger plugin is enabled.")
         return rendered

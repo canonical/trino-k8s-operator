@@ -786,6 +786,19 @@ def test_oidc_secret_id_unresolvable_blocks(ctx):
     assert "oidc-secret-id" in state_out.unit_status.message
 
 
+def test_malformed_user_secret_blocks(ctx):
+    """A user secret whose `users` field is not a mapping blocks the charm."""
+    bad_user = observer_secret({"users": ""})
+    state_in, _ = build_coordinator_state(
+        config={"user-secret-id": bad_user.id}, extra_secrets=(bad_user,)
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "must be a mapping" in state_out.unit_status.message
+
+
 def test_coordinator_publishes_pg_secret_id(ctx):
     """Coordinator publishes a PG secret id, never the plaintext passwords."""
     state_in, ids = build_coordinator_state()

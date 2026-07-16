@@ -355,6 +355,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        try:
+            self._compute_credentials()
+        except ValueError as err:
+            event.add_status(BlockedStatus(str(err)))
+            return
+
         if cfg.charm_function in ("coordinator", "all"):
             if self._get_int_comms_secret_value() is None:
                 event.add_status(
@@ -555,7 +561,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 credentials = yaml.safe_load(self._get_secret_content(secret_id)["users"])
             except (yaml.YAMLError, KeyError, SecretNotFoundError) as e:
                 logger.error(f"Error reading secret {secret_id!r}: {e}")
-                raise ValueError(f"invalid user secret {secret_id!r}") from e
+                raise ValueError(f"invalid user secret {secret_id!r}") from None
+            if not isinstance(credentials, dict):
+                raise ValueError(f"invalid user secret {secret_id!r}: 'users' must be a mapping")
         else:
             credentials = dict(DEFAULT_CREDENTIALS)
 
