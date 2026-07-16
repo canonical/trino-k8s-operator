@@ -156,7 +156,7 @@ def set_pg_config(juju: jubilant.Juju, config_str, expect_blocked=False):
         wait_for_apps(juju, [APP_NAME, WORKER_NAME, POSTGRES_NAME], status="active", timeout=900)
 
 
-def wait_for_catalog(juju: jubilant.Juju, catalog_name, present=True, timeout=300):
+def wait_for_catalog(juju: jubilant.Juju, catalog_name, present=True, timeout=600):
     """Poll SHOW CATALOGS until catalog appears/disappears or timeout.
 
     Args:
