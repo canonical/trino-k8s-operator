@@ -562,7 +562,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             The Trino username.
         """
-        secret_id = self.charm.state.user_secret_id
+        secret_id = self.charm._effective_user_secret_id()
         if secret_id:
             try:
                 credentials = yaml.safe_load(self.charm._get_secret_content(secret_id)["users"])

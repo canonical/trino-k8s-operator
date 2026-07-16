@@ -9,6 +9,7 @@
 # pylint:disable=protected-access,too-many-public-methods
 
 import dataclasses
+import json
 import logging
 from unittest import mock
 
@@ -37,6 +38,7 @@ from tests.unit.helpers import (
     build_worker_state,
     create_single_catalog_config,
     observer_secret,
+    peer_state_value,
     trino_container,
     workload_path,
 )
@@ -696,19 +698,68 @@ def test_coordinator_int_comms_secret_preserves_existing_value(ctx):
         assert content2["secret"] == "pre-existing-secret-value"  # nosec
 
 
+LEGACY_STATE_SEED = {
+    "opensearch": {"username": "u", "password": "p"},  # nosec B105 sensitive
+    "opensearch_certificate": "ca-cert",
+    "discovery_uri": "http://old-coordinator:8080",
+    "catalog_config": "old-catalog-config",
+    "user_secret_id": "secret:olduser",  # nosec B105
+    "int_comms_secret_id": "secret:oldid",  # nosec B105
+    "ranger_enabled": True,
+    "policy_manager_url": "http://old-ranger",
+    "java_truststore_pwd": "old-truststore-pw",  # nosec B105
+    "int_comms_secret": "old-int-comms-value",  # nosec B105
+}
+
+
+def _seed_peer_state(state_in, ids, values):
+    """Replace the peer relation with one pre-seeded with JSON-encoded state."""
+    seeded = PeerRelation(
+        "peer",
+        local_app_data={key: json.dumps(value) for key, value in values.items()},
+    )
+    relations = {rel for rel in state_in.relations if rel.id != ids.peer_relation.id}
+    relations.add(seeded)
+    return dataclasses.replace(state_in, relations=relations), seeded
+
+
+def test_leader_purges_legacy_state_on_reconcile(ctx):
+    """Leader drops obsolete and fallback peer keys once secrets are confirmed."""
+    state_in, ids = build_coordinator_state()
+    state_in, seeded = _seed_peer_state(state_in, ids, LEGACY_STATE_SEED)
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    peer = state_out.get_relation(seeded.id)
+    for key in LEGACY_STATE_SEED:
+        assert peer_state_value(peer, key) is None, f"{key!r} should be purged"
+
+
+def test_non_leader_keeps_legacy_state(ctx):
+    """A non-leader never mutates peer state, so legacy keys survive."""
+    state_in, ids = build_coordinator_state(leader=False)
+    state_in, seeded = _seed_peer_state(state_in, ids, LEGACY_STATE_SEED)
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    peer = state_out.get_relation(seeded.id)
+    for key, value in LEGACY_STATE_SEED.items():
+        assert peer_state_value(peer, key) == value, f"{key!r} must be preserved"
+
+
 def test_worker_resolves_int_comms_secret_from_coordinator(ctx):
     """Worker reads int-comms-secret from coordinator.
 
-    Worker reads int-comms-secret-id from relation, stores the ID in state, and
-    resolves the secret value at render time via _get_int_comms_secret_value.
+    Worker reads int-comms-secret-id live from the trino-worker relation databag
+    and resolves the secret value at render time via _get_int_comms_secret_value.
     """
     state_in, ids = build_worker_state()
 
     with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
         mgr.run()
 
-        # The worker's peer state must carry the secret *ID* (not the plaintext value).
-        secret_id = mgr.charm.state.int_comms_secret_id
+        # The coordinator databag must carry the secret *ID* (not the plaintext value).
+        secret_id = mgr.charm.trino_worker.get_coordinator_data()["int_comms_secret_id"]
         assert secret_id is not None
         assert secret_id.startswith("secret:")
 

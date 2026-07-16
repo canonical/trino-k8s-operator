@@ -24,7 +24,6 @@ from tests.unit.helpers import (
     carry_forward,
     create_added_catalog_config,
     observer_secret,
-    peer_state_value,
     trino_container,
     workload_path,
 )
@@ -181,9 +180,9 @@ def test_worker_fetches_latest_catalog_on_relation_change(ctx):
     relations.add(worker_relation)
     state_in = dataclasses.replace(state_in, relations=relations)
 
-    state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
+    with ctx(ctx.on.relation_changed(worker_relation), state_in) as mgr:
+        mgr.run()
+        catalog_config = mgr.charm._effective_catalog_config()
 
-    peer_relation = state_out.get_relation(ids.peer_relation.id)
-    catalog_config = peer_state_value(peer_relation, "catalog_config")
     assert catalog_config == extended_catalog_config
     assert catalog_config != old_catalog

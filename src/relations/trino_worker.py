@@ -34,25 +34,32 @@ class TrinoWorker(Object):
 
         super().__init__(charm, self.relation_name)
 
-    def gather_from_coordinator(self):
-        """Persist coordinator-published data from the relation databag.
+    def get_coordinator_data(self) -> dict:
+        """Read coordinator-published data live from the trino-worker relation.
 
-        Reads the `trino-worker` relation databag via the model so the worker
-        can be reconciled from current state rather than an event payload.
-        Only the leader persists to peer state.
+        Every worker unit can read the coordinator's app databag directly, so
+        the values are resolved on demand rather than cached in peer state.
+
+        Returns:
+            Mapping with discovery_uri, user_secret_id, catalog_config and
+            int_comms_secret_id; values are None/"" when unavailable.
         """
-        if not self.charm.unit.is_leader():
-            return
-
         relation = self.charm.model.get_relation(self.relation_name)
         if relation is None or relation.app is None:
-            return
+            return {
+                "discovery_uri": None,
+                "user_secret_id": None,  # nosec B105
+                "catalog_config": None,
+                "int_comms_secret_id": "",  # nosec B105
+            }
 
-        event_data = relation.data[relation.app]
-        self.charm.state.discovery_uri = event_data.get("discovery-uri")
-        self.charm.state.user_secret_id = event_data.get("user-secret-id")
-        self.charm.state.catalog_config = event_data.get("catalogs")
-        self.charm.state.int_comms_secret_id = event_data.get(INT_COMMS_SECRET_RELATION_KEY, "")
+        databag = relation.data[relation.app]
+        return {
+            "discovery_uri": databag.get("discovery-uri"),
+            "user_secret_id": databag.get("user-secret-id"),
+            "catalog_config": databag.get("catalogs"),
+            "int_comms_secret_id": databag.get(INT_COMMS_SECRET_RELATION_KEY, ""),
+        }
 
     def _resolve_int_comms_secret(self, secret_id: str) -> str | None:
         """Resolve the internal communication secret value by Juju secret ID.

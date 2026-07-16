@@ -78,6 +78,21 @@ POSTGRESQL_SECRET_LABEL = "trino-postgresql-secrets"  # nosec
 POSTGRESQL_SECRET_RELATION_KEY = "postgresql-secrets-id"  # nosec
 TRUSTSTORE_SECRET_LABEL = "trino-truststore-password"  # nosec
 
+# Obsolete peer-state keys purged by the reconciler (leader-only) now that all
+# reads come from config or live relation data. The two upgrade-fallback keys
+# (java_truststore_pwd, int_comms_secret) are purged separately, gated on their
+# backing app secret existing, and so are intentionally absent from this list.
+LEGACY_STATE_KEYS = (
+    "opensearch",
+    "opensearch_certificate",
+    "discovery_uri",
+    "catalog_config",
+    "user_secret_id",
+    "int_comms_secret_id",
+    "ranger_enabled",
+    "policy_manager_url",
+)
+
 # Sidecar manifests tracking managed truststore aliases (under CONF_DIR).
 TRUSTSTORE_MANIFEST = ".truststore-manifest.json"  # nosec
 CACERTS_MANIFEST = ".cacerts-manifest.json"  # nosec

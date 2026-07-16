@@ -58,6 +58,7 @@ from literals import (
     INT_COMMS_SECRET_LABEL,
     JAVA_HOME,
     JMX_PORT,
+    LEGACY_STATE_KEYS,
     METRICS_PORT,
     OPENSEARCH_RELATION_NAME,
     PASSWORD_DB,
@@ -416,7 +417,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Args:
             event: The event triggered by the list-system-users action.
         """
-        secret_id = self.state.user_secret_id
+        secret_id = self._effective_user_secret_id()
         if secret_id:
             try:
                 content = self._get_secret_content(secret_id)
@@ -495,6 +496,44 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
             logger.debug(f"Unable to update truststore password {e.stderr}")
 
+    def _purge_legacy_state_values(self):
+        """Remove obsolete peer-state keys left over from before the reconciler.
+
+        Leader-only. Inert keys (now read from config or live relations) are
+        dropped unconditionally. The two upgrade-fallback keys are dropped only
+        once their backing app Juju secret is confirmed, so a partially migrated
+        unit never discards a fallback before its replacement exists.
+
+        NOTE: Dropping the fallbacks means a downgrade to a pre-secret charm
+        revision would rotate the secret/password rather than reuse the old peer
+        value. This is an accepted trade-off; downgrades across the secret
+        boundary are already unsupported.
+        """
+        if not self.unit.is_leader():
+            return
+
+        for key in LEGACY_STATE_KEYS:
+            if getattr(self.state, key) is not None:
+                delattr(self.state, key)
+
+        self._purge_confirmed_fallback(TRUSTSTORE_SECRET_LABEL, "java_truststore_pwd")
+        self._purge_confirmed_fallback(INT_COMMS_SECRET_LABEL, "int_comms_secret")
+
+    def _purge_confirmed_fallback(self, secret_label, state_key):
+        """Delete a legacy fallback peer key once its app secret is confirmed.
+
+        Args:
+            secret_label: The app Juju secret label whose presence gates deletion.
+            state_key: The peer-state attribute to remove.
+        """
+        if getattr(self.state, state_key) is None:
+            return
+        try:
+            self.model.get_secret(label=secret_label)
+        except SecretNotFoundError:
+            return
+        delattr(self.state, state_key)
+
     def _get_secret_content(self, secret_id):
         """Get the content of a Juju secret.
 
@@ -555,7 +594,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Raises:
             ValueError: if the configured user secret is malformed.
         """
-        secret_id = self.state.user_secret_id
+        secret_id = self._effective_user_secret_id()
         if secret_id:
             try:
                 credentials = yaml.safe_load(self._get_secret_content(secret_id)["users"])
@@ -592,7 +631,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             A tuple of (per-file content hashes for the Pebble plan, desired
             truststore certificates keyed by alias).
         """
-        catalog_index = yaml.safe_load(self.state.catalog_config or "")
+        catalog_index = yaml.safe_load(self._effective_catalog_config() or "")
         if catalog_index is None:
             catalog_index = {
                 "catalogs": {},
@@ -830,18 +869,58 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return None
             return secret.get_content(refresh=True).get("secret")
         elif cfg.charm_function == "worker":
-            secret_id = self.state.int_comms_secret_id
+            secret_id = self.trino_worker.get_coordinator_data()["int_comms_secret_id"]
             if not secret_id:
                 return None
             return self.trino_worker._resolve_int_comms_secret(secret_id)
         return None
 
-    def _build_base_environment(self, truststore_pwd, int_comms_secret):
+    def _effective_discovery_uri(self):
+        """Return the discovery URI for this unit's role.
+
+        Coordinators advertise their own discovery URI; workers read the value
+        published by the coordinator on the trino-worker relation.
+
+        Returns:
+            The discovery URI, or None when a worker has no coordinator data yet.
+        """
+        if self.config.charm_function == "worker":
+            return self.trino_worker.get_coordinator_data()["discovery_uri"]
+        return self._coordinator_discovery_uri
+
+    def _effective_catalog_config(self):
+        """Return the catalog config for this unit's role.
+
+        Coordinators use their own config value; workers read the catalogs
+        published by the coordinator on the trino-worker relation.
+
+        Returns:
+            The catalog config string (possibly empty or None).
+        """
+        if self.config.charm_function == "worker":
+            return self.trino_worker.get_coordinator_data()["catalog_config"]
+        return self.config.catalog_config or ""
+
+    def _effective_user_secret_id(self):
+        """Return the user secret id for this unit's role.
+
+        Coordinators use their own config value; workers read the id published
+        by the coordinator on the trino-worker relation.
+
+        Returns:
+            The user secret id string (possibly empty or None).
+        """
+        if self.config.charm_function == "worker":
+            return self.trino_worker.get_coordinator_data()["user_secret_id"]
+        return self.config.user_secret_id or ""
+
+    def _build_base_environment(self, truststore_pwd, int_comms_secret, ranger_enabled):
         """Build the Trino service environment without per-file hash triggers.
 
         Args:
             truststore_pwd: The stable truststore password.
             int_comms_secret: The internal communication shared secret value.
+            ranger_enabled: Whether a Ranger policy relation is active.
 
         Returns:
             env: a dictionary of trino environment variables.
@@ -862,13 +941,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
-            "DISCOVERY_URI": self.state.discovery_uri or self._coordinator_discovery_uri,
+            "DISCOVERY_URI": self._effective_discovery_uri() or self._coordinator_discovery_uri,
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
-            "RANGER_RELATION": self.state.ranger_enabled or False,
+            "RANGER_RELATION": ranger_enabled,
             "ACL_ACCESS_MODE": cfg.acl_mode_default,
             "ACL_USER_PATTERN": cfg.acl_user_pattern,
             "ACL_CATALOG_PATTERN": cfg.acl_catalog_pattern,
@@ -902,26 +981,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         return env
 
-    def _reconcile_relation_state(self):
-        """Persist Ranger and OpenSearch state derived from related applications."""
-        if not self.unit.is_leader():
-            return
-
-        self.policy.publish_service_data()
-        policy_url = self.policy.read_policy_manager_url()
-        self.state.policy_manager_url = policy_url or ""
-        self.state.ranger_enabled = bool(policy_url)
-
-        conn = self.opensearch_relation_handler.gather_connection()
-        if conn.get("is_enabled"):
-            self.state.opensearch = conn
-            self.state.opensearch_certificate = (
-                self.opensearch_relation_handler.gather_certificate() or ""
-            )
-        else:
-            self.state.opensearch = {"is_enabled": False}
-            self.state.opensearch_certificate = ""
-
     def _reconcile_truststores(self, container, truststore_pwd, conf_certs):
         """Reconcile both truststores in place and return their plan hashes.
 
@@ -943,8 +1002,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         )
 
         cacerts_certs = {}
-        opensearch = self.state.opensearch or {}
-        certificate = self.state.opensearch_certificate
+        opensearch = self.opensearch_relation_handler.gather_connection()
+        certificate = self.opensearch_relation_handler.gather_certificate()
         if opensearch.get("is_enabled") and certificate:
             cacerts_certs[CERTIFICATE_NAME] = certificate
 
@@ -1044,14 +1103,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         self._warn_deprecated_config()
 
-        # Gather desired state from the model.
-        if is_coordinator:
-            self.state.discovery_uri = self._coordinator_discovery_uri
-            self.state.catalog_config = cfg.catalog_config or ""
-            self.state.user_secret_id = cfg.user_secret_id or ""
-        if function == "worker":
-            self.trino_worker.gather_from_coordinator()
-
         int_comms_secret = self._get_int_comms_secret_value()
         if is_coordinator and int_comms_secret is None:
             return
@@ -1074,8 +1125,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return
         self.set_java_truststore_password(truststore_pwd)
 
+        # Obsolete peer-state keys are removed now that all values come from
+        # config or live relations; the two upgrade fallbacks are dropped only
+        # once their backing app secret exists.
+        self._purge_legacy_state_values()
+
         if is_coordinator:
-            self._reconcile_relation_state()
+            self.policy.publish_service_data()
+
+        ranger_enabled = bool(self.policy.read_policy_manager_url()) if is_coordinator else False
 
         # Per-relation users must exist before password.db is rebuilt.
         self.trino_catalog.reconcile_trino_catalog_relations()
@@ -1086,7 +1144,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         file_hashes.update(self._reconcile_truststores(container, truststore_pwd, conf_certs))
 
         # Render and push managed config files, hashing each for the plan.
-        env = self._build_base_environment(truststore_pwd, int_comms_secret)
+        env = self._build_base_environment(truststore_pwd, int_comms_secret, ranger_enabled)
         file_hashes.update(self._configure_trino(container, env))
         file_hashes.update(self._configure_resource_groups(container, env))
         file_hashes.update(self._configure_session_property_manager(container, env))
@@ -1099,7 +1157,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self._write_password_db(container, credentials)
         file_hashes["HASH_PASSWORD_DB"] = content_hash(json.dumps(credentials, sort_keys=True))
 
-        if is_coordinator and self.state.ranger_enabled:
+        if is_coordinator and ranger_enabled:
             rendered = self.policy._configure_ranger_plugin(container)
             for name, content in (rendered or {}).items():
                 file_hashes[self._hash_key(name)] = content_hash(content)

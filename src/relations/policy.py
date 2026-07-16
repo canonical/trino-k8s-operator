@@ -96,7 +96,7 @@ class PolicyRelationHandler(framework.Object):
         policy_relation = f"relation_{relations[0].id}"
         rendered = self._push_plugin_files(
             container,
-            self.charm.state.policy_manager_url,
+            self.read_policy_manager_url(),
             policy_relation,
         )
         logger.info("Ranger plugin is enabled.")
@@ -113,7 +113,7 @@ class PolicyRelationHandler(framework.Object):
         Returns:
             Mapping of pushed file name to rendered content.
         """
-        opensearch = self.charm.state.opensearch or {}
+        opensearch = self.charm.opensearch_relation_handler.gather_connection()
         policy_context = {
             "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
