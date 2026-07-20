@@ -128,11 +128,23 @@ config:
       type: string
     google-client-id:
       description: |
-        Client id from Google Oauth setup
+        DEPRECATED. Do not set. Provide the Google OIDC credentials through a Juju
+        secret referenced by `oidc-secret-id` instead. Setting this option blocks
+        the charm; unset it and migrate to `oidc-secret-id`.
       type: string
     google-client-secret:
       description: |
-        Client password from Google Oauth setup
+        DEPRECATED. Do not set. Provide the Google OIDC credentials through a Juju
+        secret referenced by `oidc-secret-id` instead. Setting this option blocks
+        the charm; unset it and migrate to `oidc-secret-id`.
+      type: string
+    oidc-secret-id:
+      description: |
+        The Juju secret id for the Google OIDC credentials used to enable OAuth2
+        authentication for the Trino web UI. The secret must contain the keys
+        `google-client-id` and `google-client-secret`. Grant the secret to this
+        application before setting this option. Leave unset to disable OAuth2 and
+        use password authentication only.
       type: string
     web-proxy:
       description: |

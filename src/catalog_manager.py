@@ -11,13 +11,20 @@ import yaml
 from ops.model import SecretNotFoundError
 
 from literals import BIGQUERY_BACKEND_SCHEMA, GSHEETS_BACKEND_SCHEMA
-from utils import add_cert_to_truststore, validate_keys
+from utils import validate_keys
 
 logger = logging.getLogger(__name__)
 
 
 class CatalogBase(ABC):
-    """The base class for all catalog configurations."""
+    """The base class for all catalog configurations.
+
+    Attrs:
+        desired_certs: Certificates the catalog wants present in the truststore,
+            keyed by alias, collected for central truststore reconciliation.
+        rendered: Rendered `.properties` content keyed by catalog file stem,
+            used by the charm to hash file contents for the Pebble plan.
+    """
 
     def __init__(self, charm, truststore_pwd, name, info, backend):
         """Construct.
@@ -34,6 +41,8 @@ class CatalogBase(ABC):
         self.name = name
         self.info = info
         self.backend = backend
+        self.desired_certs = {}
+        self.rendered = {}
 
     def _add_catalog(self, catalogs):
         """Add catalogs to Trino.
@@ -48,6 +57,7 @@ class CatalogBase(ABC):
                 "{SSL_PWD}", self.truststore_pwd
             )
 
+            self.rendered[key] = config
             container.push(
                 self.charm.catalog_abs_path.joinpath(f"{key}.properties"),
                 config,
@@ -55,7 +65,7 @@ class CatalogBase(ABC):
             )
 
     def _add_certs(self, certs):
-        """Prepare and add certificates to Trino truststore.
+        """Collect certificates for central truststore reconciliation.
 
         Args:
             certs: the certificates to add.
@@ -63,25 +73,7 @@ class CatalogBase(ABC):
         if not certs:
             return
 
-        container = self.charm.unit.get_container(self.charm.name)
-
-        for name, cert in certs.items():
-            container.push(
-                self.charm.conf_abs_path.joinpath(f"{name}.crt"),
-                cert,
-                make_dirs=True,
-            )
-            try:
-                add_cert_to_truststore(
-                    container,
-                    name,
-                    cert,
-                    self.truststore_pwd,
-                    str(self.charm.conf_abs_path),
-                )
-                container.remove_path(self.charm.conf_abs_path.joinpath(f"{name}.crt"))
-            except Exception as e:
-                logger.error(f"Failed to add {name} cert: {e}")
+        self.desired_certs.update(certs)
 
     def _add_service_account(self, sa_string, sa_creds_path):
         """Add service account credentials.

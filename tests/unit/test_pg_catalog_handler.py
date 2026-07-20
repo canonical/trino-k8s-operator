@@ -176,26 +176,22 @@ class TestBuildJdbcUrl(TestCase):
         handler._import_tls_cert.assert_not_called()
 
     def test_tls_with_ca(self):
-        """Verify TLS with CA cert imports cert and sets sslrootcert."""
+        """Verify TLS with CA cert sets sslrootcert to the shared truststore."""
         handler = self._make_handler()
         pg = self._make_pg("host:5432", tls=True, tls_ca="BEGIN CERT...")
         url = handler._build_jdbc_url(pg, "mydb", 1, "primary")
         self.assertIn("ssl=true", url)
         self.assertIn("sslrootcert=/path/to/truststore", url)
-        handler._import_tls_cert.assert_called_once_with(1, "BEGIN CERT...")
 
 
 class TestTrinoReadiness(TestCase):
-    """Tests for _is_trino_reachable and _wait_for_trino_ready."""
+    """Tests for _is_trino_reachable."""
 
     def _make_handler(self):
-        """Create a mock handler bound to the real readiness methods."""
+        """Create a mock handler bound to the real readiness method."""
         handler = mock.MagicMock()
         handler._is_trino_reachable = PostgresqlCatalogRelationHandler._is_trino_reachable.__get__(
             handler
-        )
-        handler._wait_for_trino_ready = (
-            PostgresqlCatalogRelationHandler._wait_for_trino_ready.__get__(handler)
         )
         return handler
 
@@ -229,30 +225,6 @@ class TestTrinoReadiness(TestCase):
         """Verify not reachable when the request raises."""
         handler = self._make_handler()
         self.assertFalse(handler._is_trino_reachable())
-
-    def test_wait_returns_true_when_ready(self):
-        """Verify wait returns True immediately when Trino is ready."""
-        handler = self._make_handler()
-        handler._is_trino_reachable = mock.MagicMock(return_value=True)
-        self.assertTrue(handler._wait_for_trino_ready(timeout=10, interval=0))
-
-    @mock.patch("relations.postgresql_catalog.time.sleep")
-    @mock.patch("relations.postgresql_catalog.time.monotonic")
-    def test_wait_returns_true_after_retry(self, mock_time, _mock_sleep):
-        """Verify wait retries until Trino becomes ready."""
-        mock_time.side_effect = [0.0, 0.0, 5.0]
-        handler = self._make_handler()
-        handler._is_trino_reachable = mock.MagicMock(side_effect=[False, True])
-        self.assertTrue(handler._wait_for_trino_ready(timeout=300, interval=5))
-
-    @mock.patch("relations.postgresql_catalog.time.sleep")
-    @mock.patch("relations.postgresql_catalog.time.monotonic")
-    def test_wait_returns_false_on_timeout(self, mock_time, _mock_sleep):
-        """Verify wait returns False when the timeout elapses."""
-        mock_time.side_effect = [0.0, 301.0]
-        handler = self._make_handler()
-        handler._is_trino_reachable = mock.MagicMock(return_value=False)
-        self.assertFalse(handler._wait_for_trino_ready(timeout=300, interval=5))
 
 
 def _pg_yaml(entries: dict) -> str:

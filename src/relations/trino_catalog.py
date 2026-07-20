@@ -55,40 +55,26 @@ class TrinoCatalogRelationHandler(Object):
         # Initialize the provider library
         self.provider = TrinoCatalogProvider(self.charm)
 
-        # Observe relation events
-        self.framework.observe(
-            charm.on[self.relation_name].relation_created,
-            self._on_relation_created,
-        )
-        self.framework.observe(
-            charm.on[self.relation_name].relation_broken,
-            self._on_relation_broken,
-        )
-
-    def _on_relation_created(self, event):
-        """Handle trino-catalog relation created."""
-        if not self.charm.state.is_ready():
-            event.defer()
-            return
-
-        self.reconcile_trino_catalog_relations()
-
     @staticmethod
     def _secret_label(relation_id: int) -> str:
         """Build the label of the secret for the relation."""
         return f"{TRINO_CATALOG_SECRET_PREFIX}{relation_id}"
 
-    def _on_relation_broken(self, event):
-        """Handle trino-catalog relation broken: clean up the per-relation secret."""
-        label = self._secret_label(event.relation.id)
+    def remove_relation_secret(self, relation_id: int) -> None:
+        """Remove the per-relation secret for a departing trino-catalog relation.
+
+        Args:
+            relation_id: The ID of the relation being removed.
+        """
+        if not self.charm.unit.is_leader():
+            return
+        label = self._secret_label(relation_id)
         try:
             secret = self.charm.model.get_secret(label=label)
             secret.remove_all_revisions()
-            logger.info("Removed secret for broken relation %s", event.relation.id)
+            logger.info("Removed secret for departed relation %s", relation_id)
         except SecretNotFoundError:
             pass
-
-        self.charm._update_password_db_and_restart()
 
     def _get_url(self) -> Optional[str]:
         """Get the Trino URL from the stored ingress URL or fall back to the internal service URL.
@@ -270,43 +256,6 @@ class TrinoCatalogRelationHandler(Object):
         )
         return secret, True
 
-    def _update_relation(self, event) -> None:
-        """Update a specific trino-catalog relation.
-
-        Creates a per-relation secret if needed, then updates the databag.
-
-        Args:
-            event: The relation created event.
-        """
-        if not self.charm.state.is_ready():
-            event.defer()
-            return
-
-        if not self.charm.unit.is_leader():
-            return
-
-        # Get Trino URL
-        url = self._get_url()
-        if not url:
-            logger.debug("Trino external-hostname not configured")
-            return
-
-        # Get structured catalog information
-        catalogs = self._get_catalogs()
-
-        # Get per-relation user and secret
-        secret, _created = self._get_relation_secret(event.relation)
-        if secret is None:
-            return
-
-        # Update relation via library
-        self.provider.update_relation_data(
-            relation=event.relation,
-            trino_url=url,
-            trino_catalogs=catalogs,
-            trino_credentials_secret_id=secret.id,
-        )
-
     def _parse_exclusions(self) -> dict:
         """Parse the catalog-exclusions config.
 
@@ -332,9 +281,11 @@ class TrinoCatalogRelationHandler(Object):
     def reconcile_trino_catalog_relations(self) -> None:
         """Reconcile all trino-catalog relations.
 
-        Creates per-relation users and app-owned secrets, then updates
-        each relation databag with current URL, catalogs, and secret ID.
-        If new users were created, triggers password.db update and restart.
+        Creates per-relation users and app-owned secrets, updates each relation
+        databag with current URL, catalogs, and secret ID. Secrets for departed
+        relations are removed by the relation-broken handler. The charm
+        reconciler rebuilds password.db from the resulting credentials, so no
+        restart is triggered here.
         """
         if not self.charm.state.is_ready():
             return
@@ -348,6 +299,8 @@ class TrinoCatalogRelationHandler(Object):
             logger.warning("Skipping trino catalog reconciliation: charm config is invalid")
             return
 
+        active_relations = self.charm.model.relations.get(self.relation_name, [])
+
         # Get Trino URL
         url = self._get_url()
         if not url:
@@ -358,16 +311,11 @@ class TrinoCatalogRelationHandler(Object):
         catalogs = self._get_catalogs()
         exclusions = self._parse_exclusions()
 
-        users_changed = False
-
-        for relation in self.charm.model.relations.get(self.relation_name, []):
+        for relation in active_relations:
             # Get per-relation user and secret
-            secret, created = self._get_relation_secret(relation)
+            secret, _created = self._get_relation_secret(relation)
             if secret is None:
                 continue
-
-            if created:
-                users_changed = True
 
             # Filter catalogs based on per-app exclusions
             app_name = relation.data[relation.app].get("app_name") if relation.app else None
@@ -383,9 +331,6 @@ class TrinoCatalogRelationHandler(Object):
                 trino_catalogs=filtered_catalogs,
                 trino_credentials_secret_id=secret.id,
             )
-
-        if users_changed:
-            self.charm._update_password_db_and_restart()
 
     def get_relation_credentials(self) -> dict:
         """Get credentials for all per-relation users.

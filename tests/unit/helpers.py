@@ -268,6 +268,7 @@ def build_worker_state(
     config=None,
     catalogs=None,
     include_int_comms=True,
+    postgresql_secrets=None,
     extra_relations=(),
     extra_secrets=(),
     container=None,
@@ -283,6 +284,8 @@ def build_worker_state(
         config: extra config options merged over the worker defaults.
         catalogs: explicit catalog-config to advertise (defaults to the standard one).
         include_int_comms: whether the coordinator has published an int-comms secret.
+        postgresql_secrets: mapping of PG password env vars the coordinator has
+            published via a granted Juju secret, or None to publish none.
         extra_relations: additional relations to include in the state.
         extra_secrets: additional secrets to include in the state.
         container: an explicit container to use instead of the default.
@@ -305,6 +308,14 @@ def build_worker_state(
         int_comms = observer_secret({"secret": "test-int-comms-secret"})  # nosec B105
         secrets.add(int_comms)
         remote_data["int-comms-secret-id"] = int_comms.id
+
+    pg_secret = None
+    if postgresql_secrets:
+        pg_secret = observer_secret(
+            {"envvars": json.dumps(dict(postgresql_secrets), sort_keys=True)}
+        )
+        secrets.add(pg_secret)
+        remote_data["postgresql-secrets-id"] = pg_secret.id
 
     worker_relation = Relation(
         "trino-worker",
@@ -333,6 +344,7 @@ def build_worker_state(
         gsheets=cats.gsheets.id,
         catalog_config=catalog_config,
         int_comms=int_comms,
+        pg_secret=pg_secret,
         worker_relation=worker_relation,
         peer_relation=peer_relation,
     )

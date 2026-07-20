@@ -5,7 +5,14 @@
 """Literals used by the Trino K8s charm."""
 
 APP_NAME = "trino-k8s"
+PEER_RELATION_NAME = "peer"
 POSTGRESQL_RELATION_NAME = "postgresql"
+TRINO_COORDINATOR_RELATION_NAME = "trino-coordinator"
+TRINO_WORKER_RELATION_NAME = "trino-worker"
+TRINO_CATALOG_RELATION_NAME = "trino-catalog"
+POLICY_RELATION_NAME = "policy"
+OPENSEARCH_RELATION_NAME = "opensearch"
+INGRESS_RELATION_NAME = "ingress"
 TRINO_PORTS = {
     "HTTPS": 443,
     "HTTP": 8080,
@@ -17,6 +24,9 @@ JMX_PORT = 9081
 
 # Configuration literals
 TRINO_HOME = "/usr/lib/trino/etc"
+# JAVA_HOME is baked into the rock image (see trino_rock/rockcraft.yaml); update
+# this literal when the rock's bundled JDK version changes.
+JAVA_HOME = "/usr/lib/jvm/java-25-openjdk-amd64"
 CONFIG_FILES = {
     "config.jinja": "config.properties",
     "logging.jinja": "log.properties",
@@ -64,6 +74,29 @@ USER_SECRET_LABEL = "trino-user-management"  # nosec
 TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
 INT_COMMS_SECRET_LABEL = "trino-int-comms-secret"  # nosec
 INT_COMMS_SECRET_RELATION_KEY = "int-comms-secret-id"  # nosec
+POSTGRESQL_SECRET_LABEL = "trino-postgresql-secrets"  # nosec
+POSTGRESQL_SECRET_RELATION_KEY = "postgresql-secrets-id"  # nosec
+TRUSTSTORE_SECRET_LABEL = "trino-truststore-password"  # nosec
+
+# Obsolete peer-state keys purged by the reconciler (leader-only) now that all
+# reads come from config or live relation data. The two upgrade-fallback keys
+# (java_truststore_pwd, int_comms_secret) are purged separately, gated on their
+# backing app secret existing, and so are intentionally absent from this list.
+LEGACY_STATE_KEYS = (
+    "opensearch",
+    "opensearch_certificate",
+    "discovery_uri",
+    "catalog_config",
+    "user_secret_id",
+    "int_comms_secret_id",
+    "ranger_enabled",
+    "policy_manager_url",
+)
+
+# Sidecar manifests tracking managed truststore aliases (under CONF_DIR).
+TRUSTSTORE_MANIFEST = ".truststore-manifest.json"  # nosec
+CACERTS_MANIFEST = ".cacerts-manifest.json"  # nosec
+CACERTS_PATH = "lib/security/cacerts"  # nosec
 CATALOG_SCHEMA = {
     "backend": {"type": "string"},
     "database": {"type": "string", "nullable": True},

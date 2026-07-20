@@ -4,6 +4,7 @@
 
 """Trino charm integration test helpers."""
 
+import json
 import logging
 import os
 import subprocess  # nosec B404
@@ -263,6 +264,47 @@ def wait_for_app_gone(juju: jubilant.Juju, app: str, timeout: float = 600, delay
             return
         time.sleep(delay)
     raise TimeoutError(f"Application {app!r} still present after {timeout}s")
+
+
+def wait_for_requirer_catalogs(
+    juju: jubilant.Juju,
+    requirer_unit: str,
+    expected_count: int,
+    timeout: float = 300,
+    delay: float = 5.0,
+):
+    """Poll a requirer's trino-catalog relation data until it holds the expected count.
+
+    The provider keeps status "active" while it republishes the catalog databag, so
+    waiting on unit status cannot guarantee the catalogs have propagated. Poll the
+    requirer's get-relation-data action until the count settles.
+
+    Args:
+        juju: Jubilant Juju object.
+        requirer_unit: The requirer unit to query (e.g. "requirer-app/0").
+        expected_count: The number of catalogs expected in the relation data.
+        timeout: Maximum time to wait for the count to settle, in seconds.
+        delay: Delay between polls, in seconds.
+
+    Returns:
+        The parsed list of catalogs once the expected count is reached.
+
+    Raises:
+        TimeoutError: if the expected count is not reached within the timeout.
+    """
+    catalogs = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        action = juju.run(requirer_unit, "get-relation-data")
+        assert action.status == "completed"
+        catalogs = json.loads(action.results.get("trino-catalogs", "[]"))
+        if len(catalogs) == expected_count:
+            return catalogs
+        time.sleep(delay)
+    raise TimeoutError(
+        f"Requirer {requirer_unit!r} reported {len(catalogs)} catalogs, "
+        f"expected {expected_count} within {timeout}s"
+    )
 
 
 def get_unit_url(juju: jubilant.Juju, application, unit, port, protocol="http"):

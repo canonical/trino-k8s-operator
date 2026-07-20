@@ -1,0 +1,15 @@
+name: Auto-Update Copilot Instructions
+on:
+  schedule:
+    - cron: '17 8 * * 1' # Run every Monday at 08:17 UTC
+  workflow_dispatch:
+
+jobs:
+  check-update:
+    # See: https://discourse.canonical.com/t/upcoming-change-to-github-actions-settings/7286
+    permissions:
+      contents: write
+      pull-requests: write
+    # Always pin to @main to get the latest logic, but the content version is controlled by your .yaml file
+    uses: canonical/copilot-collections/.github/workflows/auto_update_collections.yaml@main
+    secrets: inherit

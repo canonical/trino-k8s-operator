@@ -8,6 +8,7 @@ Demonstrates usage of the TrinoCatalogRequirer library to consume
 Trino catalog information via the trino-catalog relation.
 """
 
+import json
 import logging
 
 from charms.trino_k8s.v0.trino_catalog import TrinoCatalogRequirer
@@ -172,7 +173,7 @@ class TrinoCatalogRequirerCharm(CharmBase):
         event.set_results(
             {
                 "trino-url": trino_info["trino_url"],
-                "trino-catalogs": str(catalogs_info),
+                "trino-catalogs": json.dumps(catalogs_info),
                 "trino-username": trino_username,
                 "trino-password": trino_password,
             }

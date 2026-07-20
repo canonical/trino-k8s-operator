@@ -12,7 +12,7 @@ import dataclasses
 import logging
 import re
 
-from ops.model import ActiveStatus, MaintenanceStatus
+from ops.model import ActiveStatus
 from ops.pebble import CheckLevel, CheckStartup, CheckStatus
 from ops.testing import CheckInfo, Relation
 
@@ -87,10 +87,12 @@ def _opensearch_setup(ctx):
     state = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
     # Enable the Ranger plugin via the policy relation.
+    policy_rel = state.get_relation(policy_rel.id)
     state = carry_forward(ctx.run(ctx.on.relation_changed(policy_rel), state))
 
     # Create the OpenSearch index. The OpenSearch credentials and certificate
     # are resolved from real Juju secrets shared over the relation.
+    opensearch_rel = state.get_relation(opensearch_rel.id)
     state = ctx.run(ctx.on.relation_changed(opensearch_rel), state)
 
     return state, opensearch_rel
@@ -122,10 +124,31 @@ def test_policy_relation_changed(ctx):
     state_in, _ = build_coordinator_state(extra_relations=[policy_rel])
     bootstrapped = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
+    policy_rel = bootstrapped.get_relation(policy_rel.id)
     state_out = ctx.run(ctx.on.relation_changed(policy_rel), bootstrapped)
 
     ranger_config = workload_path(state_out, ctx, RANGER_SECURITY_PATH).read_text()
     assert POLICY_MGR_URL in ranger_config
+
+
+def test_ranger_service_name_defaults_to_relation(ctx):
+    """Ranger service name falls back to `relation_<id>` when config is unset."""
+    policy_rel = Relation(
+        "policy",
+        remote_app_name="ranger-k8s",
+        remote_app_data={"policy_manager_url": POLICY_MGR_URL},
+    )
+    state_in, _ = build_coordinator_state(extra_relations=[policy_rel])
+    bootstrapped = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+
+    policy_rel = bootstrapped.get_relation(policy_rel.id)
+    state_out = ctx.run(ctx.on.relation_changed(policy_rel), bootstrapped)
+
+    ranger_config = workload_path(state_out, ctx, RANGER_SECURITY_PATH).read_text()
+    expected = (
+        f"<name>ranger.plugin.trino.service.name</name><value>relation_{policy_rel.id}</value>"
+    )
+    assert expected in re.sub(r"\s", "", ranger_config)
 
 
 def test_policy_relation_broken(ctx):
@@ -134,6 +157,7 @@ def test_policy_relation_broken(ctx):
     state_in, _ = build_coordinator_state(extra_relations=[policy_rel])
     bootstrapped = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
 
+    policy_rel = bootstrapped.get_relation(policy_rel.id)
     state_out = ctx.run(ctx.on.relation_broken(policy_rel), bootstrapped)
 
     relation_data = state_out.get_relation(policy_rel.id).local_app_data
@@ -143,9 +167,6 @@ def test_policy_relation_broken(ctx):
 def test_on_opensearch_index_created(ctx):
     """Test handling of opensearch relation changed events."""
     state, _ = _opensearch_setup(ctx)
-
-    assert state.unit_status == MaintenanceStatus("Restarting Ranger plugin")
-    assert workload_path(state, ctx, "/opensearch.crt").exists()
 
     ranger_config = workload_path(state, ctx, RANGER_AUDIT_PATH).read_text()
     ranger_config = re.sub(r"\s", "", ranger_config)
@@ -165,20 +186,77 @@ def test_on_opensearch_relation_broken(ctx):
     state = carry_forward(state)
     opensearch_rel = state.get_relation(opensearch_rel.id)
 
-    # The OpenSearch certificate was installed when the index was created; seed
-    # it so the broken handler can remove it (the workload filesystem is reset
-    # between Scenario runs).
-    with ctx(ctx.on.relation_broken(opensearch_rel), state) as mgr:
-        mgr.charm.unit.get_container("trino").push(
-            "/opensearch.crt", "certificate", make_dirs=True
-        )
-        state = mgr.run()
-
-    assert state.unit_status == MaintenanceStatus("Restarting Ranger plugin")
-    assert not workload_path(state, ctx, "/opensearch.crt").exists()
+    state = ctx.run(ctx.on.relation_broken(opensearch_rel), state)
 
     ranger_config = workload_path(state, ctx, RANGER_AUDIT_PATH).read_text()
     assert "testuser" not in ranger_config
+
+    state = dataclasses.replace(state, containers={_up_check_container(state)})
+    state_out = ctx.run(ctx.on.update_status(), state)
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+def _opensearch_state(ctx, *, endpoints, tls_ca):
+    """Bootstrap a coordinator with a custom OpenSearch endpoint and tls-ca.
+
+    Args:
+        ctx: the Scenario `Context` for the charm.
+        endpoints: the raw `endpoints` value published on the relation.
+        tls_ca: the raw `tls-ca` bundle stored in the OpenSearch TLS secret.
+
+    Returns:
+        A `(State, Relation)` tuple ready for a relation-changed run.
+    """
+    user_secret = observer_secret({"username": "testuser", "password": "testpassword"})  # nosec B105
+    tls_secret = observer_secret({"tls-ca": tls_ca})
+    policy_rel = Relation(
+        "policy",
+        remote_app_name="ranger-k8s",
+        remote_app_data={"policy_manager_url": POLICY_MGR_URL},
+    )
+    opensearch_rel = Relation(
+        "opensearch",
+        remote_app_name="opensearch-app",
+        remote_app_data={
+            "secret-user": user_secret.id,
+            "secret-tls": tls_secret.id,
+            "endpoints": endpoints,
+        },
+    )
+    state_in, _ = build_coordinator_state(
+        extra_relations=[policy_rel, opensearch_rel],
+        extra_secrets=[user_secret, tls_secret],
+    )
+    state = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    policy_rel = state.get_relation(policy_rel.id)
+    state = carry_forward(ctx.run(ctx.on.relation_changed(policy_rel), state))
+    return state, state.get_relation(opensearch_rel.id)
+
+
+def test_opensearch_portless_endpoint_disables(ctx):
+    """A malformed (portless) endpoint disables OpenSearch without erroring."""
+    state, opensearch_rel = _opensearch_state(
+        ctx, endpoints="opensearch-host", tls_ca=OPENSEARCH_TLS_CA
+    )
+
+    state_out = ctx.run(ctx.on.relation_changed(opensearch_rel), state)
+
+    ranger_config = workload_path(state_out, ctx, RANGER_AUDIT_PATH).read_text()
+    assert "testuser" not in ranger_config
+
+
+def test_opensearch_single_cert_bundle_no_error(ctx):
+    """A single-cert tls-ca bundle yields no certificate but does not error."""
+    single_ca = (
+        "-----BEGIN CERTIFICATE-----\n"
+        "MIIC+DCCAeCgAwIBAgIJAKJdWfG2zRAQMA0GCSqGSIb3DQEBCwUAMIGPMQswCQYD\n"
+        "-----END CERTIFICATE-----"
+    )
+    state, opensearch_rel = _opensearch_state(
+        ctx, endpoints="opensearch-host:port", tls_ca=single_ca
+    )
+
+    state = ctx.run(ctx.on.relation_changed(opensearch_rel), state)
 
     state = dataclasses.replace(state, containers={_up_check_container(state)})
     state_out = ctx.run(ctx.on.update_status(), state)

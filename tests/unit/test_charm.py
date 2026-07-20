@@ -9,7 +9,9 @@
 # pylint:disable=protected-access,too-many-public-methods
 
 import dataclasses
+import json
 import logging
+from unittest import mock
 
 import pytest
 import yaml
@@ -23,6 +25,7 @@ from ops.model import (
 from ops.pebble import CheckLevel, CheckStartup, CheckStatus, Layer
 from ops.testing import CheckInfo, Mount, PeerRelation, Relation, State
 
+from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
     DEFAULT_JVM_STRING,
@@ -35,6 +38,7 @@ from tests.unit.helpers import (
     build_worker_state,
     create_single_catalog_config,
     observer_secret,
+    peer_state_value,
     trino_container,
     workload_path,
 )
@@ -71,19 +75,18 @@ def test_waiting_on_peer_relation_not_ready(ctx):
     # No plans are set yet.
     assert state_out.get_container("trino").plan.to_dict() == {}
 
-    # The BlockStatus is set with a message.
-    assert state_out.unit_status == BlockedStatus("peer relation not ready")
+    # The WaitingStatus is set with a message.
+    assert state_out.unit_status == WaitingStatus("waiting for peer relation")
 
 
 def test_ready(ctx):
     """The pebble plan is correctly generated when the charm is ready."""
-    state_in, ids = build_coordinator_state()
-    catalog_config = ids.catalog_config
+    state_in, _ = build_coordinator_state()
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    # Asserts status is set to replanning.
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    # The status reflects the healthy `up` check reported by Scenario.
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
     # The plan is generated after config is applied.
     want_plan = {
@@ -93,9 +96,8 @@ def test_ready(ctx):
                 "summary": "trino server",
                 "command": "./entrypoint.sh",
                 "startup": "enabled",
-                "on-check-failure": {"up": "ignore"},
+                "on-check-failure": {"up": "restart"},
                 "environment": {
-                    "CATALOG_CONFIG": catalog_config,
                     "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                     "LOG_LEVEL": "info",
                     "OAUTH_CLIENT_ID": None,
@@ -137,6 +139,13 @@ def test_ready(ctx):
     environment["JAVA_TRUSTSTORE_PWD"] = "truststore_pwd"  # nosec
     environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
     environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
+
+    # Per-file content hashes drive Pebble restarts; assert they are present as
+    # freshness triggers, then drop them to compare the stable environment.
+    hash_keys = {key for key in environment if key.startswith("HASH_")}
+    assert hash_keys
+    for key in hash_keys:
+        del environment[key]
 
     assert got_services == want_plan["services"]
 
@@ -349,7 +358,7 @@ def test_incomplete_pebble_plan(ctx):
 
     state_out = ctx.run(ctx.on.update_status(), state_in)
 
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
     assert state_out.get_container("trino").plan.to_dict() != mock_incomplete_pebble_plan
 
 
@@ -446,8 +455,8 @@ def test_trino_single_node_deployment(ctx):
     # There is a valid pebble plan.
     assert _services(state_out)["trino"]["environment"]["CHARM_FUNCTION"] == "all"
 
-    # The MaintenanceStatus is set.
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    # The status reflects the healthy `up` check reported by Scenario.
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
 
 def test_resource_management_config(ctx):
@@ -689,19 +698,68 @@ def test_coordinator_int_comms_secret_preserves_existing_value(ctx):
         assert content2["secret"] == "pre-existing-secret-value"  # nosec
 
 
+LEGACY_STATE_SEED = {
+    "opensearch": {"username": "u", "password": "p"},  # nosec B105 sensitive
+    "opensearch_certificate": "ca-cert",
+    "discovery_uri": "http://old-coordinator:8080",
+    "catalog_config": "old-catalog-config",
+    "user_secret_id": "secret:olduser",  # nosec B105
+    "int_comms_secret_id": "secret:oldid",  # nosec B105
+    "ranger_enabled": True,
+    "policy_manager_url": "http://old-ranger",
+    "java_truststore_pwd": "old-truststore-pw",  # nosec B105
+    "int_comms_secret": "old-int-comms-value",  # nosec B105
+}
+
+
+def _seed_peer_state(state_in, ids, values):
+    """Replace the peer relation with one pre-seeded with JSON-encoded state."""
+    seeded = PeerRelation(
+        "peer",
+        local_app_data={key: json.dumps(value) for key, value in values.items()},
+    )
+    relations = {rel for rel in state_in.relations if rel.id != ids.peer_relation.id}
+    relations.add(seeded)
+    return dataclasses.replace(state_in, relations=relations), seeded
+
+
+def test_leader_purges_legacy_state_on_reconcile(ctx):
+    """Leader drops obsolete and fallback peer keys once secrets are confirmed."""
+    state_in, ids = build_coordinator_state()
+    state_in, seeded = _seed_peer_state(state_in, ids, LEGACY_STATE_SEED)
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    peer = state_out.get_relation(seeded.id)
+    for key in LEGACY_STATE_SEED:
+        assert peer_state_value(peer, key) is None, f"{key!r} should be purged"
+
+
+def test_non_leader_keeps_legacy_state(ctx):
+    """A non-leader never mutates peer state, so legacy keys survive."""
+    state_in, ids = build_coordinator_state(leader=False)
+    state_in, seeded = _seed_peer_state(state_in, ids, LEGACY_STATE_SEED)
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    peer = state_out.get_relation(seeded.id)
+    for key, value in LEGACY_STATE_SEED.items():
+        assert peer_state_value(peer, key) == value, f"{key!r} must be preserved"
+
+
 def test_worker_resolves_int_comms_secret_from_coordinator(ctx):
     """Worker reads int-comms-secret from coordinator.
 
-    Worker reads int-comms-secret-id from relation, stores the ID in state, and
-    resolves the secret value at render time via _get_int_comms_secret_value.
+    Worker reads int-comms-secret-id live from the trino-worker relation databag
+    and resolves the secret value at render time via _get_int_comms_secret_value.
     """
     state_in, ids = build_worker_state()
 
     with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
         mgr.run()
 
-        # The worker's peer state must carry the secret *ID* (not the plaintext value).
-        secret_id = mgr.charm.state.int_comms_secret_id
+        # The coordinator databag must carry the secret *ID* (not the plaintext value).
+        secret_id = mgr.charm.trino_worker.get_coordinator_data()["int_comms_secret_id"]
         assert secret_id is not None
         assert secret_id.startswith("secret:")
 
@@ -736,3 +794,108 @@ def test_worker_no_plaintext_secret_in_relation_databag(ctx):
             raise AssertionError(
                 f"Plaintext int-comms field {key!r} found in worker app relation data: {value!r}"
             )
+
+
+def test_oidc_credentials_resolved_from_secret(ctx):
+    """OAuth credentials are read from the oidc-secret-id Juju secret."""
+    oidc = observer_secret(
+        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
+    )
+    state_in, _ = build_coordinator_state(
+        config={"oidc-secret-id": oidc.id}, extra_secrets=(oidc,)
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert environment["OAUTH_CLIENT_ID"] == "client-123"
+    assert environment["OAUTH_CLIENT_SECRET"] == "shhh"  # nosec
+
+
+@pytest.mark.parametrize("option", ["google-client-id", "google-client-secret"])
+def test_deprecated_oidc_plaintext_blocks(ctx, option):
+    """Setting a deprecated plaintext OIDC option blocks the charm."""
+    state_in, _ = build_coordinator_state(config={option: "some-value"})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "deprecated" in state_out.unit_status.message
+
+
+def test_oidc_secret_id_unresolvable_blocks(ctx):
+    """An oidc-secret-id that cannot be resolved blocks the charm."""
+    # The secret is referenced but never granted to (added to) the state.
+    oidc = observer_secret(
+        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
+    )
+    state_in, _ = build_coordinator_state(config={"oidc-secret-id": oidc.id})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "oidc-secret-id" in state_out.unit_status.message
+
+
+def test_malformed_user_secret_blocks(ctx):
+    """A user secret whose `users` field is not a mapping blocks the charm."""
+    bad_user = observer_secret({"users": ""})
+    state_in, _ = build_coordinator_state(
+        config={"user-secret-id": bad_user.id}, extra_secrets=(bad_user,)
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "must be a mapping" in state_out.unit_status.message
+
+
+def test_coordinator_publishes_pg_secret_id(ctx):
+    """Coordinator publishes a PG secret id, never the plaintext passwords."""
+    state_in, ids = build_coordinator_state()
+
+    with mock.patch.object(
+        PostgresqlCatalogRelationHandler,
+        "get_postgresql_env_vars",
+        return_value={"PG_PASS_TESTDB": "super-secret-pw"},  # nosec
+    ):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert relation_data["postgresql-secrets-id"].startswith("secret:")
+    for value in relation_data.values():
+        assert "super-secret-pw" not in value
+
+
+def test_coordinator_no_pg_secret_id_without_catalogs(ctx):
+    """Coordinator omits the PG secret id when there are no PostgreSQL catalogs."""
+    state_in, ids = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert "postgresql-secrets-id" not in relation_data
+
+
+def test_worker_resolves_pg_secret_from_coordinator(ctx):
+    """Worker resolves PG password env vars from the coordinator's granted secret."""
+    state_in, ids = build_worker_state(
+        postgresql_secrets={"PG_PASS_TESTDB": "super-secret-pw"}  # nosec
+    )
+
+    with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
+        mgr.run()
+        resolved = mgr.charm.trino_worker.get_postgresql_secrets_from_coordinator()
+
+    assert resolved == {"PG_PASS_TESTDB": "super-secret-pw"}  # nosec
+
+
+def test_worker_pg_secret_empty_without_id(ctx):
+    """Worker returns an empty map when the coordinator publishes no PG secret."""
+    state_in, ids = build_worker_state()
+
+    with ctx(ctx.on.relation_changed(ids.worker_relation), state_in) as mgr:
+        mgr.run()
+        resolved = mgr.charm.trino_worker.get_postgresql_secrets_from_coordinator()
+
+    assert resolved == {}

@@ -11,7 +11,7 @@
 import dataclasses
 import logging
 
-from ops.model import MaintenanceStatus
+from ops.model import ActiveStatus
 from ops.testing import Mount
 
 from tests.unit.helpers import (
@@ -23,7 +23,7 @@ from tests.unit.helpers import (
     build_worker_state,
     carry_forward,
     create_added_catalog_config,
-    peer_state_value,
+    observer_secret,
     trino_container,
     workload_path,
 )
@@ -33,14 +33,17 @@ logger = logging.getLogger(__name__)
 
 def test_config_changed(ctx):
     """The pebble plan changes according to config changes."""
-    state_in, ids = build_coordinator_state(
+    oidc = observer_secret(
+        {"google-client-id": "test-client-id", "google-client-secret": "test-client-secret"}
+    )
+    state_in, _ = build_coordinator_state(
         config={
-            "google-client-id": "test-client-id",
-            "google-client-secret": "test-client-secret",
+            "oidc-secret-id": oidc.id,
             "web-proxy": "proxy:port",
             "charm-function": "all",
             "additional-jvm-options": USER_JVM_STRING,
-        }
+        },
+        extra_secrets=(oidc,),
     )
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
@@ -51,9 +54,8 @@ def test_config_changed(ctx):
             "summary": "trino server",
             "command": "./entrypoint.sh",
             "startup": "enabled",
-            "on-check-failure": {"up": "ignore"},
+            "on-check-failure": {"up": "restart"},
             "environment": {
-                "CATALOG_CONFIG": ids.catalog_config,
                 "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                 "LOG_LEVEL": "info",
                 "OAUTH_CLIENT_ID": "test-client-id",
@@ -99,8 +101,15 @@ def test_config_changed(ctx):
     environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
     environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
 
+    # Per-file content hashes drive Pebble restarts; assert they are present as
+    # freshness triggers, then drop them to compare the stable environment.
+    hash_keys = {key for key in environment if key.startswith("HASH_")}
+    assert hash_keys
+    for key in hash_keys:
+        del environment[key]
+
     assert got_services == want_services
-    assert state_out.unit_status == MaintenanceStatus("replanning application")
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
 
 def test_catalog_added(ctx):
@@ -171,9 +180,9 @@ def test_worker_fetches_latest_catalog_on_relation_change(ctx):
     relations.add(worker_relation)
     state_in = dataclasses.replace(state_in, relations=relations)
 
-    state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
+    with ctx(ctx.on.relation_changed(worker_relation), state_in) as mgr:
+        mgr.run()
+        catalog_config = mgr.charm._effective_catalog_config()
 
-    peer_relation = state_out.get_relation(ids.peer_relation.id)
-    catalog_config = peer_state_value(peer_relation, "catalog_config")
     assert catalog_config == extended_catalog_config
     assert catalog_config != old_catalog

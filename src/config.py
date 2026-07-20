@@ -87,6 +87,7 @@ class CharmConfig(BaseConfigModel):
     log_level: str = "info"
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
+    oidc_secret_id: Optional[str] = None
     web_proxy: Optional[str] = None
     ranger_service_name: Optional[str] = None
     external_hostname: Optional[str] = None
@@ -148,6 +149,17 @@ class CharmConfig(BaseConfigModel):
         return v
 
     # ── String sanity validators ───────────────────────────────────────────
+
+    @validator("google_client_id", "google_client_secret")
+    def reject_deprecated_oidc_plaintext(cls, v, field):
+        """Block plaintext OIDC credentials; require a Juju secret instead."""
+        if v is not None:
+            option = field.name.replace("_", "-")
+            raise ValueError(
+                f"{option} is deprecated; store the Google OIDC credentials in a "
+                "Juju secret and set oidc-secret-id instead, then unset this option"
+            )
+        return v
 
     @validator("web_proxy")
     def validate_web_proxy(cls, v):
