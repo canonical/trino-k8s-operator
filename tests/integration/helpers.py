@@ -458,6 +458,26 @@ def get_active_workers(juju: jubilant.Juju):
     return active_workers
 
 
+def wait_for_active_workers(
+    juju: jubilant.Juju, expected: int, timeout: float = 600, delay: float = 5
+):
+    """Wait until Trino reports the expected number of active workers."""
+    deadline = time.monotonic() + timeout
+    active_workers = []
+    while time.monotonic() < deadline:
+        try:
+            active_workers = get_active_workers(juju)
+        except (requests.RequestException, trino.exceptions.TrinoException):
+            logger.info("Coordinator is not ready to report workers yet")
+        if len(active_workers) == expected:
+            return active_workers
+        time.sleep(delay)
+    raise TimeoutError(
+        f"Trino reported {len(active_workers)} active workers, "
+        f"expected {expected} within {timeout}s"
+    )
+
+
 def simulate_crash_and_restart(juju: jubilant.Juju):
     """Simulate the crash of the Trino coordinator by force-deleting its pod.
 
@@ -480,6 +500,32 @@ def simulate_crash_and_restart(juju: jubilant.Juju):
         idle_period=30,
         timeout=1000,
     )
+
+
+def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
+    """Force-delete the coordinator and all worker pods and wait for registration."""
+    pods = [f"{APP_NAME}-0", *(f"{WORKER_NAME}-{unit}" for unit in range(workers))]
+    subprocess.run(  # nosec B603 B607
+        [
+            "kubectl",
+            "delete",
+            "pod",
+            *pods,
+            "-n",
+            juju.model,
+            "--grace-period=0",
+            "--force",
+        ],
+        check=True,
+    )
+    wait_for_apps(
+        juju,
+        [APP_NAME, WORKER_NAME],
+        status="active",
+        idle_period=30,
+        timeout=1000,
+    )
+    wait_for_active_workers(juju, workers, timeout=1000)
 
 
 def curl_unit_ip(juju: jubilant.Juju):

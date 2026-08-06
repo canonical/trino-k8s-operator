@@ -422,6 +422,31 @@ def test_trino_worker_relation_created(ctx):
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
 
 
+def test_trino_worker_waits_when_discovery_uri_absent(ctx):
+    """A worker does not fall back to advertising its own service as the coordinator."""
+    state_in, ids = build_worker_state()
+    worker_relation = dataclasses.replace(
+        ids.worker_relation,
+        remote_app_data={
+            key: value
+            for key, value in ids.worker_relation.remote_app_data.items()
+            if key != "discovery-uri"
+        },
+    )
+    relations = {
+        relation for relation in state_in.relations if relation.id != ids.worker_relation.id
+    }
+    relations.add(worker_relation)
+    state_in = dataclasses.replace(state_in, relations=relations)
+
+    state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
+
+    assert state_out.unit_status == WaitingStatus(
+        "waiting for coordinator to publish discovery URI"
+    )
+    assert state_out.get_container("trino").plan.to_dict() == {}
+
+
 def test_trino_worker_relation_broken(ctx, tmp_path):
     """Test trino relation broken.
 
