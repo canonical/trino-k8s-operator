@@ -370,6 +370,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
 
         if cfg.charm_function == "worker" and self.model.relations[TRINO_WORKER_RELATION_NAME]:
+            if not self._effective_discovery_uri():
+                event.add_status(WaitingStatus("waiting for coordinator to publish discovery URI"))
+                return
             if self._get_int_comms_secret_value() is None:
                 event.add_status(
                     WaitingStatus(
@@ -941,7 +944,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
-            "DISCOVERY_URI": self._effective_discovery_uri() or self._coordinator_discovery_uri,
+            "DISCOVERY_URI": self._effective_discovery_uri(),
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
@@ -1105,6 +1108,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         int_comms_secret = self._get_int_comms_secret_value()
         if is_coordinator and int_comms_secret is None:
+            return
+        if (
+            function == "worker"
+            and self.model.relations[TRINO_WORKER_RELATION_NAME]
+            and not self._effective_discovery_uri()
+        ):
             return
         if (
             function == "worker"
