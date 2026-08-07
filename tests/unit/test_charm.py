@@ -422,8 +422,8 @@ def test_trino_worker_relation_created(ctx):
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
 
 
-def test_trino_worker_waits_when_discovery_uri_absent(ctx):
-    """A worker does not fall back to advertising its own service as the coordinator."""
+def test_trino_worker_derives_coordinator_uri_when_relation_value_absent(ctx):
+    """A worker derives the remote coordinator service instead of using its own service."""
     state_in, ids = build_worker_state()
     worker_relation = dataclasses.replace(
         ids.worker_relation,
@@ -441,10 +441,11 @@ def test_trino_worker_waits_when_discovery_uri_absent(ctx):
 
     state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
 
-    assert state_out.unit_status == WaitingStatus(
-        "waiting for coordinator to publish discovery URI"
+    environment = _services(state_out)["trino"]["environment"]
+    assert environment["DISCOVERY_URI"] == (
+        "http://trino-k8s-coordinator.trino-model.svc.cluster.local:8080"
     )
-    assert state_out.get_container("trino").plan.to_dict() == {}
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
 
 
 def test_trino_worker_relation_broken(ctx, tmp_path):

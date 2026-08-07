@@ -122,10 +122,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     @property
     def _cluster_local_coordinator_uri(self):
         """Return the cluster-local service URI for the Trino coordinator."""
-        host = self.app.name
+        return self._cluster_local_service_uri(self.app.name)
+
+    def _cluster_local_service_uri(self, application_name):
+        """Return the cluster-local service URI for an application."""
         namespace = self.model.name
         port = TRINO_PORTS["HTTP"]
-        return f"http://{host}.{namespace}.svc.cluster.local:{port}"
+        return f"http://{application_name}.{namespace}.svc.cluster.local:{port}"
 
     @property
     def _coordinator_discovery_uri(self):
@@ -882,13 +885,22 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """Return the discovery URI for this unit's role.
 
         Coordinators advertise their own discovery URI; workers read the value
-        published by the coordinator on the trino-worker relation.
+        published by the coordinator on the trino-worker relation. If that
+        value is temporarily unavailable during pod recovery, a same-cluster
+        worker derives the coordinator service URI from the remote application
+        name rather than incorrectly using its own application name.
 
         Returns:
-            The discovery URI, or None when a worker has no coordinator data yet.
+            The discovery URI, or None when a worker has no coordinator relation.
         """
         if self.config.charm_function == "worker":
-            return self.trino_worker.get_coordinator_data()["discovery_uri"]
+            discovery_uri = self.trino_worker.get_coordinator_data()["discovery_uri"]
+            if discovery_uri:
+                return discovery_uri
+            relation = self.model.get_relation(TRINO_WORKER_RELATION_NAME)
+            if relation is not None and relation.app is not None:
+                return self._cluster_local_service_uri(relation.app.name)
+            return None
         return self._coordinator_discovery_uri
 
     def _effective_catalog_config(self):
