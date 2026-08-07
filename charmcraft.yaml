@@ -45,6 +45,10 @@ requires:
     interface: opensearch_client
     optional: true
     limit: 1
+  oauth:
+    interface: oauth
+    optional: true
+    limit: 1
   postgresql:
     interface: postgresql_client
     optional: true
@@ -103,6 +107,8 @@ charm-libs:
     version: "0"
   - lib: "grafana_k8s.grafana_dashboard"
     version: "0"
+  - lib: "hydra.oauth"
+    version: "0"
   - lib: "loki_k8s.loki_push_api"
     version: "1"
   - lib: "prometheus_k8s.prometheus_scrape"
@@ -126,30 +132,9 @@ config:
         Valid values: info, debug, warn, error.
       default: info
       type: string
-    google-client-id:
-      description: |
-        DEPRECATED. Do not set. Provide the Google OIDC credentials through a Juju
-        secret referenced by `oidc-secret-id` instead. Setting this option blocks
-        the charm; unset it and migrate to `oidc-secret-id`.
-      type: string
-    google-client-secret:
-      description: |
-        DEPRECATED. Do not set. Provide the Google OIDC credentials through a Juju
-        secret referenced by `oidc-secret-id` instead. Setting this option blocks
-        the charm; unset it and migrate to `oidc-secret-id`.
-      type: string
-    oidc-secret-id:
-      description: |
-        The Juju secret id for the Google OIDC credentials used to enable OAuth2
-        authentication for the Trino web UI. The secret must contain the keys
-        `google-client-id` and `google-client-secret`. Grant the secret to this
-        application before setting this option. Leave unset to disable OAuth2 and
-        use password authentication only.
-      type: string
     web-proxy:
       description: |
-        The address of the web proxy. To be used in combination
-        with google-client-id and google-client-secret values.
+        The address of the web proxy used for communication with an OAuth provider.
       type: string 
     ranger-service-name:
       description: |

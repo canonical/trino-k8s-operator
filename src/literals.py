@@ -13,6 +13,7 @@ TRINO_CATALOG_RELATION_NAME = "trino-catalog"
 POLICY_RELATION_NAME = "policy"
 OPENSEARCH_RELATION_NAME = "opensearch"
 INGRESS_RELATION_NAME = "ingress"
+OAUTH_RELATION_NAME = "oauth"
 TRINO_PORTS = {
     "HTTPS": 443,
     "HTTP": 8080,
@@ -43,6 +44,9 @@ TRINO_PLUGIN_DIR = "/usr/lib/trino/plugin"
 
 # Authentication literals
 PASSWORD_DB = "password.db"  # nosec
+OAUTH_SCOPE = "openid profile email"
+OAUTH_GRANT_TYPES = ["authorization_code"]
+OIDC_CALLBACK_PATH = "/oauth2/callback"
 
 # Ranger plugin literals
 RANGER_PLUGIN_FILES = {

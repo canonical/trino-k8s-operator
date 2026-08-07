@@ -169,6 +169,41 @@ def observer_secret(content):
     return Secret(tracked_content=content, owner=None)
 
 
+def ingress_relation(url=None):
+    """Build an ingress relation, optionally with a published external URL."""
+    remote_data = {"ingress": json.dumps({"url": url})} if url else {}
+    return Relation(
+        "ingress",
+        remote_app_name="traefik-k8s",
+        remote_app_data=remote_data,
+    )
+
+
+def oauth_relation(client_secret_id=None):
+    """Build an OAuth relation with generic OIDC provider information."""
+    remote_data = {
+        "issuer_url": "https://idp.example",
+        "authorization_endpoint": "https://idp.example/oauth2/auth",
+        "token_endpoint": "https://idp.example/oauth2/token",  # nosec B105
+        "introspection_endpoint": "https://idp.example/oauth2/introspect",
+        "userinfo_endpoint": "https://idp.example/userinfo",
+        "jwks_endpoint": "https://idp.example/.well-known/jwks.json",
+        "scope": "openid profile email",
+    }
+    if client_secret_id:
+        remote_data.update(
+            {
+                "client_id": "client-123",
+                "client_secret_id": client_secret_id,
+            }
+        )
+    return Relation(
+        "oauth",
+        remote_app_name="oauth-provider",
+        remote_app_data=remote_data,
+    )
+
+
 def catalog_secrets():
     """Create the standard set of catalog secrets used by the lifecycle helpers.
 

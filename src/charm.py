@@ -60,6 +60,7 @@ from literals import (
     JMX_PORT,
     LEGACY_STATE_KEYS,
     METRICS_PORT,
+    OAUTH_SCOPE,
     OPENSEARCH_RELATION_NAME,
     PASSWORD_DB,
     PEER_RELATION_NAME,
@@ -75,6 +76,7 @@ from literals import (
     TRUSTSTORE_SECRET_LABEL,
 )
 from log import log_event_handler
+from relations.oauth import ClientConfigError, OAuthRelationHandler
 from relations.opensearch import OpensearchRelationHandler
 from relations.policy import PolicyRelationHandler
 from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
@@ -173,6 +175,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.trino_coordinator = TrinoCoordinator(self)
         self.trino_worker = TrinoWorker(self)
         self.trino_catalog = TrinoCatalogRelationHandler(self)
+        self.oauth = OAuthRelationHandler(self)
 
         # Every hook converges through a single idempotent reconciler; unit
         # status is derived separately by collect-unit-status.
@@ -350,11 +353,20 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
-        try:
-            self._resolve_oidc_credentials()
-        except ValueError as err:
-            event.add_status(BlockedStatus(str(err)))
-            return
+        if self.oauth.is_related:
+            if cfg.charm_function == "worker":
+                event.add_status(BlockedStatus("oauth relation requires a coordinator"))
+                return
+            ingress_url = self.ingress.url
+            if not ingress_url:
+                event.add_status(WaitingStatus("waiting for ingress URL for OAuth"))
+                return
+            if not ingress_url.startswith("https://"):
+                event.add_status(BlockedStatus("OAuth requires an HTTPS ingress URL"))
+                return
+            if self.oauth.provider_info is None:
+                event.add_status(WaitingStatus("waiting for OAuth provider registration"))
+                return
 
         try:
             self._compute_credentials()
@@ -553,34 +565,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             logger.error(f"secret {secret_id!r} not found.")
             raise
         return content
-
-    def _resolve_oidc_credentials(self) -> tuple[str | None, str | None]:
-        """Resolve Google OIDC credentials from the configured Juju secret.
-
-        Returns:
-            A (client_id, client_secret) tuple, or (None, None) when
-            oidc-secret-id is unset (OAuth2 disabled).
-
-        Raises:
-            ValueError: if oidc-secret-id is set but the secret cannot be
-                resolved or is missing the required keys.
-        """
-        secret_id = self.config.oidc_secret_id
-        if not secret_id:
-            return None, None
-        try:
-            content = self._get_secret_content(secret_id)
-        except SecretNotFoundError:
-            raise ValueError(
-                f"oidc-secret-id {secret_id!r} could not be resolved; ensure the "
-                "secret exists and is granted to this application"
-            ) from None
-        try:
-            return content["google-client-id"], content["google-client-secret"]
-        except KeyError:
-            raise ValueError(
-                "oidc secret must contain 'google-client-id' and 'google-client-secret' keys"
-            ) from None
 
     def _compute_credentials(self):
         """Return the full set of authentication credentials for `password.db`.
@@ -932,12 +916,14 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
-        oauth_client_id, oauth_client_secret = self._resolve_oidc_credentials()
+        oauth_provider = self.oauth.provider_info if cfg.charm_function != "worker" else None
 
         env = {
             "LOG_LEVEL": cfg.log_level,
-            "OAUTH_CLIENT_ID": oauth_client_id,
-            "OAUTH_CLIENT_SECRET": oauth_client_secret,
+            "OAUTH_ISSUER_URL": oauth_provider.issuer_url if oauth_provider else None,
+            "OAUTH_CLIENT_ID": oauth_provider.client_id if oauth_provider else None,
+            "OAUTH_CLIENT_SECRET": oauth_provider.client_secret if oauth_provider else None,
+            "OAUTH_SCOPES": OAUTH_SCOPE,
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
@@ -1113,12 +1099,17 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         ):
             return
 
-        # A misconfigured OIDC secret must not converge with broken auth; the
-        # blocking status is reported by collect-unit-status.
-        try:
-            self._resolve_oidc_credentials()
-        except ValueError:
-            return
+        if self.oauth.is_related:
+            if function == "worker":
+                return
+            ingress_url = self.ingress.url
+            if not ingress_url or not ingress_url.startswith("https://"):
+                return
+            try:
+                self.oauth.publish_client_config()
+            except ClientConfigError as err:
+                logger.error("Invalid OAuth client configuration: %s", err)
+                return
 
         truststore_pwd = self._ensure_truststore_password()
         if truststore_pwd is None:
