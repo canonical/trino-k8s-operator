@@ -179,7 +179,7 @@ def ingress_relation(url=None):
     )
 
 
-def oauth_relation(client_secret_id=None):
+def oauth_relation(client_secret_id=None, scope="openid profile email"):
     """Build an OAuth relation with generic OIDC provider information."""
     remote_data = {
         "issuer_url": "https://idp.example",
@@ -188,7 +188,7 @@ def oauth_relation(client_secret_id=None):
         "introspection_endpoint": "https://idp.example/oauth2/introspect",
         "userinfo_endpoint": "https://idp.example/userinfo",
         "jwks_endpoint": "https://idp.example/.well-known/jwks.json",
-        "scope": "openid profile email",
+        "scope": scope,
     }
     if client_secret_id:
         remote_data.update(

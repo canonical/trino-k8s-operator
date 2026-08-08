@@ -106,7 +106,7 @@ def test_ready(ctx):
                     "OAUTH_CLIENT_ID": None,
                     "OAUTH_CLIENT_SECRET": None,  # nosec
                     "OAUTH_ISSUER_URL": None,
-                    "OAUTH_SCOPES": "openid profile email",
+                    "OAUTH_SCOPES": None,
                     "WEB_PROXY": None,
                     "CHARM_FUNCTION": "coordinator",
                     "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
@@ -804,7 +804,7 @@ def test_worker_no_plaintext_secret_in_relation_databag(ctx):
 def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
     """OAuth credentials and issuer are read from the relation provider data."""
     client_secret = observer_secret({"secret": "shhh"})  # nosec B105
-    oauth = oauth_relation(client_secret.id)
+    oauth = oauth_relation(client_secret.id, scope="openid email")
     ingress = ingress_relation("https://trino.example/")
     state_in, _ = build_coordinator_state(
         extra_relations=(oauth, ingress),
@@ -817,7 +817,7 @@ def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
     assert environment["OAUTH_CLIENT_ID"] == "client-123"
     assert environment["OAUTH_CLIENT_SECRET"] == "shhh"  # nosec
     assert environment["OAUTH_ISSUER_URL"] == "https://idp.example"
-    assert environment["OAUTH_SCOPES"] == "openid profile email"
+    assert environment["OAUTH_SCOPES"] == "openid email"
 
     relation_data = state_out.get_relation(oauth.id).local_app_data
     assert relation_data["redirect_uri"] == "https://trino.example/oauth2/callback"
@@ -826,7 +826,7 @@ def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
 
     config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
     assert "http-server.authentication.oauth2.issuer=https://idp.example" in config
-    assert "http-server.authentication.oauth2.scopes=openid,profile,email" in config
+    assert "http-server.authentication.oauth2.scopes=openid,email" in config
     assert "accounts.google.com" not in config
 
 
