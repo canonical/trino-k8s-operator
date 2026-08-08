@@ -1098,17 +1098,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         ):
             return
 
-        if self.oauth.is_related:
-            if function == "worker":
-                return
+        if self.oauth.is_related and function != "worker":
             ingress_url = self.ingress.url
-            if not ingress_url or not ingress_url.startswith("https://"):
-                return
-            try:
-                self.oauth.publish_client_config()
-            except ClientConfigError as err:
-                logger.error("Invalid OAuth client configuration: %s", err)
-                return
+            if ingress_url and ingress_url.startswith("https://"):
+                try:
+                    self.oauth.publish_client_config()
+                except ClientConfigError as err:
+                    logger.error("Invalid OAuth client configuration: %s", err)
 
         truststore_pwd = self._ensure_truststore_password()
         if truststore_pwd is None:
