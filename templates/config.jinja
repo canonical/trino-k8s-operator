@@ -40,7 +40,10 @@ internal-communication.shared-secret={{ INT_COMMS_SECRET }}
 http-server.process-forwarded=true
 http-server.authentication.allow-insecure-over-http=true
 
-{% if OAUTH_CLIENT_ID is not none and OAUTH_CLIENT_SECRET is not none -%}
+{% if OAUTH_CLIENT_ID is defined
+      and OAUTH_CLIENT_SECRET is defined
+      and OAUTH_CLIENT_ID is not none
+      and OAUTH_CLIENT_SECRET is not none -%}
 http-server.authentication.type=oauth2,PASSWORD
 web-ui.authentication.type=oauth2
 {% if OAUTH_USER_MAPPING is not none -%}

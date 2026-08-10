@@ -427,6 +427,18 @@ def test_trino_worker_relation_created(ctx):
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
 
 
+def test_worker_uses_password_authentication(ctx):
+    """A worker without OAuth environment fields renders password-only authentication."""
+    state_in, ids = build_worker_state()
+
+    state_out = ctx.run(ctx.on.relation_changed(ids.worker_relation), state_in)
+
+    config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
+    assert "http-server.authentication.type=PASSWORD" in config
+    assert "http-server.authentication.type=oauth2,PASSWORD" not in config
+    assert "http-server.authentication.oauth2." not in config
+
+
 def test_trino_worker_relation_broken(ctx, tmp_path):
     """Test trino relation broken.
 
