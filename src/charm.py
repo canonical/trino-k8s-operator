@@ -60,6 +60,7 @@ from literals import (
     JMX_PORT,
     LEGACY_STATE_KEYS,
     METRICS_PORT,
+    OAUTH_RELATION_NAME,
     OPENSEARCH_RELATION_NAME,
     PASSWORD_DB,
     PEER_RELATION_NAME,
@@ -210,6 +211,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.framework.observe(
             self.on[OPENSEARCH_RELATION_NAME].relation_broken, self._reconcile_hook
         )
+        self.framework.observe(self.on[OAUTH_RELATION_NAME].relation_created, self._reconcile_hook)
+        self.framework.observe(self.oauth.requirer.on.oauth_info_changed, self._reconcile_hook)
+        self.framework.observe(self.oauth.requirer.on.oauth_info_removed, self._reconcile_hook)
+        self.framework.observe(
+            self.oauth.requirer.on.invalid_client_config,
+            self._on_invalid_oauth_client_config,
+        )
 
         # Handle Ingress
         self.ingress = IngressPerAppRequirer(
@@ -324,6 +332,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """
         self.trino_catalog.remove_relation_secret(event.relation.id)
         self._reconcile()
+
+    @log_event_handler(logger)
+    def _on_invalid_oauth_client_config(self, event):
+        """Log invalid client configuration reported by the OAuth library.
+
+        Args:
+            event: The OAuth library validation event.
+        """
+        logger.error("Invalid OAuth client configuration: %s", event.error)
 
     def _on_collect_unit_status(self, event: CollectStatusEvent):  # noqa: C901
         """Derive terminal unit status from the current model and workload health.
@@ -915,14 +932,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
-        oauth_provider = self.oauth.provider_info if cfg.charm_function != "worker" else None
-
         env = {
             "LOG_LEVEL": cfg.log_level,
-            "OAUTH_ISSUER_URL": oauth_provider.issuer_url if oauth_provider else None,
-            "OAUTH_CLIENT_ID": oauth_provider.client_id if oauth_provider else None,
-            "OAUTH_CLIENT_SECRET": oauth_provider.client_secret if oauth_provider else None,
-            "OAUTH_SCOPES": oauth_provider.scope if oauth_provider else None,
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
@@ -954,6 +965,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "SESSION_PROPERTY_MANAGER_CONFIG": cfg.session_property_manager_config,
         }
 
+        if cfg.charm_function != "worker":
+            env.update(self._get_oauth_config())
+
         # Merge PostgreSQL password env vars (derived at runtime)
         if cfg.charm_function in ("coordinator", "all"):
             pg_secrets = self.postgresql_catalog_handler.get_postgresql_env_vars()
@@ -965,6 +979,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             env.update(pg_secrets)
 
         return env
+
+    def _get_oauth_config(self):
+        """Return OAuth provider information as workload environment values."""
+        provider = self.oauth.provider_info
+        return {
+            "OAUTH_ISSUER_URL": provider.issuer_url if provider else None,
+            "OAUTH_SCOPES": provider.scope if provider else None,
+            "OAUTH_CLIENT_ID": provider.client_id if provider else None,
+            "OAUTH_CLIENT_SECRET": provider.client_secret if provider else None,
+        }
 
     def _reconcile_truststores(self, container, truststore_pwd, conf_certs):
         """Reconcile both truststores in place and return their plan hashes.

@@ -23,7 +23,6 @@ from literals import (
     OAUTH_SCOPE,
     OIDC_CALLBACK_PATH,
 )
-from log import log_event_handler
 
 logger = logging.getLogger(__name__)
 
@@ -43,17 +42,6 @@ class OAuthRelationHandler(framework.Object):
             charm,
             client_config=None,
             relation_name=OAUTH_RELATION_NAME,
-        )
-
-        charm.framework.observe(self.requirer.on.oauth_info_changed, self._on_relation_event)
-        charm.framework.observe(self.requirer.on.oauth_info_removed, self._on_relation_event)
-        charm.framework.observe(
-            charm.on[OAUTH_RELATION_NAME].relation_created,
-            self._on_relation_event,
-        )
-        charm.framework.observe(
-            self.requirer.on.invalid_client_config,
-            self._on_invalid_client_config,
         )
 
     @property
@@ -94,24 +82,6 @@ class OAuthRelationHandler(framework.Object):
             grant_types=OAUTH_GRANT_TYPES,
         )
         self.requirer.update_client_config(client_config)
-
-    @log_event_handler(logger)
-    def _on_relation_event(self, event) -> None:
-        """Reconcile when provider data changes or is removed.
-
-        Args:
-            event: The OAuth library event.
-        """
-        self.charm._reconcile()
-
-    @log_event_handler(logger)
-    def _on_invalid_client_config(self, event) -> None:
-        """Log invalid client configuration reported by the library.
-
-        Args:
-            event: The OAuth library validation event.
-        """
-        logger.error("Invalid OAuth client configuration: %s", event.error)
 
 
 __all__ = ["ClientConfigError", "OAuthRelationHandler"]

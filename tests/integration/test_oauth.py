@@ -13,7 +13,7 @@ import time
 import jubilant
 import pytest
 import yaml
-from helpers import APP_NAME, TRAEFIK_NAME, get_unit, wait_for_apps
+from helpers import APP_NAME, TRAEFIK_NAME, TRINO_USER, get_unit, query_trino, wait_for_apps
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,7 @@ def deploy_oauth(juju: jubilant.Juju, charm: str, charm_image: str):
         config={"routing_mode": "subdomain", "external_hostname": "example.com"},
         trust=True,
     )
+    juju.deploy(CERTIFICATES_NAME, channel=CERTIFICATES_CHANNEL)
     juju.integrate(f"{APP_NAME}:ingress", f"{TRAEFIK_NAME}:ingress")
     wait_for_apps(juju, [APP_NAME, TRAEFIK_NAME], status="active", timeout=1200)
 
@@ -127,7 +128,6 @@ class TestOAuth:
 
     def test_oauth_configures_trino_after_tls(self, juju: jubilant.Juju):
         """TLS enables client registration and generic OIDC workload configuration."""
-        juju.deploy(CERTIFICATES_NAME, channel=CERTIFICATES_CHANNEL)
         wait_for_apps(juju, [CERTIFICATES_NAME], status="active", timeout=600)
         juju.integrate(
             f"{TRAEFIK_NAME}:certificates",
@@ -173,3 +173,10 @@ class TestOAuth:
                 "http-server.authentication.oauth2.client-secret=",
             ),
         )
+
+        result = query_trino(
+            get_unit(juju, APP_NAME).address,
+            TRINO_USER,
+            "SELECT current_user",
+        )
+        assert result[0][0] == TRINO_USER
