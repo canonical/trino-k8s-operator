@@ -985,6 +985,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         provider = self.oauth.provider_info
         return {
             "OAUTH_ISSUER_URL": provider.issuer_url if provider else None,
+            "OAUTH_AUTHORIZATION_ENDPOINT": (
+                provider.authorization_endpoint if provider else None
+            ),
+            "OAUTH_TOKEN_ENDPOINT": provider.token_endpoint if provider else None,
+            "OAUTH_USERINFO_ENDPOINT": provider.userinfo_endpoint if provider else None,
+            "OAUTH_JWKS_ENDPOINT": provider.jwks_endpoint if provider else None,
             "OAUTH_SCOPES": provider.scope if provider else None,
             "OAUTH_CLIENT_ID": provider.client_id if provider else None,
             "OAUTH_CLIENT_SECRET": provider.client_secret if provider else None,

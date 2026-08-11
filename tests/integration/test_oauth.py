@@ -151,6 +151,14 @@ class TestOAuth:
             contains=(
                 "http-server.authentication.type=oauth2,PASSWORD",
                 "http-server.authentication.oauth2.issuer=https://accounts.google.com",
+                "http-server.authentication.oauth2.auth-url="
+                "https://accounts.google.com/o/oauth2/auth",
+                "http-server.authentication.oauth2.token-url=https://oauth2.googleapis.com/token",
+                "http-server.authentication.oauth2.userinfo-url="
+                "https://www.googleapis.com/oauth2/v1/userinfo",
+                "http-server.authentication.oauth2.jwks-url="
+                "https://www.googleapis.com/oauth2/v3/certs",
+                "http-server.authentication.oauth2.oidc.discovery=false",
                 "http-server.authentication.oauth2.scopes=openid,profile,email",
                 "web-ui.authentication.type=oauth2",
             ),
