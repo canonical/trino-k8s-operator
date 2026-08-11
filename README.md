@@ -361,6 +361,10 @@ can be enabled; relate the ingress provider to a certificates provider when
 necessary. Removing the `oauth` relation disables OAuth while leaving password
 authentication enabled.
 
+The charm configures Trino with the authorization, token, user-info, and JWKS
+endpoints published by the provider and disables OIDC discovery, so Trino does
+not depend on the provider metadata document at startup.
+
 The charm requests the `openid`, `profile`, and `email` scopes and uses the
 `email` claim as the Trino principal. Use `oauth-user-mapping` to transform that
 principal into a Trino username when required.

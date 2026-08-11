@@ -64,6 +64,10 @@ def test_config_changed(ctx):
                 "OAUTH_CLIENT_ID": "client-123",
                 "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
                 "OAUTH_ISSUER_URL": "https://idp.example",
+                "OAUTH_AUTHORIZATION_ENDPOINT": "https://idp.example/oauth2/auth",
+                "OAUTH_TOKEN_ENDPOINT": "https://idp.example/oauth2/token",
+                "OAUTH_USERINFO_ENDPOINT": "https://idp.example/userinfo",
+                "OAUTH_JWKS_ENDPOINT": "https://idp.example/.well-known/jwks.json",
                 "OAUTH_SCOPES": "openid profile email",
                 "WEB_PROXY": "proxy:port",
                 "CHARM_FUNCTION": "all",

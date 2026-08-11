@@ -106,6 +106,10 @@ def test_ready(ctx):
                     "OAUTH_CLIENT_ID": None,
                     "OAUTH_CLIENT_SECRET": None,  # nosec
                     "OAUTH_ISSUER_URL": None,
+                    "OAUTH_AUTHORIZATION_ENDPOINT": None,
+                    "OAUTH_TOKEN_ENDPOINT": None,
+                    "OAUTH_USERINFO_ENDPOINT": None,
+                    "OAUTH_JWKS_ENDPOINT": None,
                     "OAUTH_SCOPES": None,
                     "WEB_PROXY": None,
                     "CHARM_FUNCTION": "coordinator",
@@ -829,6 +833,10 @@ def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
     assert environment["OAUTH_CLIENT_ID"] == "client-123"
     assert environment["OAUTH_CLIENT_SECRET"] == "shhh"  # nosec
     assert environment["OAUTH_ISSUER_URL"] == "https://idp.example"
+    assert environment["OAUTH_AUTHORIZATION_ENDPOINT"] == "https://idp.example/oauth2/auth"
+    assert environment["OAUTH_TOKEN_ENDPOINT"] == "https://idp.example/oauth2/token"
+    assert environment["OAUTH_USERINFO_ENDPOINT"] == "https://idp.example/userinfo"
+    assert environment["OAUTH_JWKS_ENDPOINT"] == "https://idp.example/.well-known/jwks.json"
     assert environment["OAUTH_SCOPES"] == "openid email"
 
     relation_data = state_out.get_relation(oauth.id).local_app_data
@@ -838,6 +846,13 @@ def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
 
     config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
     assert "http-server.authentication.oauth2.issuer=https://idp.example" in config
+    assert "http-server.authentication.oauth2.auth-url=https://idp.example/oauth2/auth" in config
+    assert "http-server.authentication.oauth2.token-url=https://idp.example/oauth2/token" in config
+    assert "http-server.authentication.oauth2.userinfo-url=https://idp.example/userinfo" in config
+    assert (
+        "http-server.authentication.oauth2.jwks-url=https://idp.example/.well-known/jwks.json"
+    ) in config
+    assert "http-server.authentication.oauth2.oidc.discovery=false" in config
     assert "http-server.authentication.oauth2.scopes=openid,email" in config
     assert "accounts.google.com" not in config
 
