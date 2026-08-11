@@ -20,6 +20,7 @@ jobs:
       channel: 1.35-classic/stable
       modules: >-
         ["test_charm.py",
+        "test_oauth.py",
         "test_policy.py",
         "test_resources.py",
         "test_scaling.py",

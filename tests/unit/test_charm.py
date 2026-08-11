@@ -36,7 +36,10 @@ from tests.unit.helpers import (
     SERVER_PORT,
     build_coordinator_state,
     build_worker_state,
+    carry_forward,
     create_single_catalog_config,
+    ingress_relation,
+    oauth_relation,
     observer_secret,
     peer_state_value,
     trino_container,
@@ -102,6 +105,8 @@ def test_ready(ctx):
                     "LOG_LEVEL": "info",
                     "OAUTH_CLIENT_ID": None,
                     "OAUTH_CLIENT_SECRET": None,  # nosec
+                    "OAUTH_ISSUER_URL": None,
+                    "OAUTH_SCOPES": None,
                     "WEB_PROXY": None,
                     "CHARM_FUNCTION": "coordinator",
                     "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
@@ -420,6 +425,18 @@ def test_trino_worker_relation_created(ctx):
 
     assert workload_path(state_out, ctx, BIGQUERY_CATALOG_PATH).exists()
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
+
+
+def test_worker_uses_password_authentication(ctx):
+    """A worker without OAuth environment fields renders password-only authentication."""
+    state_in, ids = build_worker_state()
+
+    state_out = ctx.run(ctx.on.relation_changed(ids.worker_relation), state_in)
+
+    config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
+    assert "http-server.authentication.type=PASSWORD" in config
+    assert "http-server.authentication.type=oauth2,PASSWORD" not in config
+    assert "http-server.authentication.oauth2." not in config
 
 
 def test_trino_worker_relation_broken(ctx, tmp_path):
@@ -796,45 +813,129 @@ def test_worker_no_plaintext_secret_in_relation_databag(ctx):
             )
 
 
-def test_oidc_credentials_resolved_from_secret(ctx):
-    """OAuth credentials are read from the oidc-secret-id Juju secret."""
-    oidc = observer_secret(
-        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
-    )
+def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
+    """OAuth credentials and issuer are read from the relation provider data."""
+    client_secret = observer_secret({"secret": "shhh"})  # nosec B105
+    oauth = oauth_relation(client_secret.id, scope="openid email")
+    ingress = ingress_relation("https://trino.example/")
     state_in, _ = build_coordinator_state(
-        config={"oidc-secret-id": oidc.id}, extra_secrets=(oidc,)
+        extra_relations=(oauth, ingress),
+        extra_secrets=(client_secret,),
     )
 
-    state_out = ctx.run(ctx.on.config_changed(), state_in)
+    state_out = ctx.run(ctx.on.relation_changed(oauth), state_in)
 
     environment = _services(state_out)["trino"]["environment"]
     assert environment["OAUTH_CLIENT_ID"] == "client-123"
     assert environment["OAUTH_CLIENT_SECRET"] == "shhh"  # nosec
+    assert environment["OAUTH_ISSUER_URL"] == "https://idp.example"
+    assert environment["OAUTH_SCOPES"] == "openid email"
+
+    relation_data = state_out.get_relation(oauth.id).local_app_data
+    assert relation_data["redirect_uri"] == "https://trino.example/oauth2/callback"
+    assert relation_data["scope"] == "openid profile email"
+    assert json.loads(relation_data["grant_types"]) == ["authorization_code"]
+
+    config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
+    assert "http-server.authentication.oauth2.issuer=https://idp.example" in config
+    assert "http-server.authentication.oauth2.scopes=openid,email" in config
+    assert "accounts.google.com" not in config
 
 
-@pytest.mark.parametrize("option", ["google-client-id", "google-client-secret"])
-def test_deprecated_oidc_plaintext_blocks(ctx, option):
-    """Setting a deprecated plaintext OIDC option blocks the charm."""
-    state_in, _ = build_coordinator_state(config={option: "some-value"})
+def test_oauth_without_ingress_url_waits(ctx):
+    """An OAuth relation waits until ingress publishes the callback base URL."""
+    state_in, _ = build_coordinator_state(extra_relations=(oauth_relation(),))
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    assert isinstance(state_out.unit_status, BlockedStatus)
-    assert "deprecated" in state_out.unit_status.message
+    assert state_out.unit_status == WaitingStatus("waiting for ingress URL for OAuth")
 
 
-def test_oidc_secret_id_unresolvable_blocks(ctx):
-    """An oidc-secret-id that cannot be resolved blocks the charm."""
-    # The secret is referenced but never granted to (added to) the state.
-    oidc = observer_secret(
-        {"google-client-id": "client-123", "google-client-secret": "shhh"}  # nosec
+def test_oauth_with_http_ingress_blocks(ctx):
+    """An OAuth callback must use HTTPS."""
+    state_in, _ = build_coordinator_state(
+        extra_relations=(oauth_relation(), ingress_relation("http://trino.example")),
     )
-    state_in, _ = build_coordinator_state(config={"oidc-secret-id": oidc.id})
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
-    assert isinstance(state_out.unit_status, BlockedStatus)
-    assert "oidc-secret-id" in state_out.unit_status.message
+    assert state_out.unit_status == BlockedStatus("OAuth requires an HTTPS ingress URL")
+
+
+def test_oauth_waits_for_provider_registration(ctx):
+    """A related provider without client credentials leaves the charm waiting."""
+    state_in, _ = build_coordinator_state(
+        extra_relations=(oauth_relation(), ingress_relation("https://trino.example")),
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == WaitingStatus("waiting for OAuth provider registration")
+
+
+def test_oauth_relation_on_worker_blocks(ctx):
+    """OAuth is supported only by coordinator-capable applications."""
+    state_in, _ = build_worker_state(extra_relations=(oauth_relation(),))
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == BlockedStatus("oauth relation requires a coordinator")
+
+
+def test_non_leader_does_not_publish_oauth_client_config(ctx):
+    """Only the leader writes OAuth client registration data."""
+    oauth = oauth_relation()
+    state_in, _ = build_coordinator_state(
+        leader=False,
+        extra_relations=(oauth, ingress_relation("https://trino.example")),
+    )
+
+    state_out = ctx.run(ctx.on.relation_created(oauth), state_in)
+
+    assert "redirect_uri" not in state_out.get_relation(oauth.id).local_app_data
+
+
+def test_oauth_client_secret_rotation_reconfigures_trino(ctx):
+    """A provider-owned client secret revision triggers reconciliation."""
+    client_secret = observer_secret({"secret": "old-secret"})  # nosec B105
+    client_secret = dataclasses.replace(
+        client_secret,
+        latest_content={"secret": "new-secret"},  # nosec B105
+    )
+    oauth = oauth_relation(client_secret.id)
+    state_in, _ = build_coordinator_state(
+        extra_relations=(oauth, ingress_relation("https://trino.example")),
+        extra_secrets=(client_secret,),
+    )
+
+    state_out = ctx.run(ctx.on.secret_changed(client_secret), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert environment["OAUTH_CLIENT_SECRET"] == "new-secret"  # nosec B105
+
+
+def test_oauth_relation_removal_restores_password_only(ctx, tmp_path):
+    """Breaking OAuth removes its environment and renders password-only auth."""
+    client_secret = observer_secret({"secret": "shhh"})  # nosec B105
+    oauth = oauth_relation(client_secret.id)
+    container = trino_container(
+        mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
+    )
+    state_in, _ = build_coordinator_state(
+        container=container,
+        extra_relations=(oauth, ingress_relation("https://trino.example")),
+        extra_secrets=(client_secret,),
+    )
+    configured = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    configured_oauth = configured.get_relation(oauth.id)
+
+    state_out = ctx.run(ctx.on.relation_broken(configured_oauth), configured)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert environment["OAUTH_CLIENT_ID"] is None
+    config = (tmp_path / "config.properties").read_text()
+    assert "http-server.authentication.type=PASSWORD" in config
+    assert "http-server.authentication.type=oauth2,PASSWORD" not in config
 
 
 def test_malformed_user_secret_blocks(ctx):

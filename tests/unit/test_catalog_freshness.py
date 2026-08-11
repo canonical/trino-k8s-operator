@@ -23,6 +23,8 @@ from tests.unit.helpers import (
     build_worker_state,
     carry_forward,
     create_added_catalog_config,
+    ingress_relation,
+    oauth_relation,
     observer_secret,
     trino_container,
     workload_path,
@@ -33,17 +35,18 @@ logger = logging.getLogger(__name__)
 
 def test_config_changed(ctx):
     """The pebble plan changes according to config changes."""
-    oidc = observer_secret(
-        {"google-client-id": "test-client-id", "google-client-secret": "test-client-secret"}
-    )
+    oauth_secret = observer_secret({"secret": "test-client-secret"})  # nosec B105
     state_in, _ = build_coordinator_state(
         config={
-            "oidc-secret-id": oidc.id,
             "web-proxy": "proxy:port",
             "charm-function": "all",
             "additional-jvm-options": USER_JVM_STRING,
         },
-        extra_secrets=(oidc,),
+        extra_relations=(
+            oauth_relation(oauth_secret.id),
+            ingress_relation("https://trino.example"),
+        ),
+        extra_secrets=(oauth_secret,),
     )
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
@@ -58,8 +61,10 @@ def test_config_changed(ctx):
             "environment": {
                 "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
                 "LOG_LEVEL": "info",
-                "OAUTH_CLIENT_ID": "test-client-id",
+                "OAUTH_CLIENT_ID": "client-123",
                 "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
+                "OAUTH_ISSUER_URL": "https://idp.example",
+                "OAUTH_SCOPES": "openid profile email",
                 "WEB_PROXY": "proxy:port",
                 "CHARM_FUNCTION": "all",
                 "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",

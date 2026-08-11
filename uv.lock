@@ -1718,6 +1718,7 @@ dependencies = [
 [package.dev-dependencies]
 charmlibs-pydeps = [
     { name = "cosl" },
+    { name = "jsonschema" },
     { name = "lightkube" },
     { name = "lightkube-models" },
     { name = "ops" },
@@ -1768,6 +1769,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 charmlibs-pydeps = [
     { name = "cosl", specifier = ">=1.9.1,<2" },
+    { name = "jsonschema", specifier = ">=4.26.0,<5" },
     { name = "lightkube", specifier = ">=0.21.0,<0.22" },
     { name = "lightkube-models", specifier = ">=1.35.0.8,<2" },
     { name = "ops", specifier = ">=3.7.1,<4" },

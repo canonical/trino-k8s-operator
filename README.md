@@ -334,29 +334,36 @@ juju relate trino-k8s <requirer-app>
 No manual secret granting is required. Each requirer gets a unique username in the format `app-<requirer-app-name>-<relation-id>` with an auto-generated password. This works across both same-model and cross-model relations.
 
 ## User management
-By default password authentication is enabled for Charmed Trino. This being said, Trino supports implementing multiple forms of authentication mechanisms at the same time. Available with the charm are Google Oauth and user/password authentication. We recommend user/password for application users which do no support Oauth, and Oauth for everything else.
+By default, password authentication is enabled for Charmed Trino. Trino can use
+OAuth and password authentication at the same time. We recommend passwords for
+application users that do not support OAuth and OAuth for interactive users.
 
-### Google Oauth
-Google OAuth credentials are provided through a Juju secret.
+### OAuth and OpenID Connect
 
+The charm receives OIDC provider details and client credentials through the
+standard `oauth` relation. It can relate directly to Hydra in the Canonical
+Identity Platform or to `oauth-external-idp-integrator` for another OIDC
+provider.
+
+```bash
+# Canonical Identity Platform
+juju integrate trino-k8s:oauth hydra:oauth
+
+# Or an external OIDC provider
+juju deploy oauth-external-idp-integrator --config /path/to/idp-config.yaml
+juju integrate trino-k8s:oauth oauth-external-idp-integrator:oauth
 ```
-# Create the secret and grant access to Trino.
-juju add-secret trino-oidc --file=/path/to/oidc-secrets.yaml
-juju grant-secret trino-oidc trino-k8s
 
-# Get the secret id and pass this to the charm via the config.
-juju config trino-k8s oidc-secret-id=<juju-secret-id>
-```
+The provider automatically registers
+`https://<trino-ingress-host>/oauth2/callback` as the callback and supplies the
+client credentials. The ingress relation must publish an HTTPS URL before OAuth
+can be enabled; relate the ingress provider to a certificates provider when
+necessary. Removing the `oauth` relation disables OAuth while leaving password
+authentication enabled.
 
-Where the `oidc-secrets.yaml` has the below format:
-```
-google-client-id: <id>
-google-client-secret: <secret>
-```
-
-> **Note:** The `google-client-id` and `google-client-secret` config options are
-> deprecated. Setting either one puts the charm into a blocked state; migrate to
-> `oidc-secret-id` above. Unsetting `oidc-secret-id` disables Google OAuth.
+The charm requests the `openid`, `profile`, and `email` scopes and uses the
+`email` claim as the Trino principal. Use `oauth-user-mapping` to transform that
+principal into a Trino username when required.
 
 ### User/password
 Additionally user/password authentication can be enabled via a Juju secret.
