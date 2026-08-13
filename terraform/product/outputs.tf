@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 output "metadata" {
   description = "Product module metadata: schema version and stable deployment timestamps."
   value = {

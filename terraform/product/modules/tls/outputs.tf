@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 output "application" {
   description = "The full juju_application resource for the deployed self-signed-certificates charm."
   value       = juju_application.this

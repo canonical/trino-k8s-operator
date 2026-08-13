@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 variable "app_name" {
   description = "Application name for the self-signed-certificates deployment."
   type        = string

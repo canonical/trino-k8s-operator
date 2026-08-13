@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 resource "juju_application" "this" {
   name       = var.app_name
   model_uuid = var.model_uuid

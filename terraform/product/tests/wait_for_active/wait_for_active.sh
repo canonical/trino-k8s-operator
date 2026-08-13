@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
 # Poll `juju status` until an application reaches active status or a timeout elapses.
 #
 # Invoked by Terraform's external data source (tests/wait_for_active/main.tf) with positional

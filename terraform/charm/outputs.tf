@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 output "application" {
   description = "The full juju_application resource for the deployed trino-k8s charm."
   value       = juju_application.this

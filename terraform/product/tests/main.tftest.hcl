@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 # The product owns its own model per apply, so every scenario supplies a unique model_name instead
@@ -63,6 +63,11 @@ run "standalone_apply" {
     logging_config = "<root>=WARNING"
     risk           = "edge"
     proxy          = {}
+    traefik = {
+      config = {
+        external_hostname = "trino.test"
+      }
+    }
   }
 
   assert {
@@ -192,6 +197,11 @@ run "cluster_apply" {
     risk           = "edge"
     mode           = "cluster"
     proxy          = {}
+    traefik = {
+      config = {
+        external_hostname = "trino.test"
+      }
+    }
   }
 
   assert {
@@ -287,6 +297,11 @@ run "oauth_apply" {
     risk           = "edge"
     proxy          = {}
     enable_oauth   = true
+    traefik = {
+      config = {
+        external_hostname = "trino.test"
+      }
+    }
 
     oauth_config = {
       client_id     = "stub-client-id"

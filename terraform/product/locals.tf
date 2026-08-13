@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 locals {
   # Standalone/coordinator module (whichever is active) owns ingress, OAuth, and the catalog offer.
   components = merge(
@@ -18,6 +21,7 @@ locals {
 
   coordinator_config = merge(var.trino.config, var.trino.coordinator_config, { "charm-function" = "coordinator" })
 
+  # tflint-ignore: terraform_unused_declarations
   frontend_application = local.is_cluster ? module.trino_coordinator[0].application : module.trino_standalone[0].application
   # Needed to wire ingress/OAuth integrations to whichever module is the active frontend.
   frontend_requires = local.is_cluster ? module.trino_coordinator[0].requires : module.trino_standalone[0].requires

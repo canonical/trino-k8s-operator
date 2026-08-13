@@ -21,6 +21,7 @@ header:
     - '**/*.tmpl'
     - '**/*.txt'
     - '**/*.jinja'
+    - '**/.terraform.lock.hcl'
     - '.codespellignore'
     - '.dockerignore'
     - '.flake8'

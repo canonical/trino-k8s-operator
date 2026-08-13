@@ -1,3 +1,6 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 resource "juju_model" "this" {
   name = var.model_name
 
