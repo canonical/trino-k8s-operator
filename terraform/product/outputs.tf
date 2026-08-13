@@ -12,6 +12,8 @@ output "metadata" {
 
 output "models" {
   description = "Created Trino model UUID and the full application object for every deployed component, keyed by component name."
+  # Sensitive because component application objects include the OAuth integrator's credential config.
+  sensitive = true
   value = {
     trino = {
       model_uuid = juju_model.this.uuid
