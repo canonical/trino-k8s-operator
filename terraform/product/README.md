@@ -16,6 +16,16 @@ context to create the model.
 **The product owns the created model's lifecycle.** Destroying this module destroys the model and
 every application it contains.
 
+Reaching Traefik's ingress from outside the cluster requires a Kubernetes LoadBalancer
+provider. If using MicroK8s, enable one before expecting an external address, otherwise the
+`traefik-k8s-lb` Kubernetes service stays `<pending>`:
+
+    microk8s enable metallb:<start-ip>-<end-ip>
+
+Without a LoadBalancer you can still reach ingress for testing via the service ClusterIP or
+a NodePort using a `Host` header (see "Ingress and exposure"). The bundled self-signed
+certificate is not trusted by clients, so use `curl -k` or add the CA to your trust store.
+
 ## Modes
 
 - `mode = "standalone"` (default): deploys one `trino` application with `charm-function = all`,
@@ -42,6 +52,31 @@ Trino is never exposed directly through `juju_application.expose`; Traefik is th
 point and terminates TLS with the self-signed certificates deployed by this module. Replace
 `self_signed_certificates` with a production certificate provider integration where appropriate;
 the bundled charm is suitable for development only.
+
+The product forces Traefik's `routing_mode` to `subdomain`. Set an external hostname so ingress
+produces usable URLs:
+
+    traefik = {
+      config = {
+        external_hostname = "trino.test"
+      }
+    }
+
+With subdomain routing the frontend (standalone or coordinator) is served at:
+
+    https://<model_name>-<app>.<external_hostname>/
+
+For example, `model_name = "trino-standalone"` and `external_hostname = "trino.test"` yields
+`https://trino-standalone-trino.trino.test/`. Ask Traefik for the authoritative URL rather than
+constructing it by hand:
+
+    juju run traefik-k8s/0 show-proxied-endpoints --format yaml
+
+To smoke-test without external DNS or a LoadBalancer, target the Traefik service ClusterIP (or a
+node IP and the service NodePort) and override the host:
+
+    curl -sk -H "Host: <model_name>-<app>.<external_hostname>" \
+      https://<traefik-clusterip>/v1/info
 
 ## OAuth
 
