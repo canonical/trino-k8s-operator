@@ -1290,15 +1290,15 @@ def test_falls_back_to_http_proxy_setting(ctx, monkeypatch):
 
 def test_https_proxy_preferred_over_http(ctx, monkeypatch):
     """Both model proxies set: `juju-https-proxy` is preferred."""
-    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://phttp:80")
-    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://phttps:443")
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://plain-proxy:80")
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://secure-proxy:443")
     state_in, _ = _oauth_ready_state()
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
     config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
-    assert "oauth2-jwk.http-client.http-proxy=phttps:443" in config
-    assert "phttp" not in config
+    assert "oauth2-jwk.http-client.http-proxy=secure-proxy:443" in config
+    assert "plain-proxy" not in config
 
 
 def test_override_only_no_oauth_property(ctx):

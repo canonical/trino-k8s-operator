@@ -13,6 +13,8 @@ import secrets
 import string
 import subprocess  # nosec B404
 import textwrap
+from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
@@ -471,6 +473,225 @@ def add_users_to_password_db(container, credentials, db_path):
         except (subprocess.CalledProcessError, ExecError) as e:
             logger.error(f"unable to add user credentials {e.stderr}")
             raise
+
+
+class ProxyConfigError(Exception):
+    """Raised when a Juju model proxy URL or a JVM proxy override is invalid.
+
+    Callers catch this to surface `BlockedStatus` (R6) rather than crash.
+    The message names the offending setting and never includes credentials.
+    """
+
+
+@dataclass(frozen=True)
+class ParsedProxy:
+    """A parsed proxy URL, in the shape needed by both rendering paths.
+
+    Attributes:
+        host: The proxy hostname, without brackets even for IPv6 (R3).
+        port: The explicit port, defaulted from the URL's own scheme (R3).
+        secure: Whether the proxy URL scheme was `https://`.
+    """
+
+    host: str
+    port: int
+    secure: bool
+
+
+def parse_proxy_url(value, setting_name):
+    """Parse and validate a Juju model proxy URL.
+
+    Args:
+        value: The raw proxy URL (e.g. `JUJU_CHARM_HTTPS_PROXY`), or None/empty.
+        setting_name: The Juju setting name, used to identify the offending
+            setting in a raised `ProxyConfigError` (e.g. `"juju-https-proxy"`).
+
+    Returns:
+        A `ParsedProxy`, or None if `value` is unset/empty (R2: treated
+        identically as "not configured").
+
+    Raises:
+        ProxyConfigError: If the URL has no explicit http(s) scheme, no host,
+            a non-numeric port, a path/query/fragment, or embedded credentials.
+            The message never includes the credential values (R5).
+    """
+    if not value:
+        return None
+
+    parsed = urlparse(value)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ProxyConfigError(f"{setting_name} must have an explicit http:// or https:// scheme")
+
+    if not parsed.hostname:
+        raise ProxyConfigError(f"{setting_name} is missing a proxy host")
+
+    if parsed.path or parsed.query or parsed.fragment:
+        raise ProxyConfigError(
+            f"{setting_name} must be a bare host:port address, without a path, query or fragment"
+        )
+
+    if parsed.username or parsed.password:
+        raise ProxyConfigError(f"{setting_name} must not contain credentials")
+
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ProxyConfigError(f"{setting_name} has a non-numeric port") from None
+
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    return ParsedProxy(host=parsed.hostname, port=port, secure=parsed.scheme == "https")
+
+
+def _convert_no_proxy(no_proxy_value):
+    """Convert a comma-separated `juju-no-proxy` value to a pipe-separated list.
+
+    CIDR entries cannot be expressed by `-Dhttp.nonProxyHosts`, which only
+    supports literal hosts and `*` wildcards, so they are dropped with a
+    single aggregated warning naming all of them (R3), rather than one log
+    line per entry.
+
+    Args:
+        no_proxy_value: The raw comma-separated value, or None/empty.
+
+    Returns:
+        The pipe-separated string of literal hosts (possibly empty).
+    """
+    if not no_proxy_value:
+        return ""
+
+    kept = []
+    dropped = []
+    for entry in no_proxy_value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "/" in entry:
+            dropped.append(entry)
+            continue
+        kept.append(entry)
+
+    if dropped:
+        logger.warning(
+            "Dropping unsupported CIDR entries from juju-no-proxy (not expressible by "
+            "-Dhttp.nonProxyHosts): %s",
+            ", ".join(dropped),
+        )
+
+    return "|".join(kept)
+
+
+def jvm_proxy_options(http_proxy_url, https_proxy_url, no_proxy_value):
+    """Derive JVM proxy system property flags from Juju model proxy config.
+
+    Ports are always explicit, derived from each proxy URL's own scheme (R3):
+    the JVM's own per-family defaults (`http.proxyPort` defaults to 80,
+    `https.proxyPort` to 443) are never relied upon, since they are keyed by
+    system-property family rather than by the proxy URL's transport.
+
+    Args:
+        http_proxy_url: The raw `JUJU_CHARM_HTTP_PROXY` value, or None/empty.
+        https_proxy_url: The raw `JUJU_CHARM_HTTPS_PROXY` value, or None/empty.
+        no_proxy_value: The raw `JUJU_CHARM_NO_PROXY` value, or None/empty.
+
+    Returns:
+        A space-separated string of `-D...` flags (possibly empty).
+
+    Raises:
+        ProxyConfigError: If either proxy URL is invalid.
+    """
+    flags = []
+
+    http_proxy = parse_proxy_url(http_proxy_url, "juju-http-proxy")
+    if http_proxy is not None:
+        flags.append(f"-Dhttp.proxyHost={http_proxy.host}")
+        flags.append(f"-Dhttp.proxyPort={http_proxy.port}")
+
+    https_proxy = parse_proxy_url(https_proxy_url, "juju-https-proxy")
+    if https_proxy is not None:
+        flags.append(f"-Dhttps.proxyHost={https_proxy.host}")
+        flags.append(f"-Dhttps.proxyPort={https_proxy.port}")
+
+    # Emitted independently of whether a proxy host is set: the JVM only
+    # consults it once a proxyHost is present, so a standalone value is inert
+    # but still expected (R3).
+    non_proxy_hosts = _convert_no_proxy(no_proxy_value)
+    if non_proxy_hosts:
+        flags.append(f"-Dhttp.nonProxyHosts={non_proxy_hosts}")
+
+    return " ".join(flags)
+
+
+def oauth_proxy_properties(http_proxy_url, https_proxy_url):
+    """Derive the OAuth JWKS proxy properties from model proxy config only.
+
+    Built from the model proxy configuration alone (Decision 12): unlike
+    `jvm_proxy_options`, `additional-jvm-options` has no influence here, since
+    JVM proxy flags carry no scheme and cannot express `.secure`.
+
+    `juju-https-proxy` is preferred, falling back to `juju-http-proxy`
+    (Decision 4). Airlift's `http-proxy` property names the address of the
+    proxy server (a CONNECT proxy), not "the proxy for http:// destinations".
+
+    Args:
+        http_proxy_url: The raw `JUJU_CHARM_HTTP_PROXY` value, or None/empty.
+        https_proxy_url: The raw `JUJU_CHARM_HTTPS_PROXY` value, or None/empty.
+
+    Returns:
+        A dict with `"http_proxy"` (`host:port`, IPv6 hosts bracketed) and,
+        only when the selected proxy URL's scheme is `https://`, `"secure":
+        True`. Empty if no model proxy is configured.
+
+    Raises:
+        ProxyConfigError: If either proxy URL is invalid.
+    """
+    https_proxy = parse_proxy_url(https_proxy_url, "juju-https-proxy")
+    http_proxy = parse_proxy_url(http_proxy_url, "juju-http-proxy")
+
+    selected = https_proxy or http_proxy
+    if selected is None:
+        return {}
+
+    host = f"[{selected.host}]" if ":" in selected.host else selected.host
+    properties = {"http_proxy": f"{host}:{selected.port}"}
+    if selected.secure:
+        properties["secure"] = True
+    return properties
+
+
+def validate_jvm_proxy_overrides(user_opts):
+    """Validate that additional-jvm-options proxy overrides pair host with port.
+
+    A `-D{http,https}.proxyHost` or `-D{http,https}.proxyPort` override without
+    its matching counterpart is incomplete: the correct port cannot be
+    inferred, so it is rejected (R6) rather than silently defaulted.
+
+    Args:
+        user_opts: The raw `additional-jvm-options` value, or None/empty.
+
+    Raises:
+        ProxyConfigError: If a proxyHost/proxyPort pair is incomplete, naming
+            `additional-jvm-options`.
+    """
+    if not user_opts:
+        return
+
+    seen = {}
+    for opt in user_opts.split():
+        match = re.match(r"^-D(https?)\.proxy(Host|Port)=", opt)
+        if match:
+            family, kind = match.groups()
+            seen.setdefault(family, set()).add(kind)
+
+    for family, kinds in seen.items():
+        if kinds != {"Host", "Port"}:
+            missing = "Port" if "Host" in kinds else "Host"
+            raise ProxyConfigError(
+                f"additional-jvm-options: -D{family}.proxy{missing} is missing its "
+                f"matching -D{family}.proxy{'Host' if missing == 'Port' else 'Port'}"
+            )
 
 
 def update_opts(default_opts, user_opts):

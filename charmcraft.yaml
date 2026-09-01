@@ -132,10 +132,6 @@ config:
         Valid values: info, debug, warn, error.
       default: info
       type: string
-    web-proxy:
-      description: |
-        The address of the web proxy used for communication with an OAuth provider.
-      type: string 
     ranger-service-name:
       description: |
         The service name for Trino in Apache Ranger when related. Defaults to relation id.
