@@ -111,7 +111,8 @@ def test_ready(ctx):
                     "OAUTH_USERINFO_ENDPOINT": None,
                     "OAUTH_JWKS_ENDPOINT": None,
                     "OAUTH_SCOPES": None,
-                    "WEB_PROXY": None,
+                    "OAUTH_HTTP_PROXY": None,
+                    "OAUTH_HTTP_PROXY_SECURE": None,
                     "CHARM_FUNCTION": "coordinator",
                     "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
                     "APPLICATION_NAME": "trino-k8s",
@@ -1015,3 +1016,573 @@ def test_worker_pg_secret_empty_without_id(ctx):
         resolved = mgr.charm.trino_worker.get_postgresql_secrets_from_coordinator()
 
     assert resolved == {}
+
+
+# ---------------------------------------------------------------------------
+# Proxy configuration sourced from the Juju model.
+#
+# These tests exercise `_build_base_environment`, the rendered `config.properties`
+# / `jvm.config` content, and unit status. Pure-logic cases for parsing and
+# deriving proxy settings live in tests/unit/test_config.py.
+# ---------------------------------------------------------------------------
+
+CONFIG_PROPERTIES_PATH = "/usr/lib/trino/etc/config.properties"
+JVM_CONFIG_PATH = "/usr/lib/trino/etc/jvm.config"
+
+ZZUSERZZ = "ZZUSERZZ"  # nosec B105
+ZZPASSZZ = "ZZPASSZZ"  # nosec B105
+
+
+def _oauth_ready_state(**kwargs):
+    """Build a coordinator state with a fully registered OAuth relation.
+
+    Args:
+        kwargs: forwarded to `build_coordinator_state`.
+
+    Returns:
+        A `(State, ids)` tuple as returned by `build_coordinator_state`, with
+        an OAuth relation and HTTPS ingress already wired so the OAuth branch
+        of `config.jinja` is taken.
+    """
+    oauth_secret = observer_secret({"secret": "test-client-secret"})  # nosec B105
+    extra_relations = (
+        oauth_relation(oauth_secret.id),
+        ingress_relation("https://trino.example"),
+        *kwargs.pop("extra_relations", ()),
+    )
+    extra_secrets = (oauth_secret, *kwargs.pop("extra_secrets", ()))
+    return build_coordinator_state(
+        extra_relations=extra_relations, extra_secrets=extra_secrets, **kwargs
+    )
+
+
+def test_jvm_proxy_flags_identical_across_roles(ctx, monkeypatch):
+    """Identical JVM proxy flags are derived for coordinator, worker and all."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+
+    coordinator_state, _ = build_coordinator_state(config={"charm-function": "coordinator"})
+    all_state, _ = build_coordinator_state(config={"charm-function": "all"})
+    worker_state, _ = build_worker_state()
+
+    def jvm_options(state_in):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+        return _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+
+    coordinator_flags = jvm_options(coordinator_state)
+    all_flags = jvm_options(all_state)
+    worker_flags = jvm_options(worker_state)
+
+    assert "-Dhttps.proxyHost=p" in coordinator_flags
+    assert "-Dhttps.proxyPort=3128" in coordinator_flags
+    assert coordinator_flags == all_flags == worker_flags
+
+
+def test_model_derived_flags_reach_jvm_options_with_defaults(ctx, monkeypatch):
+    """Model-derived flags appear in JVM_OPTIONS alongside DEFAULT_JVM_OPTIONS."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert DEFAULT_JVM_STRING in jvm_options
+    assert "-Dhttps.proxyHost=p" in jvm_options
+    assert "-Dhttps.proxyPort=3128" in jvm_options
+
+
+def test_dropped_cidr_warning_logged_on_every_reconcile(ctx, monkeypatch, caplog):
+    """The dropped-CIDR warning is not suppressed on a second reconcile."""
+    monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "localhost,10.0.0.0/8")
+    state_in, _ = build_coordinator_state()
+
+    with caplog.at_level(logging.WARNING):
+        mid = ctx.run(ctx.on.config_changed(), state_in)
+        caplog.clear()
+        ctx.run(ctx.on.config_changed(), mid)
+
+    warnings = [
+        r for r in caplog.records if r.levelno == logging.WARNING and "10.0.0.0/8" in r.message
+    ]
+    assert len(warnings) == 1
+
+
+# --- Batch 4: precedence with additional-jvm-options -----------------------
+
+
+def test_override_changes_jvm_only_oauth_property_unchanged(ctx, monkeypatch):
+    """An override changes jvm.config but leaves the OAuth property untouched."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p1:3128")
+    state_in, _ = _oauth_ready_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p2 -Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_config = workload_path(state_out, ctx, JVM_CONFIG_PATH).read_text()
+    assert "-Dhttps.proxyHost=p2" in jvm_config
+    assert "-Dhttps.proxyPort=8080" in jvm_config
+    assert "-Dhttps.proxyHost=p1" not in jvm_config
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=p1:3128" in config
+
+
+def test_override_host_without_port_blocks(ctx, monkeypatch):
+    """An override supplying proxyHost without proxyPort blocks."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p1:3128")
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p2"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "additional-jvm-options" in state_out.unit_status.message
+
+
+def test_override_port_without_host_blocks(ctx, monkeypatch):
+    """An override supplying proxyPort without proxyHost blocks."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p1:3128")
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "-Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "additional-jvm-options" in state_out.unit_status.message
+
+
+def test_override_without_model_proxy_passes_through(ctx):
+    """No model proxy, override supplies both host and port: no error."""
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p -Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert not isinstance(state_out.unit_status, BlockedStatus)
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttps.proxyHost=p" in jvm_options
+    assert "-Dhttps.proxyPort=8080" in jvm_options
+
+
+def test_override_replaces_only_matching_family(ctx, monkeypatch):
+    """Overriding the http family leaves the https family model-derived."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://phttp:80")
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://phttps:443")
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "-Dhttp.proxyHost=other -Dhttp.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttp.proxyHost=other" in jvm_options
+    assert "-Dhttp.proxyPort=8080" in jvm_options
+    assert "-Dhttps.proxyHost=phttps" in jvm_options
+    assert "-Dhttps.proxyPort=443" in jvm_options
+
+
+def test_override_nonproxyhosts_wins(ctx, monkeypatch):
+    """An override of nonProxyHosts wins over the model-derived value."""
+    monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "localhost,127.0.0.1")
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "-Dhttp.nonProxyHosts=override.example"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttp.nonProxyHosts=override.example" in jvm_options
+    assert "localhost" not in jvm_options
+
+
+def test_override_unrelated_option_coexists(ctx, monkeypatch):
+    """An unrelated override option coexists with the derived proxy flags."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state(config={"additional-jvm-options": "-Xmx4G"})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Xmx4G" in jvm_options
+    assert "-Dhttps.proxyHost=p" in jvm_options
+
+
+def test_override_credentials_passed_through_unchanged(ctx):
+    """Credential flags in additional-jvm-options pass through unrejected.
+
+    `additional-jvm-options` is an operator-controlled escape hatch and is
+    never inspected for credentials.
+    """
+    state_in, _ = build_coordinator_state(
+        config={
+            "additional-jvm-options": (
+                f"-Dhttp.proxyUser={ZZUSERZZ} -Dhttp.proxyPassword={ZZPASSZZ} "  # nosec
+                "-Dhttp.proxyHost=p -Dhttp.proxyPort=80"
+            )
+        }
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert not isinstance(state_out.unit_status, BlockedStatus)
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert ZZUSERZZ in jvm_options
+    assert ZZPASSZZ in jvm_options
+
+
+def test_model_proxy_reaches_jvm_options_when_override_unset(ctx, monkeypatch):
+    """Model-derived flags still reach JVM_OPTIONS when the override is unset.
+
+    Load-bearing: the previous short-circuit skipped the merge entirely
+    when additional-jvm-options was empty, which would drop every
+    model-derived flag in the default (no-override) case.
+    """
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttps.proxyHost=p" in jvm_options
+    assert "-Dhttps.proxyPort=3128" in jvm_options
+
+
+# --- Batch 5: OAuth proxy property rendering --------------------------------
+
+
+def test_http_proxy_no_secure_line(ctx, monkeypatch):
+    """A plaintext model proxy renders the property without `.secure`."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=p:3128" in config
+    assert "oauth2-jwk.http-client.http-proxy.secure" not in config
+
+
+def test_https_proxy_emits_secure_true(ctx, monkeypatch):
+    """An https:// model proxy renders the property and `.secure=true`."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://p:8443")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=p:8443" in config
+    assert "oauth2-jwk.http-client.http-proxy.secure=true" in config
+
+
+def test_falls_back_to_http_proxy_setting(ctx, monkeypatch):
+    """Only `juju-http-proxy` set: the property is derived from it."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://p:80")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=p:80" in config
+
+
+def test_https_proxy_preferred_over_http(ctx, monkeypatch):
+    """Both model proxies set: `juju-https-proxy` is preferred."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://phttp:80")
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://phttps:443")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=phttps:443" in config
+    assert "phttp" not in config
+
+
+def test_override_only_no_oauth_property(ctx):
+    """Proxy supplied only via additional-jvm-options: jvm.config only."""
+    state_in, _ = _oauth_ready_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p -Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_config = workload_path(state_out, ctx, JVM_CONFIG_PATH).read_text()
+    assert "-Dhttps.proxyHost=p" in jvm_config
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy" not in config
+
+
+def test_override_keeps_model_derived_oauth_property(ctx, monkeypatch):
+    """Model proxy set and overridden: the property keeps the model value."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p1:3128")
+    state_in, _ = _oauth_ready_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p2 -Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy=p1:3128" in config
+
+
+def test_no_proxy_configured_no_property(ctx):
+    """No proxy configured anywhere: no OAuth proxy property lines."""
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy" not in config
+
+
+def test_oauth_disabled_no_proxy_properties(ctx, monkeypatch):
+    """Proxy configured but OAuth disabled: no proxy properties rendered."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy" not in config
+
+
+def test_worker_no_oauth_property_but_jvm_flags_present(ctx, monkeypatch):
+    """A worker never renders the OAuth property, but keeps its JVM flags."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_worker_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy" not in config
+
+    jvm_options = _services(state_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttps.proxyHost=p" in jvm_options
+
+
+def test_secure_never_emitted_without_http_proxy(ctx):
+    """`.secure` never appears unless `http-proxy` is also set."""
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "oauth2-jwk.http-client.http-proxy.secure" not in config
+
+
+def test_override_and_model_diverge_across_both_artifacts(ctx, monkeypatch):
+    """Jvm.config follows the override while config.properties follows model config.
+
+    Asserted in a single test so a future regression that recouples the two
+    derivations cannot pass by splitting the assertions across two tests.
+    """
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p1:3128")
+    state_in, _ = _oauth_ready_state(
+        config={"additional-jvm-options": "-Dhttps.proxyHost=p2 -Dhttps.proxyPort=8080"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_config = workload_path(state_out, ctx, JVM_CONFIG_PATH).read_text()
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+
+    assert "-Dhttps.proxyHost=p2" in jvm_config
+    assert "-Dhttps.proxyPort=8080" in jvm_config
+    assert "oauth2-jwk.http-client.http-proxy=p1:3128" in config
+
+
+def test_ipv6_bare_in_jvm_bracketed_in_oauth(ctx, monkeypatch):
+    """An IPv6 model proxy is bare in jvm.config and bracketed in the OAuth property."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://[::1]:3128")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_config = workload_path(state_out, ctx, JVM_CONFIG_PATH).read_text()
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+
+    assert "-Dhttp.proxyHost=::1" in jvm_config
+    assert "oauth2-jwk.http-client.http-proxy=[::1]:3128" in config
+
+
+# --- Batch 6: unit status and error handling --------------------------------
+
+
+def test_credential_bearing_https_proxy_blocks_without_sentinels(ctx, monkeypatch, caplog):
+    """A credential-bearing model proxy blocks; neither sentinel leaks in status or logs."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", f"http://{ZZUSERZZ}:{ZZPASSZZ}@proxy:3128")
+    state_in, _ = build_coordinator_state()
+
+    with caplog.at_level(logging.DEBUG):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "juju-https-proxy" in state_out.unit_status.message
+    assert ZZUSERZZ not in state_out.unit_status.message
+    assert ZZPASSZZ not in state_out.unit_status.message
+    assert ZZUSERZZ not in caplog.text
+    assert ZZPASSZZ not in caplog.text
+
+
+def test_unparsable_http_proxy_blocks_naming_setting(ctx, monkeypatch):
+    """An unparsable JUJU_CHARM_HTTP_PROXY blocks, naming `juju-http-proxy`."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://proxy:notaport")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "juju-http-proxy" in state_out.unit_status.message
+
+
+def test_incomplete_override_blocks_naming_additional_jvm_options(ctx):
+    """An incomplete host/port override blocks, naming additional-jvm-options."""
+    state_in, _ = build_coordinator_state(config={"additional-jvm-options": "-Dhttp.proxyHost=p"})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "additional-jvm-options" in state_out.unit_status.message
+
+
+def test_reconcile_logs_and_returns_early_without_crash_or_replan(ctx, monkeypatch, caplog):
+    """An R6 failure is logged; reconcile returns early with no replan."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "socks5://proxy:1080")
+    state_in, _ = build_coordinator_state()
+
+    with caplog.at_level(logging.ERROR):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.get_container("trino").plan.to_dict() == {}
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_running_unit_not_reconfigured_with_broken_proxy(ctx, monkeypatch):
+    """A running unit keeps its last-good plan when the proxy config breaks."""
+    state_in, _ = build_coordinator_state()
+    good = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    good_plan = good.get_container("trino").plan.to_dict()
+
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "socks5://proxy:1080")
+    broken_out = ctx.run(ctx.on.config_changed(), good)
+
+    assert broken_out.get_container("trino").plan.to_dict() == good_plan
+
+
+def test_valid_proxy_configuration_reaches_active(ctx, monkeypatch):
+    """A valid proxy configuration reports no proxy-related BlockedStatus."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+def test_blocked_unit_recovers_after_correction(ctx, monkeypatch):
+    """Correcting a blocked proxy configuration returns the unit to active."""
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "socks5://proxy:1080")
+    state_in, _ = build_coordinator_state()
+    blocked_out = ctx.run(ctx.on.config_changed(), state_in)
+    assert isinstance(blocked_out.unit_status, BlockedStatus)
+
+    monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://proxy:1080")
+    fixed_out = ctx.run(ctx.on.config_changed(), blocked_out)
+
+    assert fixed_out.unit_status == ActiveStatus("Status check: UP")
+    jvm_options = _services(fixed_out)["trino"]["environment"]["JVM_OPTIONS"]
+    assert "-Dhttp.proxyHost=proxy" in jvm_options
+
+
+def test_scheme_less_model_proxy_blocks(ctx, monkeypatch):
+    """A scheme-less model proxy URL blocks, naming the offending setting."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "proxy.corp:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "juju-https-proxy" in state_out.unit_status.message
+
+
+# --- Batch 7: credential leakage guards --------------------------------------
+
+
+def test_credential_bearing_proxy_blocks_before_rendering(ctx, monkeypatch):
+    """A credential-bearing model proxy blocks before config.properties renders."""
+    container = trino_container()
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", f"http://{ZZUSERZZ}:{ZZPASSZZ}@proxy:3128")
+    state_in, _ = build_coordinator_state(container=container)
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    fs_root = state_out.get_container("trino").get_filesystem(ctx)
+    assert not (fs_root / CONFIG_PROPERTIES_PATH.lstrip("/")).exists()
+
+
+def test_rendered_config_never_contains_proxy_credential_properties(ctx, monkeypatch):
+    """Config.properties never contains http-proxy.user or .password properties."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "https://p:8443")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    assert "http-proxy.password" not in config
+    assert "http-proxy.user" not in config
+
+
+# --- Batch 8: operational behaviour -----------------------------------------
+
+
+def test_proxy_change_triggers_restart_via_hash_change(ctx, monkeypatch):
+    """A model proxy change alters the Pebble layer environment (restart trigger)."""
+    state_in, _ = build_coordinator_state()
+    before = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    before_env = _services(before)["trino"]["environment"]
+
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    after = ctx.run(ctx.on.update_status(), before)
+    after_env = _services(after)["trino"]["environment"]
+
+    assert before_env["JVM_OPTIONS"] != after_env["JVM_OPTIONS"]
+
+
+def test_unchanged_proxy_configuration_no_restart(ctx, monkeypatch):
+    """An unchanged proxy configuration leaves the Pebble environment stable."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = build_coordinator_state()
+    before = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    before_env = dict(_services(before)["trino"]["environment"])
+
+    after = ctx.run(ctx.on.update_status(), before)
+    after_env = dict(_services(after)["trino"]["environment"])
+
+    assert before_env["JVM_OPTIONS"] == after_env["JVM_OPTIONS"]
+
+
+def test_no_status_message_exposes_proxy_value(ctx, monkeypatch):
+    """A configured proxy is never exposed via unit status or an action; logs only."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p-secret-host:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert "p-secret-host" not in str(state_out.unit_status)
+
+
+def test_pebble_layer_env_has_derived_proxy_values(ctx, monkeypatch):
+    """Derived proxy values are present in the Pebble layer environment."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://p:3128")
+    state_in, _ = _oauth_ready_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert "-Dhttps.proxyHost=p" in environment["JVM_OPTIONS"]
+    assert environment["OAUTH_HTTP_PROXY"] == "p:3128"
