@@ -172,32 +172,6 @@ class TestOAuth:
             ),
         )
 
-    def test_removing_oauth_restores_password_authentication(self, juju: jubilant.Juju):
-        """Removing the relation disables OAuth without disrupting password auth."""
-        juju.remove_relation(
-            f"{APP_NAME}:oauth",
-            f"{OAUTH_INTEGRATOR_NAME}:oauth",
-        )
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
-
-        _wait_for_trino_config(
-            juju,
-            contains=("http-server.authentication.type=PASSWORD",),
-            absent=(
-                "http-server.authentication.type=oauth2,PASSWORD",
-                "http-server.authentication.oauth2.issuer=",
-                "http-server.authentication.oauth2.client-secret=",
-            ),
-        )
-
-        result = query_trino(
-            get_unit(juju, APP_NAME).address,
-            TRINO_USER,
-            "SELECT current_user",
-        )
-        assert result[0][0] == TRINO_USER
-
-
 # ---------------------------------------------------------------------------
 # Proxy configuration sourced from the Juju model (integration).
 #
@@ -300,3 +274,28 @@ class TestModelProxyConfiguration:
 
         with fast_forward_ctx(juju, "10s"):
             wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+
+    def test_removing_oauth_restores_password_authentication(self, juju: jubilant.Juju):
+        """Removing the relation disables OAuth without disrupting password auth."""
+        juju.remove_relation(
+            f"{APP_NAME}:oauth",
+            f"{OAUTH_INTEGRATOR_NAME}:oauth",
+        )
+        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+
+        _wait_for_trino_config(
+            juju,
+            contains=("http-server.authentication.type=PASSWORD",),
+            absent=(
+                "http-server.authentication.type=oauth2,PASSWORD",
+                "http-server.authentication.oauth2.issuer=",
+                "http-server.authentication.oauth2.client-secret=",
+            ),
+        )
+
+        result = query_trino(
+            get_unit(juju, APP_NAME).address,
+            TRINO_USER,
+            "SELECT current_user",
+        )
+        assert result[0][0] == TRINO_USER
