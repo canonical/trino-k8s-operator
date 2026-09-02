@@ -172,19 +172,6 @@ class TestOAuth:
             ),
         )
 
-# ---------------------------------------------------------------------------
-# Proxy configuration sourced from the Juju model (integration).
-#
-# Appended here, rather than a new module, because the OAuth proxy property
-# is only rendered in the OAuth branch of config.jinja, and this module
-# already deploys an OAuth-enabled Trino -- reusing it avoids an extra
-# deployment purely to exercise this behaviour. No proxy service is deployed
-# or contacted; a syntactically
-# valid, non-routable proxy URL is used solely to verify that Juju really
-# exports `JUJU_CHARM_*` to the charm container and that Airlift accepts the
-# rendered property at startup -- both risks are invisible to unit tests,
-# which mock `os.environ` and assert on rendered text only.
-# ---------------------------------------------------------------------------
 
 MODEL_PROXY_URL = "http://192.0.2.1:3128"
 MODEL_NO_PROXY = "localhost,127.0.0.1,.svc.cluster.local"
@@ -215,15 +202,7 @@ class TestModelProxyConfiguration:
     """
 
     def test_model_proxy_config_renders_and_returns_to_active(self, juju: jubilant.Juju):
-        """Setting juju-https-proxy/juju-no-proxy at model level stays active.
-
-        This is appended to test_oauth.py because the OAuth proxy property is
-        only rendered in the OAuth branch of config.jinja, and reuses the
-        already-deployed OAuth-enabled Trino so no extra deployment is
-        required. No proxy service is deployed or contacted; the proxy URL is
-        syntactically valid but non-routable, proving Trino accepts the
-        rendered configuration without needing to reach a live proxy.
-        """
+        """Setting juju-https-proxy/juju-no-proxy at model level stays active."""
         juju.model_config(
             {
                 "juju-https-proxy": MODEL_PROXY_URL,
@@ -250,9 +229,8 @@ class TestModelProxyConfiguration:
     ):
         """An authenticated proxy URL blocks the unit without leaking credentials.
 
-        Continues from the previous test on the same OAuth-enabled deployment
-        (see module docstring for the placement rationale). Sentinel credential
-        values are used so this assertion cannot pass by accident.
+        Sentinel credential values are used so this assertion cannot pass by
+        accident.
         """
         juju.model_config({"juju-https-proxy": f"http://{ZZUSERZZ}:{ZZPASSZZ}@192.0.2.1:3128"})
 
@@ -265,10 +243,8 @@ class TestModelProxyConfiguration:
     def test_unsetting_model_proxy_converges_via_update_status(self, juju: jubilant.Juju):
         """Unsetting the model proxy returns the unit to active via update-status.
 
-        Continues from the previous test on the same OAuth-enabled deployment
-        (see module docstring for the placement rationale). Model config changes
-        fire no `config-changed` event, so this specifically proves convergence
-        through the `update-status` hook.
+        Model config changes fire no `config-changed` event, so this specifically
+        proves convergence through the `update-status` hook.
         """
         juju.model_config(reset=["juju-https-proxy", "juju-no-proxy"])
 

@@ -478,7 +478,7 @@ def add_users_to_password_db(container, credentials, db_path):
 class ProxyConfigError(Exception):
     """Raised when a Juju model proxy URL or a JVM proxy override is invalid.
 
-    Callers catch this to surface `BlockedStatus` (R6) rather than crash.
+    Callers catch this to surface `BlockedStatus` rather than crash.
     The message names the offending setting and never includes credentials.
     """
 
@@ -488,8 +488,8 @@ class ParsedProxy:
     """A parsed proxy URL, in the shape needed by both rendering paths.
 
     Attributes:
-        host: The proxy hostname, without brackets even for IPv6 (R3).
-        port: The explicit port, defaulted from the URL's own scheme (R3).
+        host: The proxy hostname, without brackets even for IPv6.
+        port: The explicit port, defaulted from the URL's own scheme.
         secure: Whether the proxy URL scheme was `https://`.
     """
 
@@ -507,13 +507,12 @@ def parse_proxy_url(value, setting_name):
             setting in a raised `ProxyConfigError` (e.g. `"juju-https-proxy"`).
 
     Returns:
-        A `ParsedProxy`, or None if `value` is unset/empty (R2: treated
-        identically as "not configured").
+        A `ParsedProxy`, or None if `value` is unset/empty.
 
     Raises:
         ProxyConfigError: If the URL has no explicit http(s) scheme, no host,
             a non-numeric port, a path/query/fragment, or embedded credentials.
-            The message never includes the credential values (R5).
+            The message never includes the credential values.
     """
     if not value:
         return None
@@ -550,7 +549,7 @@ def _convert_no_proxy(no_proxy_value):
 
     CIDR entries cannot be expressed by `-Dhttp.nonProxyHosts`, which only
     supports literal hosts and `*` wildcards, so they are dropped with a
-    single aggregated warning naming all of them (R3), rather than one log
+    single aggregated warning naming all of them, rather than one log
     line per entry.
 
     Args:
@@ -586,7 +585,7 @@ def _convert_no_proxy(no_proxy_value):
 def jvm_proxy_options(http_proxy_url, https_proxy_url, no_proxy_value):
     """Derive JVM proxy system property flags from Juju model proxy config.
 
-    Ports are always explicit, derived from each proxy URL's own scheme (R3):
+    Ports are always explicit, derived from each proxy URL's own scheme:
     the JVM's own per-family defaults (`http.proxyPort` defaults to 80,
     `https.proxyPort` to 443) are never relied upon, since they are keyed by
     system-property family rather than by the proxy URL's transport.
@@ -616,7 +615,7 @@ def jvm_proxy_options(http_proxy_url, https_proxy_url, no_proxy_value):
 
     # Emitted independently of whether a proxy host is set: the JVM only
     # consults it once a proxyHost is present, so a standalone value is inert
-    # but still expected (R3).
+    # but still expected.
     non_proxy_hosts = _convert_no_proxy(no_proxy_value)
     if non_proxy_hosts:
         flags.append(f"-Dhttp.nonProxyHosts={non_proxy_hosts}")
@@ -627,12 +626,12 @@ def jvm_proxy_options(http_proxy_url, https_proxy_url, no_proxy_value):
 def oauth_proxy_properties(http_proxy_url, https_proxy_url):
     """Derive the OAuth JWKS proxy properties from model proxy config only.
 
-    Built from the model proxy configuration alone (Decision 12): unlike
+    Built from the model proxy configuration alone: unlike
     `jvm_proxy_options`, `additional-jvm-options` has no influence here, since
     JVM proxy flags carry no scheme and cannot express `.secure`.
 
-    `juju-https-proxy` is preferred, falling back to `juju-http-proxy`
-    (Decision 4). Airlift's `http-proxy` property names the address of the
+    `juju-https-proxy` is preferred, falling back to `juju-http-proxy`.
+    Airlift's `http-proxy` property names the address of the
     proxy server (a CONNECT proxy), not "the proxy for http:// destinations".
 
     Args:
@@ -655,7 +654,7 @@ def oauth_proxy_properties(http_proxy_url, https_proxy_url):
         return {}
 
     host = f"[{selected.host}]" if ":" in selected.host else selected.host
-    properties = {"http_proxy": f"{host}:{selected.port}"}
+    properties: dict[str, str | bool] = {"http_proxy": f"{host}:{selected.port}"}
     if selected.secure:
         properties["secure"] = True
     return properties
@@ -666,7 +665,7 @@ def validate_jvm_proxy_overrides(user_opts):
 
     A `-D{http,https}.proxyHost` or `-D{http,https}.proxyPort` override without
     its matching counterpart is incomplete: the correct port cannot be
-    inferred, so it is rejected (R6) rather than silently defaulted.
+    inferred, so it is rejected rather than silently defaulted.
 
     Args:
         user_opts: The raw `additional-jvm-options` value, or None/empty.

@@ -137,6 +137,29 @@ juju status
 juju debug-log
 ```
 
+### Egress proxy (optional)
+
+If your development machine reaches the internet through a proxy, configure it on the model
+rather than on the charm; the charm derives all of its proxy settings from model configuration.
+
+```bash
+juju model-config juju-https-proxy=http://proxy.example.com:3128
+juju model-config juju-no-proxy=localhost,127.0.0.1,.svc.cluster.local
+```
+
+The scheme is mandatory and the URL must not contain credentials or a path; otherwise the unit
+goes to `blocked`. See the "Egress proxy" section of the [README](README.md) for the full rules.
+
+Model configuration changes do not fire `config-changed`, so the charm only picks them up on the
+next `update-status`. To iterate quickly, shorten the interval:
+
+```bash
+juju model-config update-status-hook-interval=1m
+```
+
+Remember to restore the default (`5m`) afterwards, since a short interval triggers frequent
+reconciles.
+
 ## Build and import the rock
 
 > **Note:** Building the Trino rock requires at least 30 GB of free disk space. The first run may take 45–60 minutes.

@@ -340,8 +340,8 @@ class TestTrinoCatalogRelation:
         deadline = time.monotonic() + 300
         trino_catalog_relations = []
         while time.monotonic() < deadline:
-            trino_catalog_relations = juju.status().apps[APP_NAME].relations.get(
-                "trino-catalog", []
+            trino_catalog_relations = (
+                juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
             )
             if not trino_catalog_relations:
                 break

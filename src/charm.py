@@ -929,11 +929,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     def _validate_proxy_config(self, user_opts):
         """Validate model proxy config and overrides without deriving flags.
 
-        Used by `_on_collect_unit_status`, which runs after every hook
-        (including the same hook that calls `_derive_proxy_config`): calling
-        the full derivation here too would double-log the aggregated
-        dropped-CIDR warning (R3) for a single reconcile.
-
         Args:
             user_opts: The raw `additional-jvm-options` value.
 
@@ -948,10 +943,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """Derive JVM proxy flags and OAuth proxy properties from model config.
 
         Reads the Juju model's own proxy settings from the charm container's
-        hook environment (R2); these are not part of `CharmConfig` since they
+        hook environment; these are not part of `CharmConfig` since they
         are not charm config. `additional-jvm-options` is validated for
-        complete host/port override pairs (R6) but does not influence the
-        OAuth property (Decision 12).
+        complete host/port override pairs but does not influence the
+        OAuth property.
 
         Args:
             user_opts: The raw `additional-jvm-options` value.
@@ -995,9 +990,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if proxy_flags:
             default_opts = f"{default_opts} {proxy_flags}"
 
-        # The model-derived defaults must reach JVM_OPTIONS even when no
-        # override is set: unlike the previous web-proxy short-circuit, this
-        # merge always runs.
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
         env = {
