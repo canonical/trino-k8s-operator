@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
-# Copyright 2026 Canonical Ltd.
+# Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
+#
+# Learn more about testing at: https://juju.is/docs/sdk/testing
+
 
 """Unit tests for proxy configuration derivation.
 
