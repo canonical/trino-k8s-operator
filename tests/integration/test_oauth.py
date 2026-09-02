@@ -257,12 +257,13 @@ class TestModelProxyConfiguration:
             }
         )
 
-        wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+        with fast_forward_ctx(juju, "10s"):
+            wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
-        config = _wait_for_trino_config(
-            juju,
-            contains=("oauth2-jwk.http-client.http-proxy=192.0.2.1:3128",),
-        )
+            config = _wait_for_trino_config(
+                juju,
+                contains=("oauth2-jwk.http-client.http-proxy=192.0.2.1:3128",),
+            )
         assert "oauth2-jwk.http-client.http-proxy.secure" not in config
 
         jvm_config = _read_trino_jvm_config(juju)
