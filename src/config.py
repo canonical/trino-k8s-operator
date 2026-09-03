@@ -85,9 +85,6 @@ class CharmConfig(BaseConfigModel):
     """Typed configuration for the charm."""
 
     log_level: str = "info"
-    google_client_id: Optional[str] = None
-    google_client_secret: Optional[str] = None
-    oidc_secret_id: Optional[str] = None
     web_proxy: Optional[str] = None
     ranger_service_name: Optional[str] = None
     external_hostname: Optional[str] = None
@@ -149,17 +146,6 @@ class CharmConfig(BaseConfigModel):
         return v
 
     # ── String sanity validators ───────────────────────────────────────────
-
-    @validator("google_client_id", "google_client_secret")
-    def reject_deprecated_oidc_plaintext(cls, v, field):
-        """Block plaintext OIDC credentials; require a Juju secret instead."""
-        if v is not None:
-            option = field.name.replace("_", "-")
-            raise ValueError(
-                f"{option} is deprecated; store the Google OIDC credentials in a "
-                "Juju secret and set oidc-secret-id instead, then unset this option"
-            )
-        return v
 
     @validator("web_proxy")
     def validate_web_proxy(cls, v):
@@ -339,17 +325,6 @@ class CharmConfig(BaseConfigModel):
         return v
 
     # ── Cross-field validators ─────────────────────────────────────────────
-
-    @root_validator(skip_on_failure=True)
-    def validate_oauth_credentials_paired(cls, values):
-        """Require google-client-id and google-client-secret to be set together."""
-        client_id = values.get("google_client_id")
-        client_secret = values.get("google_client_secret")
-        if bool(client_id) != bool(client_secret):
-            raise ValueError(
-                "google-client-id and google-client-secret must both be set or both unset"
-            )
-        return values
 
     @root_validator(skip_on_failure=True)
     def validate_postgresql_catalog_name_conflicts(cls, values):  # noqa: C901
