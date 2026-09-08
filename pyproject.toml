@@ -26,6 +26,7 @@ dependencies = [
 # Dependencies needed by vendored charm libraries at build time
 charmlibs-pydeps = [
     "ops>=3.7.1,<4",
+    "jsonschema>=4.26.0,<5",
     "lightkube>=0.21.0,<0.22",
     "lightkube-models>=1.35.0.8,<2",
     "cosl>=1.9.1,<2",
