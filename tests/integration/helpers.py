@@ -505,6 +505,8 @@ def simulate_crash_and_restart(juju: jubilant.Juju):
 def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
     """Force-delete the coordinator and all worker pods and wait for registration."""
     pods = [f"{APP_NAME}-0", *(f"{WORKER_NAME}-{unit}" for unit in range(workers))]
+    original_uids = {pod["metadata"]["name"]: pod["metadata"]["uid"] for pod in _get_pods(juju)}
+    original_uids = {name: original_uids[name] for name in pods}
     subprocess.run(  # nosec B603 B607
         [
             "kubectl",
@@ -517,7 +519,9 @@ def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
             "--force",
         ],
         check=True,
+        timeout=330,
     )
+    _wait_for_replacement_pods(juju, original_uids)
     wait_for_apps(
         juju,
         [APP_NAME, WORKER_NAME],
@@ -526,6 +530,83 @@ def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
         timeout=1000,
     )
     wait_for_active_workers(juju, workers, timeout=1000)
+
+
+def _get_pods(juju: jubilant.Juju) -> list[dict]:
+    """Read pods from the test model's namespace."""
+    result = subprocess.run(  # nosec B603 B607
+        ["kubectl", "get", "pods", "-n", juju.model, "-o", "json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return json.loads(result.stdout)["items"]
+
+
+def _wait_for_replacement_pods(
+    juju: jubilant.Juju, original_uids: dict[str, str], timeout: float = 600
+):
+    """Wait for every named pod to have a new UID and report Ready."""
+    deadline = time.monotonic() + timeout
+    pending = set(original_uids)
+    while time.monotonic() < deadline:
+        ready = {
+            pod["metadata"]["name"]
+            for pod in _get_pods(juju)
+            if pod["metadata"]["name"] in original_uids
+            and pod["metadata"]["uid"] != original_uids[pod["metadata"]["name"]]
+            and not pod["metadata"].get("deletionTimestamp")
+            and any(
+                condition["type"] == "Ready" and condition["status"] == "True"
+                for condition in pod.get("status", {}).get("conditions", [])
+            )
+        }
+        pending = set(original_uids) - ready
+        if not pending:
+            return
+        time.sleep(5)
+    raise TimeoutError(f"Timed out waiting for replacement pods to be Ready: {sorted(pending)}")
+
+
+def log_model_diagnostics(juju: jubilant.Juju):
+    """Collect diagnostics before model teardown without hiding the test failure."""
+    commands = [
+        ["juju", "status", "-m", juju.model],
+        ["juju", "debug-log", "-m", juju.model, "--replay", "--no-tail", "--limit", "5000"],
+        ["kubectl", "get", "pods", "-n", juju.model, "-o", "wide"],
+        ["kubectl", "describe", "pods", "-n", juju.model],
+        ["kubectl", "get", "events", "-n", juju.model, "--sort-by=.metadata.creationTimestamp"],
+    ]
+    try:
+        for pod in _get_pods(juju):
+            command = [
+                "kubectl",
+                "logs",
+                "-n",
+                juju.model,
+                pod["metadata"]["name"],
+                "--all-containers=true",
+                "--timestamps=true",
+                "--tail=1000",
+            ]
+            commands.extend([command, [*command, "--previous=true"]])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        logger.exception("Could not list pods for container log collection")
+    for command in commands:
+        try:
+            result = subprocess.run(  # nosec B603
+                command, capture_output=True, text=True, timeout=30, check=False
+            )
+            logger.info(
+                "Diagnostics: %s (exit %s)\n%s\n%s",
+                " ".join(command),
+                result.returncode,
+                result.stdout,
+                result.stderr,
+            )
+        except (OSError, subprocess.SubprocessError):
+            logger.exception("Diagnostic command failed: %s", command)
 
 
 def curl_unit_ip(juju: jubilant.Juju):
