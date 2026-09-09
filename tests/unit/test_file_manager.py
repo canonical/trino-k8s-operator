@@ -33,6 +33,7 @@ class FakeContainer:
             or an `ExecError` instance (raised on `exec`).
         pushes: Recorded (path, content) pairs from `push` calls, in order.
         removed: Recorded paths passed to `remove_path`, in order.
+        exec_calls: Recorded (argv, environment) pairs from `exec` calls.
         fail_push_path: When set, `push` raises for this path.
         fail_remove_path: When set, `remove_path` raises for this path.
     """
@@ -42,14 +43,16 @@ class FakeContainer:
         self.exec_results = dict(exec_results or {})
         self.pushes = []
         self.removed = []
+        self.exec_calls = []
         self.fail_push_path = None
         self.fail_remove_path = None
 
-    def exec(self, command):
+    def exec(self, command, environment=None):
         """Return or raise the canned result for the scanned directory.
 
         Args:
             command: The `find ... -exec sha256sum {} +` argv list.
+            environment: The environment the command runs with.
 
         Returns:
             The `_Process` configured for the scanned directory.
@@ -57,6 +60,7 @@ class FakeContainer:
         Raises:
             ExecError: When the directory was configured to fail.
         """
+        self.exec_calls.append((list(command), dict(environment or {})))
         directory = command[1]
         result = self.exec_results.get(directory, _Process())
         if isinstance(result, Exception):
@@ -119,6 +123,11 @@ class FakeContainer:
         self.files.pop(path, None)
 
 
+DIGEST_A = "a" * 64
+DIGEST_B = "b" * 64
+DIGEST_C = "c" * 64
+
+
 class TestInventory(TestCase):
     """Tests for `inventory`."""
 
@@ -127,9 +136,12 @@ class TestInventory(TestCase):
         container = FakeContainer(
             exec_results={
                 "/etc/catalog": _Process(
-                    stdout=("aaa  /etc/catalog/one.properties\nbbb  /etc/catalog/two.properties\n")
+                    stdout=(
+                        f"{DIGEST_A}  /etc/catalog/one.properties\n"
+                        f"{DIGEST_B}  /etc/catalog/two.properties\n"
+                    )
                 ),
-                "/etc/credentials": _Process(stdout="ccc  /etc/credentials/db.json\n"),
+                "/etc/credentials": _Process(stdout=f"{DIGEST_C}  /etc/credentials/db.json\n"),
             }
         )
 
@@ -139,9 +151,9 @@ class TestInventory(TestCase):
         self.assertEqual(
             result.files,
             {
-                "/etc/catalog/one.properties": "aaa",
-                "/etc/catalog/two.properties": "bbb",
-                "/etc/credentials/db.json": "ccc",
+                "/etc/catalog/one.properties": DIGEST_A,
+                "/etc/catalog/two.properties": DIGEST_B,
+                "/etc/credentials/db.json": DIGEST_C,
             },
         )
 
@@ -170,7 +182,7 @@ class TestInventory(TestCase):
                 "/etc/catalog": ExecError(
                     command=["find"],
                     exit_code=1,
-                    stdout="aaa  /etc/catalog/one.properties\n",
+                    stdout=f"{DIGEST_A}  /etc/catalog/one.properties\n",
                     stderr="/usr/bin/sha256sum: /etc/catalog/two.properties: Permission denied",
                 )
             }
@@ -179,7 +191,7 @@ class TestInventory(TestCase):
         result = inventory(container, ["/etc/catalog"])
 
         self.assertTrue(result.failed)
-        self.assertEqual(result.files, {"/etc/catalog/one.properties": "aaa"})
+        self.assertEqual(result.files, {"/etc/catalog/one.properties": DIGEST_A})
 
     def test_exec_error_marks_failed(self):
         """An `ExecError` unrelated to a missing directory marks it failed."""
@@ -198,6 +210,75 @@ class TestInventory(TestCase):
 
         self.assertTrue(result.failed)
         self.assertEqual(result.files, {})
+
+    def test_missing_child_is_not_treated_as_missing_root(self):
+        """A file vanishing mid-scan is a failure, not an empty directory."""
+        container = FakeContainer(
+            exec_results={
+                "/etc/catalog": ExecError(
+                    command=["find"],
+                    exit_code=1,
+                    stdout="",
+                    stderr=(
+                        "/usr/bin/find: '/etc/catalog/gone.properties': No such file or directory"
+                    ),
+                )
+            }
+        )
+
+        result = inventory(container, ["/etc/catalog"])
+
+        self.assertTrue(result.failed)
+
+    def test_binary_mode_and_spaced_paths_are_parsed(self):
+        """Binary-mode records and paths containing spaces are parsed."""
+        container = FakeContainer(
+            exec_results={
+                "/etc/catalog": _Process(
+                    stdout=(
+                        f"{DIGEST_A} */etc/catalog/one.properties\n"
+                        f"{DIGEST_B}  /etc/catalog/two words.properties\n"
+                        "\n"
+                    )
+                )
+            }
+        )
+
+        result = inventory(container, ["/etc/catalog"])
+
+        self.assertFalse(result.failed)
+        self.assertEqual(
+            result.files,
+            {
+                "/etc/catalog/one.properties": DIGEST_A,
+                "/etc/catalog/two words.properties": DIGEST_B,
+            },
+        )
+
+    def test_malformed_record_marks_failed(self):
+        """A record without a valid digest marks the inventory failed."""
+        container = FakeContainer(
+            exec_results={
+                "/etc/catalog": _Process(stdout="not-a-hash  /etc/catalog/one.properties\n")
+            }
+        )
+
+        result = inventory(container, ["/etc/catalog"])
+
+        self.assertTrue(result.failed)
+        self.assertEqual(result.files, {})
+
+    def test_scan_uses_one_exec_per_directory_in_the_c_locale(self):
+        """Each directory is scanned once with locale-stable diagnostics."""
+        container = FakeContainer()
+
+        inventory(container, ["/etc/catalog/", "/etc/credentials"])
+
+        self.assertEqual(len(container.exec_calls), 2)
+        scanned = [argv[1] for argv, _ in container.exec_calls]
+        self.assertEqual(scanned, ["/etc/catalog", "/etc/credentials"])
+        for _, environment in container.exec_calls:
+            self.assertEqual(environment.get("LC_ALL"), "C")
 
 
 class TestReadFiles(TestCase):
@@ -331,3 +412,79 @@ class TestReconcileFiles(TestCase):
             set(result.desired_hashes),
             {"/etc/catalog/pg.properties", "/etc/catalog/mysql.properties"},
         )
+
+    def test_failed_inventory_blocks_all_mutation(self):
+        """An untrustworthy snapshot yields no write and no deletion."""
+        current = Inventory(files={"/etc/catalog/stale.properties": DIGEST_A}, failed=True)
+        container = FakeContainer(files={"/etc/catalog/stale.properties": "stale"})
+
+        result = reconcile_files(container, {"/etc/catalog": {"pg.properties": "pg\n"}}, current)
+
+        self.assertTrue(result.failed)
+        self.assertFalse(result.changed)
+        self.assertEqual(container.pushes, [])
+        self.assertEqual(container.removed, [])
+        self.assertEqual(
+            result.desired_hashes, {"/etc/catalog/pg.properties": content_hash("pg\n")}
+        )
+
+    def test_unsafe_file_names_block_all_mutation(self):
+        """A name that escapes its directory blocks the whole batch."""
+        current = Inventory(files={}, failed=False)
+        container = FakeContainer()
+
+        result = reconcile_files(
+            container,
+            {
+                "/etc/catalog": {
+                    "pg.properties": "pg\n",
+                    "../../etc/passwd": "escaped\n",
+                    "/etc/absolute.properties": "absolute\n",
+                }
+            },
+            current,
+        )
+
+        self.assertTrue(result.failed)
+        self.assertFalse(result.changed)
+        self.assertEqual(container.pushes, [])
+
+    def test_push_error_still_reports_every_desired_hash(self):
+        """A failed batch still reports the hashes of all managed paths."""
+        current = Inventory(files={}, failed=False)
+        container = FakeContainer()
+        container.fail_push_path = "/etc/catalog/pg.properties"
+
+        result = reconcile_files(
+            container,
+            {"/etc/catalog": {"pg.properties": "pg\n", "mysql.properties": "mysql\n"}},
+            current,
+        )
+
+        self.assertTrue(result.failed)
+        self.assertEqual(
+            result.desired_hashes,
+            {
+                "/etc/catalog/pg.properties": content_hash("pg\n"),
+                "/etc/catalog/mysql.properties": content_hash("mysql\n"),
+            },
+        )
+
+    def test_equivalent_path_spellings_compare_equal(self):
+        """Trailing separators never cause a spurious write or deletion."""
+        content = "pg\n"
+        current = Inventory(
+            files={"/etc/catalog//pg.properties": content_hash(content)}, failed=False
+        )
+        container = FakeContainer(files={"/etc/catalog/pg.properties": content})
+
+        result = reconcile_files(
+            container,
+            {"/etc/catalog/": {"pg.properties": content}},
+            current,
+            protect={"/etc/catalog/"},
+        )
+
+        self.assertFalse(result.changed)
+        self.assertEqual(container.pushes, [])
+        self.assertEqual(container.removed, [])

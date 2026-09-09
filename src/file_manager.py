@@ -12,8 +12,8 @@ what to do with the results.
 
 import dataclasses
 import logging
+import posixpath
 import re
-from pathlib import Path
 
 from ops.pebble import Error as PebbleError
 from ops.pebble import ExecError, PathError
@@ -58,24 +58,90 @@ class FileReconcileResult:
     desired_hashes: dict[str, str]
 
 
-def _missing_root_only(directory: str, stderr: str) -> bool:
+_SHA256SUM_LINE = re.compile(r"^(?P<digest>[0-9a-f]{64}) [ *](?P<path>\S.*)$")
+_MISSING_PATH_LINE = re.compile(
+    r"^[^:]*find: (?:cannot (?:search|access|open) )?(?P<operand>.+?): No such file or directory$"
+)
+_QUOTES = "'\"`\u2018\u2019"
+
+
+def _normalize(path) -> str:
+    """Return a canonical string form of a workload path.
+
+    Args:
+        path: The path to normalize, as a string or `Path`.
+
+    Returns:
+        The path with redundant separators, trailing separators and relative
+        components collapsed, so that equivalent spellings compare equal.
+    """
+    return posixpath.normpath(str(path))
+
+
+def _is_safe_name(name) -> bool:
+    """Check that a managed file name stays inside its group directory.
+
+    Args:
+        name: The file name supplied by the caller.
+
+    Returns:
+        True when the name is a plain file name with no separators, no
+        absolute prefix and no relative components.
+    """
+    text = str(name)
+    if not text or text in (".", ".."):
+        return False
+    return "/" not in text and not posixpath.isabs(text)
+
+
+def _is_missing_root(directory: str, stderr: str) -> bool:
     """Check whether a `find` failure is solely the scope root being absent.
 
     Args:
-        directory: The directory that was scanned.
+        directory: The normalized directory that was scanned.
         stderr: The standard error text produced by the `find` invocation.
 
     Returns:
-        True when every error line refers to the given directory missing,
-        tolerating both the quoted and unquoted forms GNU `find` may use.
+        True when every error line reports that the scanned directory itself
+        does not exist, tolerating the quoting styles GNU `find` may use.
     """
-    lines = [line for line in stderr.splitlines() if line.strip()]
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
     if not lines:
         return False
-    pattern = re.compile(
-        rf"^{re.escape(FIND_BIN)}: .*{re.escape(directory)}.*No such file or directory"
-    )
-    return all(pattern.search(line) for line in lines)
+    for line in lines:
+        match = _MISSING_PATH_LINE.match(line)
+        if match is None:
+            return False
+        operand = match.group("operand").strip().strip(_QUOTES)
+        if _normalize(operand) != directory:
+            return False
+    return True
+
+
+def _parse_hashes(directory: str, stdout: str) -> tuple[dict[str, str], bool]:
+    """Parse the output of a `sha256sum` batch.
+
+    Args:
+        directory: The normalized directory the output belongs to, used for
+            logging only.
+        stdout: The standard output text produced by the `sha256sum` batch.
+
+    Returns:
+        A tuple of a mapping from absolute path to hex digest and a flag that
+        is True when any line could not be parsed.
+    """
+    files: dict[str, str] = {}
+    failed = False
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        match = _SHA256SUM_LINE.match(line)
+        if match is None:
+            logger.warning("Unparsable checksum line for %s: %r", directory, line)
+            failed = True
+            continue
+        files[_normalize(match.group("path"))] = match.group("digest")
+    return files, failed
 
 
 def inventory(container, directories) -> Inventory:
@@ -93,8 +159,8 @@ def inventory(container, directories) -> Inventory:
     """
     files: dict[str, str] = {}
     failed = False
-    for directory in directories:
-        directory = str(directory)
+    for raw_directory in directories:
+        directory = _normalize(raw_directory)
         command = [
             FIND_BIN,
             directory,
@@ -108,14 +174,14 @@ def inventory(container, directories) -> Inventory:
             "+",
         ]
         # A non-zero exit (missing directory, a bad -exec) surfaces as
-        # ExecError; recover whatever partial output it still carries.
+        # ExecError; recover whatever partial output it still carries. The C
+        # locale keeps the diagnostics of `find` parsable.
         try:
-            process = container.exec(command)
+            process = container.exec(command, environment={"LC_ALL": "C"})
             stdout, stderr = process.wait_output()
         except ExecError as e:
             stdout, stderr = e.stdout or "", e.stderr or ""
-            lines = [line for line in stdout.splitlines() if line.strip()]
-            if not lines and _missing_root_only(directory, stderr):
+            if not stdout.strip() and _is_missing_root(directory, stderr):
                 continue
             logger.warning("Failed to inventory %s: %s", directory, stderr)
             failed = True
@@ -124,20 +190,13 @@ def inventory(container, directories) -> Inventory:
             failed = True
             continue
         else:
-            if stderr and not _missing_root_only(directory, stderr):
+            if stderr.strip():
                 logger.warning("Partial failure inventorying %s: %s", directory, stderr)
                 failed = True
 
-        for line in stdout.splitlines():
-            if not line.strip():
-                continue
-            try:
-                digest, path = line.split("  ", 1)
-            except ValueError:
-                logger.warning("Unparsable sha256sum line for %s: %r", directory, line)
-                failed = True
-                continue
-            files[path] = digest
+        parsed, parse_failed = _parse_hashes(directory, stdout)
+        files.update(parsed)
+        failed = failed or parse_failed
 
     return Inventory(files=files, failed=failed)
 
@@ -170,6 +229,87 @@ def read_files(container, paths) -> tuple[dict[str, str], bool]:
     return contents, failed
 
 
+def _plan_desired(groups) -> tuple[dict[str, str], set[str], list[str]]:
+    """Resolve the desired managed paths, their hashes and any unsafe names.
+
+    Args:
+        groups: Mapping of directory to a mapping of file name to desired
+            text content.
+
+    Returns:
+        A tuple of the desired hashes keyed by absolute path, the set of
+        normalized group directories, and the rejected file names.
+    """
+    desired_hashes: dict[str, str] = {}
+    group_dirs: set[str] = set()
+    rejected: list[str] = []
+    for directory, files in groups.items():
+        group_dir = _normalize(directory)
+        group_dirs.add(group_dir)
+        for name, content in files.items():
+            if not _is_safe_name(name):
+                rejected.append(str(name))
+                continue
+            desired_hashes[posixpath.join(group_dir, str(name))] = content_hash(content)
+    return desired_hashes, group_dirs, rejected
+
+
+def _write_changed(container, groups, actual, desired_hashes) -> tuple[bool, bool]:
+    """Push every managed file whose content differs from the snapshot.
+
+    Args:
+        container: The workload container to write to.
+        groups: Mapping of directory to a mapping of file name to content.
+        actual: Mapping of absolute path to the hash currently on disk.
+        desired_hashes: Mapping of absolute path to the desired hash.
+
+    Returns:
+        A tuple of whether anything was written and whether a write failed.
+    """
+    changed = False
+    for directory, files in groups.items():
+        group_dir = _normalize(directory)
+        for name, content in files.items():
+            path = posixpath.join(group_dir, str(name))
+            if actual.get(path) == desired_hashes[path]:
+                continue
+            try:
+                container.push(path, content, make_dirs=True, permissions=0o644)
+            except PebbleError as e:
+                logger.warning("Failed to write %s: %s", path, e)
+                return changed, True
+            changed = True
+    return changed, False
+
+
+def _delete_unmanaged(container, actual, desired_hashes, group_dirs, protected):
+    """Delete snapshot files that are neither managed nor protected.
+
+    Args:
+        container: The workload container to delete from.
+        actual: Mapping of absolute path to the hash currently on disk.
+        desired_hashes: Mapping of absolute path to the desired hash.
+        group_dirs: The normalized directories under charm ownership.
+        protected: Absolute paths that must never be deleted.
+
+    Returns:
+        A tuple of whether anything was deleted and whether a deletion failed.
+    """
+    changed = False
+    for path in sorted(actual):
+        if path in desired_hashes or path in protected:
+            continue
+        if posixpath.dirname(path) not in group_dirs:
+            continue
+        try:
+            container.remove_path(path)
+        except PebbleError as e:
+            logger.warning("Failed to remove %s: %s", path, e)
+            return changed, True
+        changed = True
+    return changed, False
+
+
 def reconcile_files(
     container,
     groups,
@@ -191,45 +331,31 @@ def reconcile_files(
             empty set.
 
     Returns:
-        The `FileReconcileResult` describing what changed.
+        The `FileReconcileResult` describing what changed. Nothing is written
+        or deleted when the snapshot is untrustworthy or a managed file name
+        is rejected.
     """
-    protect = protect or set()
-    desired_hashes: dict[str, str] = {}
-    managed_paths: set[str] = set()
-    changed = False
+    protected = {_normalize(path) for path in (protect or set())}
+    desired_hashes, group_dirs, rejected = _plan_desired(groups)
 
-    for directory, files in groups.items():
-        directory = Path(directory)
-        for name, content in files.items():
-            path = str(directory / name)
-            managed_paths.add(path)
-            digest = content_hash(content)
-            desired_hashes[path] = digest
-            if current.files.get(path) == digest:
-                continue
-            try:
-                container.push(path, content, make_dirs=True, permissions=0o644)
-            except PebbleError as e:
-                logger.warning("Failed to write %s: %s", path, e)
-                return FileReconcileResult(
-                    changed=changed, failed=True, desired_hashes=desired_hashes
-                )
-            changed = True
+    if rejected:
+        logger.error("Rejected unsafe managed file names: %s", sorted(rejected))
+        return FileReconcileResult(changed=False, failed=True, desired_hashes=desired_hashes)
+
+    if current.failed:
+        return FileReconcileResult(changed=False, failed=True, desired_hashes=desired_hashes)
+
+    actual = {_normalize(path): digest for path, digest in current.files.items()}
+    changed, failed = _write_changed(container, groups, actual, desired_hashes)
+    if failed:
+        return FileReconcileResult(changed=changed, failed=True, desired_hashes=desired_hashes)
 
     if remove_unmanaged:
-        group_dirs = {Path(directory) for directory in groups}
-        for path in current.files:
-            if path in managed_paths or path in protect:
-                continue
-            if Path(path).parent not in group_dirs:
-                continue
-            try:
-                container.remove_path(path)
-            except PebbleError as e:
-                logger.warning("Failed to remove %s: %s", path, e)
-                return FileReconcileResult(
-                    changed=changed, failed=True, desired_hashes=desired_hashes
-                )
-            changed = True
+        deleted, failed = _delete_unmanaged(
+            container, actual, desired_hashes, group_dirs, protected
+        )
+        changed = changed or deleted
+        if failed:
+            return FileReconcileResult(changed=changed, failed=True, desired_hashes=desired_hashes)
 
     return FileReconcileResult(changed=changed, failed=False, desired_hashes=desired_hashes)
