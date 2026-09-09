@@ -128,6 +128,19 @@ class TestBigqueryCatalog(TestCase):
         with self.assertNoLogs("catalog_manager", level="INFO"):
             BigqueryCatalog(charm, "trustpwd", "bq1", info, backend).render()
 
+    def test_render_failure_keeps_secret_content_out_of_logs(self):
+        """A malformed secret is reported without echoing its content."""
+        secret = FakeSecret({"service-accounts": "{super-secret-token: [unterminated"})
+        charm = FakeCharm(secrets={"secret:1": secret})
+        info = {"project": "my-project", "secret-id": "secret:1"}
+        backend = {"connector": "bigquery", "config": ""}
+
+        with self.assertLogs("catalog_manager", level="ERROR") as logs:
+            with self.assertRaises(Exception):
+                BigqueryCatalog(charm, "trustpwd", "bq1", info, backend).render()
+
+        self.assertNotIn("super-secret-token", "\n".join(logs.output))
+
 
 class TestGsheetCatalog(TestCase):
     """Tests for `GsheetCatalog.render`."""

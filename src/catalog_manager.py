@@ -126,7 +126,9 @@ class CatalogBase(ABC):
             properties = self._resolve_placeholders(properties)
             return RenderedCatalog(properties=properties, credentials=credentials, certs=certs)
         except Exception as e:
-            logger.error(f"Unable to render catalog {self.name!r}: {e}")
+            # Secret content can be echoed back in parser and lookup errors,
+            # so only the failure type is recorded.
+            logger.error("Unable to render catalog %r: %s", self.name, type(e).__name__)
             raise
 
 
