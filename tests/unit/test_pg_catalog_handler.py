@@ -13,7 +13,7 @@ import yaml
 from pydantic import ValidationError
 
 from config import CharmConfig
-from literals import POSTGRESQL_RELATION_NAME
+from literals import DEFAULT_CREDENTIALS, POSTGRESQL_RELATION_NAME
 from relations.postgresql_catalog import (
     DYNAMIC_CATALOG_MARKER,
     CatalogAlreadyExistsError,
@@ -435,6 +435,45 @@ class TestCreateAndDropCatalog(TestCase):
         handler = self._make_handler()
         with self.assertRaises(CatalogSQLError):
             handler.drop_catalog("cat")
+
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_drop_catalog_success(self, mock_post):
+        """Verify drop_catalog returns normally when Trino reports no error."""
+        mock_post.return_value = mock.MagicMock(
+            status_code=200, json=mock.MagicMock(return_value={})
+        )
+        handler = self._make_handler()
+
+        handler.drop_catalog("cat")
+
+    def test_trino_user_from_secret(self):
+        """The first user in the configured secret is used as the Trino user."""
+        handler = self._make_handler()
+        handler.charm._effective_user_secret_id.return_value = "secret:abc"
+        handler.charm._get_secret_content.return_value = {
+            "users": yaml.dump({"alice": "pwd1", "bob": "pwd2"})
+        }
+
+        self.assertEqual(handler._get_trino_user(), "alice")
+
+    def test_trino_user_falls_back_when_secret_unreadable(self):
+        """A secret read failure falls back to the default credentials user."""
+        handler = self._make_handler()
+        handler.charm._effective_user_secret_id.return_value = "secret:abc"
+        handler.charm._get_secret_content.side_effect = RuntimeError("boom")
+
+        self.assertEqual(handler._get_trino_user(), next(iter(DEFAULT_CREDENTIALS)))
+
+    @mock.patch(
+        "relations.postgresql_catalog.requests.delete", side_effect=requests.ConnectionError
+    )
+    def test_cancel_statement_swallows_delete_failure(self, mock_delete):
+        """A failed abandon-statement request never propagates."""
+        PostgresqlCatalogRelationHandler._cancel_statement(
+            "http://localhost:8080/v1/statement/q/1", {"X-Trino-User": "trino"}
+        )
+
+        mock_delete.assert_called_once()
 
     def test_quotes_are_escaped_in_generated_sql(self):
         """Verify names and values cannot break out of their SQL quoting."""

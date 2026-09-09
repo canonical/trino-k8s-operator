@@ -49,6 +49,8 @@ class FakeContainer:
         self.pushes = []
         self.removed = []
         self.fail_push_path = None
+        self.fail_pull_path = None
+        self.fail_pull_error = None
 
     def _process_for(self, directory):
         lines = "".join(
@@ -81,8 +83,11 @@ class FakeContainer:
             An object with a `read()` method yielding the text content.
 
         Raises:
-            PathError: When `path` is not present in `self.files`.
+            PathError: When `path` is not present in `self.files` or matches
+                `fail_pull_path`.
         """
+        if path == self.fail_pull_path:
+            raise self.fail_pull_error
         if path not in self.files:
             raise PathError("not-found", f"stat {path}: no such file or directory")
 
@@ -289,6 +294,49 @@ class TestReconcileCatalogs(TestCase):
         self.assertIsNone(result.state_hash)
         self.assertEqual(executor.calls, [])
         self.assertEqual(container.pushes, [])
+
+    def test_failed_read_during_classification_blocks_everything(self):
+        """A pull failure while classifying an ambiguous catalog file blocks all mutation."""
+        content = "connector.name=mysql\nfoo=bar\n"
+        path = f"{CATALOG_DIR}/mysql.properties"
+        container = FakeContainer(files={path: content})
+        # Digest differs from the desired one, forcing classify_actual to read it.
+        container.fail_pull_path = path
+        container.fail_pull_error = PathError("generic-file-error", "stat: permission denied")
+        desired = DesiredCatalogs(
+            static={"mysql": "connector.name=mysql\n"}, credentials={}, dynamic={}
+        )
+        executor = FakeExecutor()
+
+        result = _reconcile(container, executor, desired)
+
+        self.assertTrue(result.failed)
+        self.assertIsNone(result.state_hash)
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(container.pushes, [])
+        self.assertEqual(container.removed, [])
+
+    def test_file_vanishing_between_snapshot_and_read_is_dropped_quietly(self):
+        """A catalog file that disappears mid-cycle is neither claimed nor blocking."""
+        path = f"{CATALOG_DIR}/gone.properties"
+
+        def _exec_with_ghost_file(command, environment=None):
+            directory = command[1]
+            if directory != CATALOG_DIR:
+                return FakeContainer()._process_for(directory)
+            return _Process(stdout=f"{'0' * 64}  {path}\n")
+
+        container = FakeContainer()
+        container.exec = _exec_with_ghost_file
+        desired = DesiredCatalogs(static={}, credentials={}, dynamic={})
+        executor = FakeExecutor()
+
+        result = _reconcile(container, executor, desired)
+
+        self.assertFalse(result.failed)
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(container.pushes, [])
+        self.assertEqual(container.removed, [path])
 
     def test_steady_state_logs_unchanged_once_with_no_info(self):
         """Matching static state produces a single unchanged DEBUG message."""

@@ -644,7 +644,10 @@ Removing a static catalog from `catalog-config` does not affect relation-managed
 
 ### Credential rotation
 
-If PostgreSQL rotates credentials, Trino automatically detects the change and recreates the affected catalogs with the new credentials. No manual intervention is required.
+If PostgreSQL rotates credentials, the charm updates the corresponding Pebble environment
+variable and restarts Trino once to pick up the new password. The catalog definition itself is
+unchanged, so no `CREATE`/`DROP CATALOG` statements are issued for a password-only rotation. No
+manual intervention is required.
 
 ### Authorization
 
