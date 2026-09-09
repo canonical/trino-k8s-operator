@@ -230,6 +230,13 @@ The catalog-config can be applied with the following:
 juju config trino-k8s catalog-config=@catalog_config.yaml
 ```
 
+The charm owns the catalog files it renders from this configuration. Catalog properties are
+written to `/usr/lib/trino/etc/catalog/` and connector credential files, such as BigQuery and
+Google Sheets service accounts, to `/usr/lib/trino/etc/credentials/`. Both directories are
+managed by the charm: files that are no longer described by `catalog-config` are removed, and
+manual edits are reverted on the next configuration change. Trino is restarted only when the
+rendered catalog content actually changes.
+
 ### Resource group manager
 
 Trino's built-in file-based resource group manager can be enabled with the
@@ -641,6 +648,8 @@ juju ssh --container trino trino-coordinator/0 \
 The `postgresql-catalog-config` (SQL-managed catalogs via relations) and `catalog-config` (static `.properties` catalogs) coexist. Both types of catalogs appear in `SHOW CATALOGS` and are independently queryable.
 
 Removing a static catalog from `catalog-config` does not affect relation-managed catalogs, and vice versa.
+
+A catalog name can be claimed by only one of the two sources. If both claim the same name, the unit blocks and names the conflicting catalogs until the configuration is corrected.
 
 ### Credential rotation
 

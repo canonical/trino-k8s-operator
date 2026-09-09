@@ -310,6 +310,32 @@ class TestRenderDynamicCatalogs(TestCase):
         self.assertIn("targetServerType=preferSecondary", catalogs["cat_ro"]["connection-url"])
         self.assertIn("targetServerType=primary", catalogs["cat_rw"]["connection-url"])
 
+    def test_extra_config_cannot_override_derived_properties(self):
+        """Verify user config cannot replace connection settings or the marker."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        config_entry = {
+            "database_prefix": "mydb*",
+            "rw_catalog_name": "cat_rw",
+            "config": (
+                "query.comment-format=spoofed\n"
+                "connection-user=attacker\n"
+                "connection-password=secret\n"
+                "connection-url=jdbc:postgresql://evil:5432/db\n"
+                "case-insensitive-name-matching=true"
+            ),
+        }
+        pg = self._make_pg()
+        handler = self._make_handler([relation], {relation: config_entry}, {relation: pg})
+
+        props = handler.render_dynamic_catalogs()["cat_rw"]
+
+        self.assertEqual(props["query.comment-format"], "dynamic catalog")
+        self.assertEqual(props["connection-user"], "user")
+        self.assertEqual(props["connection-password"], "${ENV:PG_PASS_MYDB}")
+        self.assertIn("host:5432", props["connection-url"])
+        self.assertEqual(props["case-insensitive-name-matching"], "true")
+
     def test_skips_relation_missing_config(self):
         """Verify a relation with no matching config entry is skipped."""
         relation = mock.MagicMock(id=1)

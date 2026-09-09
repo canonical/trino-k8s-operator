@@ -460,12 +460,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         """
         url = self._build_jdbc_url(pg, database, relation_id, target_server_type)
 
-        properties = {
-            "connection-url": url,
-            "connection-user": pg.username,
-            "connection-password": f"${{ENV:{_env_var_name(database)}}}",
-            "query.comment-format": DYNAMIC_CATALOG_MARKER,
-        }
+        properties = {}
 
         # Parse extra config lines (key=value format)
         extra_config = config_entry.get("config", "")
@@ -475,6 +470,17 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 if "=" in line:
                     k, v = line.split("=", 1)
                     properties[k.strip()] = v.strip()
+
+        # Connection settings and the ownership marker are derived from the
+        # relation, so they are applied last and cannot be overridden.
+        properties.update(
+            {
+                "connection-url": url,
+                "connection-user": pg.username,
+                "connection-password": f"${{ENV:{_env_var_name(database)}}}",
+                "query.comment-format": DYNAMIC_CATALOG_MARKER,
+            }
+        )
 
         return properties
 
