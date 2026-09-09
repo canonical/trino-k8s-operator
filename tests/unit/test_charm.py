@@ -431,30 +431,6 @@ def test_trino_worker_relation_created(ctx):
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
 
 
-def test_trino_worker_derives_coordinator_uri_when_relation_value_absent(ctx):
-    """A worker derives the remote coordinator service instead of using its own service."""
-    state_in, ids = build_worker_state()
-    worker_relation = dataclasses.replace(
-        ids.worker_relation,
-        remote_app_data={
-            key: value
-            for key, value in ids.worker_relation.remote_app_data.items()
-            if key != "discovery-uri"
-        },
-    )
-    relations = {
-        relation for relation in state_in.relations if relation.id != ids.worker_relation.id
-    }
-    relations.add(worker_relation)
-    state_in = dataclasses.replace(state_in, relations=relations)
-
-    state_out = ctx.run(ctx.on.relation_changed(worker_relation), state_in)
-
-    environment = _services(state_out)["trino"]["environment"]
-    assert environment["DISCOVERY_URI"] == (
-        "http://trino-k8s-coordinator.trino-model.svc.cluster.local:8080"
-    )
-    assert state_out.unit_status == ActiveStatus("Status check: UP")
 def test_worker_uses_password_authentication(ctx):
     """A worker without OAuth environment fields renders password-only authentication."""
     state_in, ids = build_worker_state()

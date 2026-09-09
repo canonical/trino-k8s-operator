@@ -507,34 +507,29 @@ def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
     pods = [f"{APP_NAME}-0", *(f"{WORKER_NAME}-{unit}" for unit in range(workers))]
     original_uids = {pod["metadata"]["name"]: pod["metadata"]["uid"] for pod in _get_pods(juju)}
     original_uids = {name: original_uids[name] for name in pods}
-    old_retry_hooks = juju.model_config()["automatically-retry-hooks"]
-    try:
-        juju.model_config({"automatically-retry-hooks": True})
-        subprocess.run(  # nosec B603 B607
-            [
-                "kubectl",
-                "delete",
-                "pod",
-                *pods,
-                "-n",
-                juju.model,
-                "--grace-period=0",
-                "--force",
-            ],
-            check=True,
-            timeout=330,
-        )
-        _wait_for_replacement_pods(juju, original_uids)
-        wait_for_apps(
-            juju,
-            [APP_NAME, WORKER_NAME],
-            status="active",
-            idle_period=30,
-            timeout=1000,
-        )
-        wait_for_active_workers(juju, workers, timeout=1000)
-    finally:
-        juju.model_config({"automatically-retry-hooks": old_retry_hooks})
+    subprocess.run(  # nosec B603 B607
+        [
+            "kubectl",
+            "delete",
+            "pod",
+            *pods,
+            "-n",
+            juju.model,
+            "--grace-period=0",
+            "--force",
+        ],
+        check=True,
+        timeout=330,
+    )
+    _wait_for_replacement_pods(juju, original_uids)
+    wait_for_apps(
+        juju,
+        [APP_NAME, WORKER_NAME],
+        status="active",
+        idle_period=30,
+        timeout=1000,
+    )
+    wait_for_active_workers(juju, workers, timeout=1000)
 
 
 def _get_pods(juju: jubilant.Juju) -> list[dict]:
