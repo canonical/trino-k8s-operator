@@ -384,6 +384,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return
 
         duplicates = self._duplicate_catalog_names()
+        if duplicates is None:
+            event.add_status(BlockedStatus("invalid catalog configuration"))
+            return
         if duplicates:
             event.add_status(
                 BlockedStatus(
@@ -845,21 +848,43 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             config_filename="session-property-config.json",
         )
 
-    def _duplicate_catalog_names(self) -> set:
+    def _duplicate_catalog_names(self):
         """Return catalog names claimed by both static and dynamic desired state.
 
-        A cheap, side-effect-free name-level check for `collect-unit-status`:
-        it reads the statically configured catalog names directly from
-        `catalog-config` and the dynamic catalog names from PostgreSQL
-        relations, without rendering or pushing any catalog content.
+        Static names are taken from the rendered desired state so that
+        connectors which expand into several catalogs, such as SQL replicas,
+        are compared under the names they actually claim. Only names are
+        derived here, so the rendered truststore password is irrelevant.
 
         Returns:
-            The set of catalog names claimed by both sources.
+            The set of catalog names claimed by both sources, or None when the
+            static catalogs could not be rendered.
         """
-        catalog_index = yaml.safe_load(self._effective_catalog_config() or "")
-        static_names = set((catalog_index or {}).get("catalogs", {}))
+        static = self._render_catalogs_safe(self.state.java_truststore_pwd or "")
+        if static is None:
+            return None
+        static_names, _, _ = static
         dynamic_names = set(self.postgresql_catalog_handler.render_dynamic_catalogs())
-        return static_names & dynamic_names
+        return set(static_names) & dynamic_names
+
+    def _render_catalogs_safe(self, truststore_pwd):
+        """Render the static catalogs, reporting failure instead of raising.
+
+        Args:
+            truststore_pwd: The stable truststore password embedded in catalog
+                property files.
+
+        Returns:
+            The `_render_catalogs` result, or None when rendering failed so
+            that the caller can leave the workload untouched.
+        """
+        try:
+            return self._render_catalogs(truststore_pwd)
+        except Exception as e:
+            # Rendering failures can carry secret content, so only the failure
+            # type is recorded.
+            logger.error("Unable to render catalog configuration: %s", type(e).__name__)
+            return None
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
@@ -1116,15 +1141,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         }
 
     def _clean_catalog_dir(self, container):
-        """Remove the catalog directory when no worker relation is present.
+        """Remove the charm-owned catalog directories when no worker relation is present.
 
         Args:
             container: The Trino container.
         """
-        try:
-            container.remove_path(self.catalog_abs_path, recursive=True)
-        except PathError:
-            pass
+        for path in (self.catalog_abs_path, self.credential_abs_path):
+            try:
+                container.remove_path(path, recursive=True)
+            except PathError:
+                pass
 
     def _pebble_layer(self, env, is_coordinator):
         """Build the Trino Pebble layer.
@@ -1237,7 +1263,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # (pure); the PG relation databag write is a pure write too and must
         # happen regardless of Trino readiness, so the provider can start
         # provisioning while the live SQL below waits for a reachable server.
-        static_catalogs, catalog_credentials, conf_certs = self._render_catalogs(truststore_pwd)
+        rendered_static = self._render_catalogs_safe(truststore_pwd)
+        if rendered_static is None:
+            return
+        static_catalogs, catalog_credentials, conf_certs = rendered_static
         if is_coordinator:
             self.postgresql_catalog_handler._write_databag()
 
