@@ -52,6 +52,7 @@ from literals import (
     CERTIFICATE_NAME,
     CONF_DIR,
     CONFIG_FILES,
+    CREDENTIAL_DIR,
     DEFAULT_CREDENTIALS,
     DEFAULT_JVM_OPTIONS,
     INDEX_NAME,
@@ -122,6 +123,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         trino_abs_path: The absolute path for Trino home directory.
         catalog_abs_path: The absolute path for the catalog directory.
         conf_abs_path: The absolute path for the conf directory.
+        credential_abs_path: The absolute path for the connector credentials directory.
         truststore_abs_path: The absolute path for the truststore.
     """
 
@@ -162,6 +164,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     def conf_abs_path(self):
         """Return the catalog absolute path."""
         return self.trino_abs_path.joinpath(CONF_DIR)
+
+    @property
+    def credential_abs_path(self):
+        """Return the connector credentials absolute path."""
+        return self.trino_abs_path.joinpath(CREDENTIAL_DIR)
 
     @property
     def truststore_abs_path(self):
@@ -632,7 +639,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         add_users_to_password_db(container, credentials, db_path)
 
     def _configure_catalogs(self, container, truststore_pwd):
-        """Render static catalog property files and collect their hashes and certs.
+        """Render and push static catalog and credential files.
 
         Args:
             container: The Trino container.
@@ -661,11 +668,22 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
             catalog_instance = self._create_catalog_instance(truststore_pwd, name, info, backend)
-            batch = catalog_instance.configure_catalogs()
-            upserted_catalogs.extend(batch)
-            for key, content in catalog_instance.rendered.items():
+            rendered = catalog_instance.render()
+            upserted_catalogs.extend(rendered.properties.keys())
+            for key, content in rendered.properties.items():
+                container.push(
+                    self.catalog_abs_path.joinpath(f"{key}.properties"),
+                    content,
+                    make_dirs=True,
+                )
                 file_hashes[self._hash_key(f"catalog_{key}.properties")] = content_hash(content)
-            desired_certs.update(catalog_instance.desired_certs)
+            for credential_name, credential_content in rendered.credentials.items():
+                container.push(
+                    self.credential_abs_path.joinpath(credential_name),
+                    credential_content,
+                    make_dirs=True,
+                )
+            desired_certs.update(rendered.certs)
 
         # Remove obsolete catalog files that are neither config- nor relation-managed.
         if container.isdir(self.catalog_abs_path):

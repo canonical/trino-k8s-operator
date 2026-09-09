@@ -3,6 +3,7 @@
 
 """Trino catalog classes."""
 
+import dataclasses
 import logging
 import textwrap
 from abc import ABC, abstractmethod
@@ -16,15 +17,25 @@ from utils import validate_keys
 logger = logging.getLogger(__name__)
 
 
-class CatalogBase(ABC):
-    """The base class for all catalog configurations.
+@dataclasses.dataclass(frozen=True)
+class RenderedCatalog:
+    """The desired state produced by rendering a single catalog.
 
     Attrs:
-        desired_certs: Certificates the catalog wants present in the truststore,
+        properties: Mapping of catalog file stem to `.properties` text.
+        credentials: Mapping of credential file name (including the `.json`
+            suffix) to text content.
+        certs: Certificates the catalog wants present in the truststore,
             keyed by alias, collected for central truststore reconciliation.
-        rendered: Rendered `.properties` content keyed by catalog file stem,
-            used by the charm to hash file contents for the Pebble plan.
     """
+
+    properties: dict
+    credentials: dict
+    certs: dict
+
+
+class CatalogBase(ABC):
+    """The base class for all catalog configurations."""
 
     def __init__(self, charm, truststore_pwd, name, info, backend):
         """Construct.
@@ -41,49 +52,22 @@ class CatalogBase(ABC):
         self.name = name
         self.info = info
         self.backend = backend
-        self.desired_certs = {}
-        self.rendered = {}
 
-    def _add_catalog(self, catalogs):
-        """Add catalogs to Trino.
+    def _resolve_placeholders(self, catalogs):
+        """Substitute truststore placeholders in rendered catalog properties.
 
         Args:
-            catalogs: the catalogs to add.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
+            catalogs: mapping of catalog file stem to `.properties` text.
 
-        for key, value in catalogs.items():
-            config = value.replace("{SSL_PATH}", str(self.charm.truststore_abs_path)).replace(
+        Returns:
+            A new mapping with `{SSL_PATH}` and `{SSL_PWD}` substituted.
+        """
+        return {
+            key: value.replace("{SSL_PATH}", str(self.charm.truststore_abs_path)).replace(
                 "{SSL_PWD}", self.truststore_pwd
             )
-
-            self.rendered[key] = config
-            container.push(
-                self.charm.catalog_abs_path.joinpath(f"{key}.properties"),
-                config,
-                make_dirs=True,
-            )
-
-    def _add_certs(self, certs):
-        """Collect certificates for central truststore reconciliation.
-
-        Args:
-            certs: the certificates to add.
-        """
-        if not certs:
-            return
-
-        self.desired_certs.update(certs)
-
-    def _add_service_account(self, sa_string, sa_creds_path):
-        """Add service account credentials.
-
-        Args:
-            sa_string: the service account credentials as a string.
-            sa_creds_path: the path to the service account file.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
-        container.push(sa_creds_path, sa_string, make_dirs=True)
+            for key, value in catalogs.items()
+        }
 
     def _get_secret_content(self, secret_id):
         """Get the content of a Juju secret.
@@ -107,34 +91,42 @@ class CatalogBase(ABC):
 
     @abstractmethod
     def _get_credentials(self):
-        """Handle connector-specific logic for retrieving credentials."""
+        """Handle connector-specific logic for retrieving credentials.
+
+        Returns:
+            A tuple of (data needed by `_create_properties`, truststore
+            certificates keyed by alias, empty for connectors with none).
+        """
 
     @abstractmethod
     def _create_properties(self, secret_content):
         """Handle connector-specific logic for creating the `.properties` file.
 
         Args:
-            secret_content: the content of the juju secret.
-        """
-
-    def configure_catalogs(self):
-        """Manage catalog properties files and create the appropriate catalog instance.
+            secret_content: the data returned by `_get_credentials`.
 
         Returns:
-            List of names of the catalogs created.
+            A tuple of (catalog properties keyed by file stem, credential
+            file contents keyed by file name, empty for connectors with
+            none).
+        """
+
+    def render(self):
+        """Render this catalog's desired properties, credentials and certs.
+
+        Returns:
+            The `RenderedCatalog` desired state.
 
         Raises:
-            Exception: in case of error adding catalog.
+            Exception: in case of error rendering the catalog.
         """
         try:
-            secret_content = self._get_credentials()
-            catalogs = self._create_properties(secret_content)
-            self._add_catalog(catalogs)
-            connector = self.backend["connector"]
-            logger.info(f"{connector} catalog {self.name!r} added successfully")
-            return list(catalogs.keys())
+            secret_content, certs = self._get_credentials()
+            properties, credentials = self._create_properties(secret_content)
+            properties = self._resolve_placeholders(properties)
+            return RenderedCatalog(properties=properties, credentials=credentials, certs=certs)
         except Exception as e:
-            logger.error(f"Unable to add catalog {self.name!r}: {e}")
+            logger.error(f"Unable to render catalog {self.name!r}: {e}")
             raise
 
 
@@ -145,7 +137,8 @@ class BigqueryCatalog(CatalogBase):
         """Handle BigQuery catalog configuration.
 
         Returns:
-            sa_creds_path: the path of the service account credentials.
+            A tuple of (the service account credentials as a string, an
+            empty certs mapping).
         """
         validate_keys(self.backend, BIGQUERY_BACKEND_SCHEMA)
 
@@ -153,21 +146,20 @@ class BigqueryCatalog(CatalogBase):
         service_accounts = secret["service-accounts"]
         sa_dict = yaml.safe_load(service_accounts)
         sa_string = sa_dict[self.info["project"]]
+        return sa_string, {}
 
-        sa_creds_path = self.charm.conf_abs_path.joinpath(f"{self.name}.json")
-        self._add_service_account(sa_string, sa_creds_path)
-        return sa_creds_path
-
-    def _create_properties(self, sa_creds_path):
+    def _create_properties(self, sa_string):
         """Create the BigQuery connector catalog files.
 
         Args:
-            sa_creds_path: the path of the service account credentials.
+            sa_string: the service account credentials as a string.
 
         Returns:
-            catalog: a dictionary of catalog name and configuration.
+            A tuple of (catalog name to configuration, credential file name
+            to content).
         """
-        catalog = {}
+        credential_name = f"{self.name}.json"
+        sa_creds_path = self.charm.credential_abs_path.joinpath(credential_name)
 
         catalog_content = textwrap.dedent(
             f"""\
@@ -177,18 +169,18 @@ class BigqueryCatalog(CatalogBase):
             """
         )
         catalog_content += self.backend.get("config", "")
-        catalog[self.name] = catalog_content
-        return catalog
+        return {self.name: catalog_content}, {credential_name: sa_string}
 
 
 class GsheetCatalog(CatalogBase):
     """Class for handling the Google Sheets connector."""
 
     def _get_credentials(self):
-        """Handle BigQuery catalog configuration.
+        """Handle Google Sheets catalog configuration.
 
         Returns:
-            sa_creds_path: the path of the service account credentials.
+            A tuple of (the service account credentials as a string, an
+            empty certs mapping).
         """
         validate_keys(self.backend, GSHEETS_BACKEND_SCHEMA)
 
@@ -196,22 +188,20 @@ class GsheetCatalog(CatalogBase):
         service_accounts = secret["service-accounts"]
         sa_dict = yaml.safe_load(service_accounts)
         sa_string = sa_dict[self.name]
+        return sa_string, {}
 
-        sa_creds_path = self.charm.conf_abs_path.joinpath(f"{self.name}.json")
-        self._add_service_account(sa_string, sa_creds_path)
-
-        return sa_creds_path
-
-    def _create_properties(self, sa_creds_path):
-        """Create the BigQuery connector catalog files.
+    def _create_properties(self, sa_string):
+        """Create the Google Sheets connector catalog files.
 
         Args:
-            sa_creds_path: the path of the service account credentials.
+            sa_string: the service account credentials as a string.
 
         Returns:
-            catalog: a dictionary of catalog name and configuration.
+            A tuple of (catalog name to configuration, credential file name
+            to content).
         """
-        catalog = {}
+        credential_name = f"{self.name}.json"
+        sa_creds_path = self.charm.credential_abs_path.joinpath(credential_name)
 
         catalog_content = textwrap.dedent(
             f"""\
@@ -221,16 +211,19 @@ class GsheetCatalog(CatalogBase):
             """
         )
         catalog_content += self.backend.get("config", "")
-        catalog[self.name] = catalog_content
-        return catalog
+        return {self.name: catalog_content}, {credential_name: sa_string}
 
 
 class HiveCatalog(CatalogBase):
     """Class for handling the Hive connector."""
 
     def _get_credentials(self):
-        """No-op fetch method for a connector with no credentials."""
-        return None
+        """No-op fetch method for a connector with no credentials.
+
+        Returns:
+            A tuple of (None, an empty certs mapping).
+        """
+        return None, {}
 
     def _create_properties(self, secret_content):
         """Create the Hive connector catalog files.
@@ -239,15 +232,13 @@ class HiveCatalog(CatalogBase):
             secret_content: unused argument.
 
         Returns:
-            catalog: a dictionary of catalog name and configuration.
+            A tuple of (catalog name to configuration, an empty credentials
+            mapping).
         """
-        catalog = {}
-
         catalog_content = textwrap.dedent(
             f"""\
             connector.name={self.backend["connector"]}
             hive.metastore.uri={self.backend["url"]}
             """
         )
-        catalog[self.name] = catalog_content
-        return catalog
+        return {self.name: catalog_content}, {}
