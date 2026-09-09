@@ -124,13 +124,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
     @property
     def _cluster_local_coordinator_uri(self):
         """Return the cluster-local service URI for the Trino coordinator."""
-        return self._cluster_local_service_uri(self.app.name)
-
-    def _cluster_local_service_uri(self, application_name):
-        """Return the cluster-local service URI for an application."""
+        host = self.app.name
         namespace = self.model.name
         port = TRINO_PORTS["HTTP"]
-        return f"http://{application_name}.{namespace}.svc.cluster.local:{port}"
+        return f"http://{host}.{namespace}.svc.cluster.local:{port}"
 
     @property
     def _coordinator_discovery_uri(self):
@@ -401,9 +398,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
 
         if cfg.charm_function == "worker" and self.model.relations[TRINO_WORKER_RELATION_NAME]:
-            if not self._effective_discovery_uri():
-                event.add_status(WaitingStatus("waiting for coordinator to publish discovery URI"))
-                return
             if self._get_int_comms_secret_value() is None:
                 event.add_status(
                     WaitingStatus(
@@ -885,22 +879,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """Return the discovery URI for this unit's role.
 
         Coordinators advertise their own discovery URI; workers read the value
-        published by the coordinator on the trino-worker relation. If that
-        value is temporarily unavailable during pod recovery, a same-cluster
-        worker derives the coordinator service URI from the remote application
-        name rather than incorrectly using its own application name.
+        published by the coordinator on the trino-worker relation.
 
         Returns:
-            The discovery URI, or None when a worker has no coordinator relation.
+            The discovery URI, or None when a worker has no coordinator data yet.
         """
         if self.config.charm_function == "worker":
-            discovery_uri = self.trino_worker.get_coordinator_data()["discovery_uri"]
-            if discovery_uri:
-                return discovery_uri
-            relation = self.model.get_relation(TRINO_WORKER_RELATION_NAME)
-            if relation is not None and relation.app is not None:
-                return self._cluster_local_service_uri(relation.app.name)
-            return None
+            return self.trino_worker.get_coordinator_data()["discovery_uri"]
         return self._coordinator_discovery_uri
 
     def _effective_catalog_config(self):
@@ -952,7 +937,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
             "WEB_PROXY": cfg.web_proxy,
             "CHARM_FUNCTION": cfg.charm_function,
-            "DISCOVERY_URI": self._effective_discovery_uri(),
+            "DISCOVERY_URI": self._effective_discovery_uri() or self._coordinator_discovery_uri,
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "TRINO_HOME": str(self.trino_abs_path),
@@ -1135,12 +1120,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         int_comms_secret = self._get_int_comms_secret_value()
         if is_coordinator and int_comms_secret is None:
-            return
-        if (
-            function == "worker"
-            and self.model.relations[TRINO_WORKER_RELATION_NAME]
-            and not self._effective_discovery_uri()
-        ):
             return
         if (
             function == "worker"
