@@ -3,7 +3,6 @@
 
 """PostgreSQL catalog relation handler."""
 
-import hashlib
 import json
 import logging
 from typing import Callable, Optional
@@ -23,6 +22,14 @@ DYNAMIC_CATALOG_MARKER = "dynamic catalog"
 logger = logging.getLogger(__name__)
 
 
+class CatalogSQLError(Exception):
+    """Raised when a CREATE/DROP CATALOG statement fails against Trino."""
+
+
+class CatalogAlreadyExistsError(CatalogSQLError):
+    """Raised when Trino explicitly reports that a catalog already exists."""
+
+
 def _env_var_name(database: str) -> str:
     """Derive the pebble environment variable name for a database password.
 
@@ -33,6 +40,63 @@ def _env_var_name(database: str) -> str:
         Environment variable name, e.g. `PG_PASS_MYDB`.
     """
     return PASS_ENV_VAR_PREFIX + database.upper().replace("-", "_")
+
+
+def _parse_properties(raw: str) -> dict:
+    """Parse a Java `.properties` file into a dict.
+
+    Handles backslash-escaped colons and equals signs that Trino writes
+    when persisting dynamic catalogs.
+
+    Args:
+        raw: The raw file content.
+
+    Returns:
+        Dict of property key-value pairs.
+    """
+    props = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Java properties use first unescaped = or : as separator
+        line = line.replace("\\:", ":").replace("\\=", "=")
+        if "=" in line:
+            k, v = line.split("=", 1)
+            props[k.strip()] = v.strip()
+    return props
+
+
+def canonical_properties(properties: dict) -> str:
+    """Render catalog properties into a canonical comparable form.
+
+    Drops `connector.name`, which Trino adds on its own when persisting a
+    catalog, and emits `key=value` lines sorted by key so that a
+    Trino-rewritten file and the charm's own rendering of the same desired
+    state compare equal.
+
+    Args:
+        properties: Catalog properties.
+
+    Returns:
+        Canonical "key=value" lines, one per property, joined by newlines.
+    """
+    filtered = {
+        k.strip(): v.strip() for k, v in properties.items() if k.strip() != "connector.name"
+    }
+    return "\n".join(f"{k}={filtered[k]}" for k in sorted(filtered))
+
+
+def canonical_from_raw(raw: str) -> str:
+    """Parse and canonicalise a raw `.properties` file.
+
+    Args:
+        raw: Raw file content, potentially written by Trino.
+
+    Returns:
+        The canonical serialization; see `canonical_properties`.
+    """
+    return canonical_properties(_parse_properties(raw))
 
 
 class PostgresqlRelationModel(pydantic.BaseModel):
@@ -166,37 +230,69 @@ class PostgresqlCatalogRelationHandler(framework.Object):
 
         self._write_databag()
 
-        wanted_catalogs, _ = self._compute_wanted_catalogs()
+        wanted_catalogs = self.render_dynamic_catalogs()
 
-        if not self._is_trino_reachable():
+        if not self.is_trino_ready():
             logger.warning("Trino not reachable, skipping catalog reconciliation")
             return
 
         tracked_catalogs = self._read_tracked_catalogs()
 
-        # DROP catalogs that should no longer exist.
+        # DROP catalogs that should no longer exist. A failure here is
+        # logged and skipped so it never stops the rest of the reconciliation.
         to_drop = set(tracked_catalogs) - set(wanted_catalogs)
         for name in to_drop:
             logger.info("Dropping relation catalog %r", name)
-            self._drop_catalog(name)
+            try:
+                self.drop_catalog(name)
+            except CatalogSQLError:
+                logger.error("Failed to drop catalog %r", name, exc_info=True)
 
-        # CREATE new catalogs and UPDATE changed ones (drop + re-create)
+        # CREATE new catalogs and UPDATE changed ones (drop + re-create).
         for name, props in wanted_catalogs.items():
-            props_hash = self._hash_properties(props)
-            tracked_hash = tracked_catalogs.get(name)
+            tracked_canonical = tracked_catalogs.get(name)
 
             # Already up-to-date
-            if tracked_hash == props_hash:
+            if tracked_canonical == canonical_properties(props):
                 continue
 
             is_update = name in tracked_catalogs
             action = "Updating" if is_update else "Creating"
             logger.info("%s relation catalog %r", action, name)
 
-            # Trino has no ALTER CATALOG; drop first then re-create
+            # Trino has no ALTER CATALOG; drop first then re-create.
             if is_update:
-                self._drop_catalog(name)
-            self._create_catalog(name, props)
+                try:
+                    self.drop_catalog(name)
+                except CatalogSQLError:
+                    logger.error("Failed to drop catalog %r before update", name, exc_info=True)
+                    continue
+
+            self._create_or_recreate_catalog(name, props)
+
+    def _create_or_recreate_catalog(self, name, properties):
+        """Create a catalog, recreating it if Trino reports it already exists.
+
+        A stale catalog left over from a previous reconciliation run is the
+        only situation in which an already-exists report is safe to treat as
+        a signal to drop and recreate; any other SQL failure is logged and
+        left for a later reconciliation.
+
+        Args:
+            name: The catalog name.
+            properties: Dict of catalog properties.
+        """
+        try:
+            self.create_catalog(name, properties)
+        except CatalogAlreadyExistsError:
+            logger.warning("Catalog %r already exists, recreating", name)
+            try:
+                self.drop_catalog(name)
+                self.create_catalog(name, properties)
+            except CatalogSQLError:
+                logger.error("Failed to recreate catalog %r", name, exc_info=True)
+        except CatalogSQLError:
+            logger.error("Failed to create catalog %r", name, exc_info=True)
 
     def get_desired_tls_certs(self) -> dict:
         """Return the desired TLS CA certificates for PostgreSQL relations.
@@ -238,15 +334,29 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         _, env_vars = self._compute_wanted_catalogs()
         return env_vars
 
+    def render_dynamic_catalogs(self) -> dict[str, dict[str, str]]:
+        """Return desired dynamic catalog properties from relations and config.
+
+        Pure: reads only relation data and charm config, never touches the
+        container or Trino.
+
+        Returns:
+            Mapping of catalog name to its rendered properties.
+        """
+        if self.charm.config.charm_function not in ("coordinator", "all"):
+            return {}
+        catalogs, _ = self._compute_wanted_catalogs()
+        return catalogs
+
     def _read_tracked_catalogs(self) -> dict:
         """Read dynamic catalogs from `.properties` files on disk.
 
         Scans the catalog directory for `.properties` files that contain
-        the `query.comment-format=dynamic catalog` marker and returns
-        a dict of catalog names to property hashes.
+        the `query.comment-format=dynamic catalog` marker.
 
         Returns:
-            Dict mapping catalog name to SHA-256 hash of its properties.
+            Dict mapping catalog name to the canonical serialization of its
+            on-disk properties.
         """
         container = self.charm.unit.get_container(self.charm.name)
         if not container.can_connect():
@@ -278,40 +388,14 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 logger.warning("Failed to read %s", file_path, exc_info=True)
                 continue
             try:
-                props = self._parse_properties(raw)
+                props = _parse_properties(raw)
             except Exception:
                 logger.warning("Failed to parse %s", file_path, exc_info=True)
                 continue
             if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
                 catalog_name = f.name[: -len(".properties")]
-                props.pop("connector.name", None)
-                tracked[catalog_name] = self._hash_properties(props)
+                tracked[catalog_name] = canonical_properties(props)
         return tracked
-
-    @staticmethod
-    def _parse_properties(raw: str) -> dict:
-        """Parse a Java `.properties` file into a dict.
-
-        Handles backslash-escaped colons and equals signs that Trino
-        writes when persisting dynamic catalogs.
-
-        Args:
-            raw: The raw file content.
-
-        Returns:
-            Dict of property key-value pairs.
-        """
-        props = {}
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # Java properties use first unescaped = or : as separator
-            line = line.replace("\\:", ":").replace("\\=", "=")
-            if "=" in line:
-                k, v = line.split("=", 1)
-                props[k.strip()] = v.strip()
-        return props
 
     def _write_databag(self):
         """Write database and requested-secrets for relations missing them."""
@@ -529,7 +613,7 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         url = f"jdbc:postgresql://{pg.all_endpoints}/{database}"
         return f"{url}?{'&'.join(params)}"
 
-    def _is_trino_reachable(self) -> bool:
+    def is_trino_ready(self) -> bool:
         """Check if Trino is reachable and finished initializing.
 
         Returns:
@@ -578,43 +662,76 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             sql: The SQL statement to execute.
 
         Raises:
-            RuntimeError: If the SQL execution fails.
+            CatalogAlreadyExistsError: Trino reported that the catalog
+                already exists.
+            CatalogSQLError: The request failed, or Trino reported any
+                other error.
         """
         user = self._get_trino_user()
         headers = {"X-Trino-User": user}
 
-        resp = requests.post(
-            "http://localhost:8080/v1/statement",
-            data=sql,
-            headers=headers,
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        # Follow nextUri until completion
-        while "nextUri" in data:
-            resp = requests.get(data["nextUri"], headers=headers, timeout=30.0)
+        try:
+            resp = requests.post(
+                "http://localhost:8080/v1/statement",
+                data=sql,
+                headers=headers,
+                timeout=30.0,
+            )
             resp.raise_for_status()
             data = resp.json()
-            if "error" in data:
-                raise RuntimeError(
-                    f"Trino SQL error: {data['error'].get('message', data['error'])}"
-                )
+            self._raise_for_trino_error(data)
 
-    def _create_catalog(self, name, properties):
+            # Follow nextUri until completion.
+            while "nextUri" in data:
+                resp = requests.get(data["nextUri"], headers=headers, timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+                self._raise_for_trino_error(data)
+        except requests.RequestException as err:
+            raise CatalogSQLError(f"Trino SQL request failed: {err}") from err
+
+    @staticmethod
+    def _raise_for_trino_error(data: dict) -> None:
+        """Raise a typed error if a Trino statement response reports one.
+
+        Only an explicit "catalog already exists" report is classified as
+        `CatalogAlreadyExistsError`; every other error (unavailability,
+        authorization, invalid properties) raises the base `CatalogSQLError`
+        so callers cannot mistake it for a safe-to-drop condition.
+
+        Args:
+            data: A decoded Trino statement API response.
+
+        Raises:
+            CatalogAlreadyExistsError: Trino reported the catalog exists.
+            CatalogSQLError: Trino reported any other error.
+        """
+        error = data.get("error")
+        if not error:
+            return
+        error_name = error.get("errorName", "")
+        message = str(error.get("message", ""))
+        # The exception message intentionally omits the raw Trino message,
+        # which may echo back invalid property values.
+        if error_name == "CATALOG_ALREADY_EXISTS" or "already exists" in message.lower():
+            raise CatalogAlreadyExistsError(f"Catalog already exists ({error_name or 'unknown'})")
+        raise CatalogSQLError(f"Trino reported error {error_name or 'unknown'}")
+
+    def create_catalog(self, name, properties):
         """Create a Trino catalog via SQL.
 
         Args:
             name: The catalog name.
-            properties: Dict of catalog properties.
+            properties: Dict of catalog properties (may contain credentials).
+
+        Raises:
+            CatalogAlreadyExistsError: Trino reported that the catalog
+                already exists.
+            CatalogSQLError: SQL execution failed for another reason.
         """
         sql = self._build_catalog_sql(name, properties)
-        try:
-            self._execute_sql(sql)
-            logger.info("Created catalog %r", name)
-        except Exception as e:
-            logger.error("Failed to create catalog %r: %s", name, e)
+        self._execute_sql(sql)
+        logger.info("Created catalog %r", name)
 
     @staticmethod
     def _build_catalog_sql(name, properties) -> str:
@@ -630,27 +747,14 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         props_sql = ",\n  ".join(f"\"{k}\" = '{v}'" for k, v in properties.items())
         return f'CREATE CATALOG "{name}" USING postgresql\nWITH (\n  {props_sql}\n)'
 
-    def _drop_catalog(self, name):
+    def drop_catalog(self, name):
         """Drop a Trino catalog via SQL.
 
         Args:
             name: The catalog name to drop.
+
+        Raises:
+            CatalogSQLError: SQL execution failed.
         """
-        try:
-            self._execute_sql(f'DROP CATALOG IF EXISTS "{name}"')
-            logger.info("Dropped catalog %r", name)
-        except Exception as e:
-            logger.error("Failed to drop catalog %r: %s", name, e)
-
-    @staticmethod
-    def _hash_properties(properties) -> str:
-        """Create a stable hash of catalog properties for change detection.
-
-        Args:
-            properties: Dict of catalog properties.
-
-        Returns:
-            Hex digest string.
-        """
-        serialized = json.dumps(properties, sort_keys=True)
-        return hashlib.sha256(serialized.encode()).hexdigest()
+        self._execute_sql(f'DROP CATALOG IF EXISTS "{name}"')
+        logger.info("Dropped catalog %r", name)

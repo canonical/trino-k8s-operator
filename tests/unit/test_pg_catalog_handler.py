@@ -5,16 +5,24 @@
 
 # pylint:disable=protected-access
 
+from types import SimpleNamespace
 from unittest import TestCase, mock
 
+import requests
 import yaml
 from pydantic import ValidationError
 
 from config import CharmConfig
+from literals import POSTGRESQL_RELATION_NAME
 from relations.postgresql_catalog import (
     DYNAMIC_CATALOG_MARKER,
+    CatalogAlreadyExistsError,
+    CatalogSQLError,
     PostgresqlCatalogRelationHandler,
     _env_var_name,
+    _parse_properties,
+    canonical_from_raw,
+    canonical_properties,
 )
 
 
@@ -39,12 +47,12 @@ class TestEnvVarName(TestCase):
 
 
 class TestParseProperties(TestCase):
-    """Tests for _parse_properties static method."""
+    """Tests for the _parse_properties module-level function."""
 
     def test_simple(self):
         """Verify simple key=value parsing."""
         raw = "key=value\nfoo=bar"
-        result = PostgresqlCatalogRelationHandler._parse_properties(raw)
+        result = _parse_properties(raw)
         self.assertEqual(result, {"key": "value", "foo": "bar"})
 
     def test_escaped_colon_and_equals(self):
@@ -53,7 +61,7 @@ class TestParseProperties(TestCase):
         raw = r"connection\=url\:jdbc\:postgresql\://host\:5432/db"
         # After unescaping: connection=url:jdbc:postgresql://host:5432/db
         # Split on first =: key="connection", value="url:jdbc:postgresql://host:5432/db"
-        result = PostgresqlCatalogRelationHandler._parse_properties(raw)
+        result = _parse_properties(raw)
         self.assertEqual(
             result,
             {"connection": "url:jdbc:postgresql://host:5432/db"},
@@ -62,48 +70,67 @@ class TestParseProperties(TestCase):
     def test_comments_and_blanks_skipped(self):
         """Verify comments and blank lines are ignored."""
         raw = "# comment\n\nkey=value\n  \n# another"
-        result = PostgresqlCatalogRelationHandler._parse_properties(raw)
+        result = _parse_properties(raw)
         self.assertEqual(result, {"key": "value"})
 
     def test_value_with_equals(self):
         """Verify values containing equals signs are preserved."""
         raw = "url=jdbc:postgresql://host:5432/db?a=1&b=2"
-        result = PostgresqlCatalogRelationHandler._parse_properties(raw)
+        result = _parse_properties(raw)
         self.assertEqual(result, {"url": "jdbc:postgresql://host:5432/db?a=1&b=2"})
 
     def test_whitespace_trimmed(self):
         """Verify surrounding whitespace is trimmed."""
         raw = "  key  =  value  "
-        result = PostgresqlCatalogRelationHandler._parse_properties(raw)
+        result = _parse_properties(raw)
         self.assertEqual(result, {"key": "value"})
 
     def test_empty_string(self):
         """Verify empty input returns empty dict."""
-        result = PostgresqlCatalogRelationHandler._parse_properties("")
+        result = _parse_properties("")
         self.assertEqual(result, {})
 
 
-class TestHashProperties(TestCase):
-    """Tests for _hash_properties static method."""
+class TestCanonicalProperties(TestCase):
+    """Tests for canonical_properties and canonical_from_raw."""
 
-    def test_deterministic(self):
-        """Verify same input produces same hash."""
-        props = {"b": "2", "a": "1"}
-        h1 = PostgresqlCatalogRelationHandler._hash_properties(props)
-        h2 = PostgresqlCatalogRelationHandler._hash_properties(props)
-        self.assertEqual(h1, h2)
+    def test_drops_connector_name_and_sorts(self):
+        """Verify connector.name is dropped and keys are sorted."""
+        result = canonical_properties({"connector.name": "postgresql", "b": "2", "a": "1"})
+        self.assertEqual(result, "a=1\nb=2")
 
-    def test_order_independent(self):
-        """Verify key insertion order does not affect hash."""
-        h1 = PostgresqlCatalogRelationHandler._hash_properties({"a": "1", "b": "2"})
-        h2 = PostgresqlCatalogRelationHandler._hash_properties({"b": "2", "a": "1"})
-        self.assertEqual(h1, h2)
+    def test_trino_written_file_matches_rendered_desired_state(self):
+        """Verify canonical serializations of Trino- and charm-rendered forms match.
 
-    def test_different_values_differ(self):
-        """Verify different values produce different hashes."""
-        h1 = PostgresqlCatalogRelationHandler._hash_properties({"a": "1"})
-        h2 = PostgresqlCatalogRelationHandler._hash_properties({"a": "2"})
-        self.assertNotEqual(h1, h2)
+        A file written by Trino (escaped colons/equals, connector.name added,
+        reordered keys) must canonicalise to the same string as the charm's
+        own rendering of the same desired properties.
+        """
+        desired = {
+            "connection-url": "jdbc:postgresql://host:5432/db",
+            "connection-user": "admin",
+            "connection-password": "${ENV:PG_PASS_DB}",
+            "query.comment-format": DYNAMIC_CATALOG_MARKER,
+        }
+        # Trino persists the file with connector.name added, keys reordered,
+        # and colons/equals escaped.
+        raw = (
+            "connector.name=postgresql\n"
+            "query.comment-format=dynamic catalog\n"
+            r"connection-user=admin"
+            "\n"
+            r"connection-password=${ENV\:PG_PASS_DB}"
+            "\n"
+            r"connection-url=jdbc\:postgresql\://host\:5432/db"
+            "\n"
+        )
+        self.assertEqual(canonical_from_raw(raw), canonical_properties(desired))
+
+    def test_property_value_change_differs(self):
+        """Verify a changed property value produces a different canonical string."""
+        original = canonical_properties({"connection-user": "admin"})
+        changed = canonical_properties({"connection-user": "other"})
+        self.assertNotEqual(original, changed)
 
 
 class TestBuildCatalogSql(TestCase):
@@ -185,14 +212,12 @@ class TestBuildJdbcUrl(TestCase):
 
 
 class TestTrinoReadiness(TestCase):
-    """Tests for _is_trino_reachable."""
+    """Tests for is_trino_ready."""
 
     def _make_handler(self):
         """Create a mock handler bound to the real readiness method."""
         handler = mock.MagicMock()
-        handler._is_trino_reachable = PostgresqlCatalogRelationHandler._is_trino_reachable.__get__(
-            handler
-        )
+        handler.is_trino_ready = PostgresqlCatalogRelationHandler.is_trino_ready.__get__(handler)
         return handler
 
     @mock.patch("relations.postgresql_catalog.requests.get")
@@ -202,7 +227,7 @@ class TestTrinoReadiness(TestCase):
             status_code=200, json=mock.MagicMock(return_value={"starting": False})
         )
         handler = self._make_handler()
-        self.assertTrue(handler._is_trino_reachable())
+        self.assertTrue(handler.is_trino_ready())
 
     @mock.patch("relations.postgresql_catalog.requests.get")
     def test_not_reachable_while_starting(self, mock_get):
@@ -211,20 +236,263 @@ class TestTrinoReadiness(TestCase):
             status_code=200, json=mock.MagicMock(return_value={"starting": True})
         )
         handler = self._make_handler()
-        self.assertFalse(handler._is_trino_reachable())
+        self.assertFalse(handler.is_trino_ready())
 
     @mock.patch("relations.postgresql_catalog.requests.get")
     def test_not_reachable_on_non_200(self, mock_get):
         """Verify not reachable when the health endpoint returns non-200."""
         mock_get.return_value = mock.MagicMock(status_code=503)
         handler = self._make_handler()
-        self.assertFalse(handler._is_trino_reachable())
+        self.assertFalse(handler.is_trino_ready())
 
     @mock.patch("relations.postgresql_catalog.requests.get", side_effect=Exception("boom"))
     def test_not_reachable_on_exception(self, _mock_get):
         """Verify not reachable when the request raises."""
         handler = self._make_handler()
-        self.assertFalse(handler._is_trino_reachable())
+        self.assertFalse(handler.is_trino_ready())
+
+
+class TestRenderDynamicCatalogs(TestCase):
+    """Tests for render_dynamic_catalogs."""
+
+    def _make_handler(
+        self, relations, config_by_relation, pg_by_relation, charm_function="coordinator"
+    ):
+        """Bind render_dynamic_catalogs and its pure collaborators to a mock handler."""
+        handler = mock.MagicMock()
+        handler.relation_name = POSTGRESQL_RELATION_NAME
+        handler.render_dynamic_catalogs = (
+            PostgresqlCatalogRelationHandler.render_dynamic_catalogs.__get__(handler)
+        )
+        handler._compute_wanted_catalogs = (
+            PostgresqlCatalogRelationHandler._compute_wanted_catalogs.__get__(handler)
+        )
+        handler._build_catalog_props = (
+            PostgresqlCatalogRelationHandler._build_catalog_props.__get__(handler)
+        )
+        handler._build_jdbc_url = PostgresqlCatalogRelationHandler._build_jdbc_url.__get__(handler)
+        handler.charm.config.charm_function = charm_function
+        handler.charm.model.relations = {POSTGRESQL_RELATION_NAME: relations}
+        handler.charm.truststore_abs_path = "/path/to/truststore"
+        handler._find_config_for_relation = mock.Mock(
+            side_effect=lambda r: config_by_relation.get(r)
+        )
+        handler._load_relation_data = mock.Mock(side_effect=lambda r: pg_by_relation.get(r))
+        return handler
+
+    @staticmethod
+    def _make_pg(prefix_databases="mydb", password="pw", username="user"):  # nosec B107
+        """Build a minimal stand-in for a PostgresqlRelationModel."""
+        return SimpleNamespace(
+            prefix_databases=prefix_databases,
+            password=password,
+            username=username,
+            all_endpoints="host:5432",
+            tls=False,
+            tls_ca=None,
+        )
+
+    def test_valid_relation_returns_expected_catalogs(self):
+        """Verify a fully configured relation yields the desired RO/RW catalogs."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        config_entry = {
+            "database_prefix": "mydb*",
+            "ro_catalog_name": "cat_ro",
+            "rw_catalog_name": "cat_rw",
+        }
+        pg = self._make_pg()
+        handler = self._make_handler([relation], {relation: config_entry}, {relation: pg})
+
+        catalogs = handler.render_dynamic_catalogs()
+
+        self.assertEqual(set(catalogs), {"cat_ro", "cat_rw"})
+        self.assertIn("targetServerType=preferSecondary", catalogs["cat_ro"]["connection-url"])
+        self.assertIn("targetServerType=primary", catalogs["cat_rw"]["connection-url"])
+
+    def test_skips_relation_missing_config(self):
+        """Verify a relation with no matching config entry is skipped."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        pg = self._make_pg()
+        handler = self._make_handler([relation], {}, {relation: pg})
+
+        self.assertEqual(handler.render_dynamic_catalogs(), {})
+
+    def test_skips_relation_missing_data(self):
+        """Verify a relation with no loadable data is skipped."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        config_entry = {"database_prefix": "mydb*", "ro_catalog_name": "cat_ro"}
+        handler = self._make_handler([relation], {relation: config_entry}, {})
+
+        self.assertEqual(handler.render_dynamic_catalogs(), {})
+
+    def test_skips_relation_with_multiple_prefix_databases(self):
+        """Verify a relation reporting more than one prefix database is skipped."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        config_entry = {"database_prefix": "mydb*", "ro_catalog_name": "cat_ro"}
+        pg = self._make_pg(prefix_databases="db1,db2")
+        handler = self._make_handler([relation], {relation: config_entry}, {relation: pg})
+
+        self.assertEqual(handler.render_dynamic_catalogs(), {})
+
+    def test_non_coordinator_returns_empty(self):
+        """Verify a non-coordinator charm function yields no catalogs."""
+        relation = mock.MagicMock(id=1)
+        relation.app.name = "pg-app"
+        config_entry = {"database_prefix": "mydb*", "ro_catalog_name": "cat_ro"}
+        pg = self._make_pg()
+        handler = self._make_handler(
+            [relation], {relation: config_entry}, {relation: pg}, charm_function="worker"
+        )
+
+        self.assertEqual(handler.render_dynamic_catalogs(), {})
+
+
+class TestCreateAndDropCatalog(TestCase):
+    """Tests for create_catalog and drop_catalog error classification."""
+
+    def _make_handler(self):
+        """Bind the executor methods to a mock handler using a default user."""
+        handler = mock.MagicMock()
+        handler.create_catalog = PostgresqlCatalogRelationHandler.create_catalog.__get__(handler)
+        handler.drop_catalog = PostgresqlCatalogRelationHandler.drop_catalog.__get__(handler)
+        handler._execute_sql = PostgresqlCatalogRelationHandler._execute_sql.__get__(handler)
+        handler._raise_for_trino_error = PostgresqlCatalogRelationHandler._raise_for_trino_error
+        handler._build_catalog_sql = PostgresqlCatalogRelationHandler._build_catalog_sql
+        handler._get_trino_user = PostgresqlCatalogRelationHandler._get_trino_user.__get__(handler)
+        handler.charm._effective_user_secret_id.return_value = None
+        return handler
+
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_create_catalog_success(self, mock_post):
+        """Verify create_catalog returns normally when Trino reports no error."""
+        mock_post.return_value = mock.MagicMock(
+            status_code=200, json=mock.MagicMock(return_value={})
+        )
+        handler = self._make_handler()
+        handler.create_catalog("cat", {"connection-url": "jdbc:postgresql://host/db"})
+
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_create_catalog_already_exists(self, mock_post):
+        """Verify an explicit already-exists report raises CatalogAlreadyExistsError."""
+        mock_post.return_value = mock.MagicMock(
+            status_code=200,
+            json=mock.MagicMock(
+                return_value={
+                    "error": {
+                        "errorName": "CATALOG_ALREADY_EXISTS",
+                        "message": "Catalog 'cat' already exists",
+                    }
+                }
+            ),
+        )
+        handler = self._make_handler()
+        with self.assertRaises(CatalogAlreadyExistsError):
+            handler.create_catalog("cat", {"connection-url": "jdbc:postgresql://host/db"})
+
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_create_catalog_other_error_in_first_response(self, mock_post):
+        """Verify a non-already-exists error in the first response raises the base error."""
+        mock_post.return_value = mock.MagicMock(
+            status_code=200,
+            json=mock.MagicMock(
+                return_value={
+                    "error": {
+                        "errorName": "INVALID_CATALOG_PROPERTY",
+                        "message": "invalid property",
+                    }
+                }
+            ),
+        )
+        handler = self._make_handler()
+        with self.assertRaises(CatalogSQLError) as ctx:
+            handler.create_catalog("cat", {"connection-url": "jdbc:postgresql://host/db"})
+        self.assertNotIsInstance(ctx.exception, CatalogAlreadyExistsError)
+
+    @mock.patch(
+        "relations.postgresql_catalog.requests.post",
+        side_effect=requests.ConnectionError("boom"),
+    )
+    def test_create_catalog_wraps_request_exception(self, _mock_post):
+        """Verify a requests exception is wrapped in CatalogSQLError."""
+        handler = self._make_handler()
+        with self.assertRaises(CatalogSQLError):
+            handler.create_catalog("cat", {"connection-url": "jdbc:postgresql://host/db"})
+
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_drop_catalog_raises_on_error(self, mock_post):
+        """Verify drop_catalog raises CatalogSQLError when Trino reports an error."""
+        mock_post.return_value = mock.MagicMock(
+            status_code=200,
+            json=mock.MagicMock(
+                return_value={"error": {"errorName": "GENERIC_INTERNAL_ERROR", "message": "boom"}}
+            ),
+        )
+        handler = self._make_handler()
+        with self.assertRaises(CatalogSQLError):
+            handler.drop_catalog("cat")
+
+
+class TestReconcilePostgresqlCatalogs(TestCase):
+    """Tests for reconcile_postgresql_catalogs orchestration over the primitives."""
+
+    def _make_handler(self, wanted, tracked, create_side_effect=None, drop_side_effect=None):
+        """Bind the orchestration methods to a mock handler with stubbed primitives."""
+        handler = mock.MagicMock()
+        handler.reconcile_postgresql_catalogs = (
+            PostgresqlCatalogRelationHandler.reconcile_postgresql_catalogs.__get__(handler)
+        )
+        handler._create_or_recreate_catalog = (
+            PostgresqlCatalogRelationHandler._create_or_recreate_catalog.__get__(handler)
+        )
+        handler.charm.config.charm_function = "coordinator"
+        handler._write_databag = mock.Mock()
+        handler.render_dynamic_catalogs = mock.Mock(return_value=wanted)
+        handler.is_trino_ready = mock.Mock(return_value=True)
+        handler._read_tracked_catalogs = mock.Mock(return_value=tracked)
+        handler.create_catalog = mock.Mock(side_effect=create_side_effect)
+        handler.drop_catalog = mock.Mock(side_effect=drop_side_effect)
+        return handler
+
+    def test_one_failing_catalog_does_not_block_others(self):
+        """Verify a create failure for one catalog does not stop the rest."""
+        wanted = {"cat_a": {"k": "v1"}, "cat_b": {"k": "v2"}}
+
+        def create_side_effect(name, _props):
+            if name == "cat_a":
+                raise CatalogSQLError("boom")
+
+        handler = self._make_handler(wanted, {}, create_side_effect=create_side_effect)
+
+        handler.reconcile_postgresql_catalogs()
+
+        created = [c.args[0] for c in handler.create_catalog.call_args_list]
+        self.assertEqual(sorted(created), ["cat_a", "cat_b"])
+
+    def test_drop_failure_does_not_block_creates(self):
+        """Verify a drop failure for an obsolete catalog does not stop new creates."""
+        wanted = {"cat_new": {"k": "v"}}
+        tracked = {"cat_old": "k=old"}
+        handler = self._make_handler(wanted, tracked, drop_side_effect=CatalogSQLError("boom"))
+
+        handler.reconcile_postgresql_catalogs()
+
+        handler.drop_catalog.assert_called_once_with("cat_old")
+        handler.create_catalog.assert_called_once_with("cat_new", {"k": "v"})
+
+    def test_unchanged_catalog_is_not_recreated(self):
+        """Verify a byte-identical canonical definition triggers no SQL."""
+        wanted = {"cat": {"a": "1"}}
+        tracked = {"cat": canonical_properties({"a": "1"})}
+        handler = self._make_handler(wanted, tracked)
+
+        handler.reconcile_postgresql_catalogs()
+
+        handler.create_catalog.assert_not_called()
+        handler.drop_catalog.assert_not_called()
 
 
 def _pg_yaml(entries: dict) -> str:
