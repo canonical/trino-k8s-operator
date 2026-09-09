@@ -14,6 +14,7 @@ https://discourse.charmhub.io/t/4208
 
 import json
 import logging
+import os
 import socket
 import subprocess  # nosec B404
 from pathlib import Path
@@ -86,13 +87,18 @@ from relations.trino_worker import TrinoWorker
 from sql_catalog import RedshiftCatalog, SqlCatalog
 from state import State
 from utils import (
+    ProxyConfigError,
     add_users_to_password_db,
     content_hash,
     generate_password,
+    jvm_proxy_options,
+    oauth_proxy_properties,
+    parse_proxy_url,
     reconcile_truststore,
     render,
     truststore_manifest_hash,
     update_opts,
+    validate_jvm_proxy_overrides,
     validate_keys,
 )
 
@@ -366,6 +372,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         try:
             self._validate_relations()
         except (RuntimeError, ValueError) as err:
+            event.add_status(BlockedStatus(str(err)))
+            return
+
+        try:
+            self._validate_proxy_config(cfg.additional_jvm_options)
+        except ProxyConfigError as err:
             event.add_status(BlockedStatus(str(err)))
             return
 
@@ -914,6 +926,46 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return self.trino_worker.get_coordinator_data()["user_secret_id"]
         return self.config.user_secret_id or ""
 
+    def _validate_proxy_config(self, user_opts):
+        """Validate model proxy config and overrides without deriving flags.
+
+        Args:
+            user_opts: The raw `additional-jvm-options` value.
+
+        Raises:
+            ProxyConfigError: If a model proxy URL or override is invalid.
+        """
+        validate_jvm_proxy_overrides(user_opts)
+        parse_proxy_url(os.environ.get("JUJU_CHARM_HTTP_PROXY"), "juju-http-proxy")
+        parse_proxy_url(os.environ.get("JUJU_CHARM_HTTPS_PROXY"), "juju-https-proxy")
+
+    def _derive_proxy_config(self, user_opts):
+        """Derive JVM proxy flags and OAuth proxy properties from model config.
+
+        Reads the Juju model's own proxy settings from the charm container's
+        hook environment; these are not part of `CharmConfig` since they
+        are not charm config. `additional-jvm-options` is validated for
+        complete host/port override pairs but does not influence the
+        OAuth property.
+
+        Args:
+            user_opts: The raw `additional-jvm-options` value.
+
+        Returns:
+            A `(jvm_proxy_flags, oauth_proxy_properties)` tuple.
+
+        Raises:
+            ProxyConfigError: If a model proxy URL or override is invalid.
+        """
+        http_proxy = os.environ.get("JUJU_CHARM_HTTP_PROXY")
+        https_proxy = os.environ.get("JUJU_CHARM_HTTPS_PROXY")
+        no_proxy = os.environ.get("JUJU_CHARM_NO_PROXY")
+
+        validate_jvm_proxy_overrides(user_opts)
+        flags = jvm_proxy_options(http_proxy, https_proxy, no_proxy)
+        properties = oauth_proxy_properties(http_proxy, https_proxy)
+        return flags, properties
+
     def _build_base_environment(self, truststore_pwd, int_comms_secret, ranger_enabled):
         """Build the Trino service environment without per-file hash triggers.
 
@@ -924,18 +976,27 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         Returns:
             env: a dictionary of trino environment variables.
+
+        Raises:
+            ProxyConfigError: If a model proxy URL or override is invalid.
         """
         cfg = self.config
         db_path = self.trino_abs_path.joinpath(PASSWORD_DB)
-        default_opts = " ".join(DEFAULT_JVM_OPTIONS)
         user_opts = cfg.additional_jvm_options
+
+        proxy_flags, oauth_proxy_props = self._derive_proxy_config(user_opts)
+
+        default_opts = " ".join(DEFAULT_JVM_OPTIONS)
+        if proxy_flags:
+            default_opts = f"{default_opts} {proxy_flags}"
 
         jvm_opts = update_opts(default_opts, user_opts) if user_opts else default_opts
 
         env = {
             "LOG_LEVEL": cfg.log_level,
             "OAUTH_USER_MAPPING": cfg.oauth_user_mapping,
-            "WEB_PROXY": cfg.web_proxy,
+            "OAUTH_HTTP_PROXY": oauth_proxy_props.get("http_proxy"),
+            "OAUTH_HTTP_PROXY_SECURE": oauth_proxy_props.get("secure"),
             "CHARM_FUNCTION": cfg.charm_function,
             "DISCOVERY_URI": self._effective_discovery_uri() or self._coordinator_discovery_uri,
             "APPLICATION_NAME": self.app.name,
@@ -1160,7 +1221,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         file_hashes.update(self._reconcile_truststores(container, truststore_pwd, conf_certs))
 
         # Render and push managed config files, hashing each for the plan.
-        env = self._build_base_environment(truststore_pwd, int_comms_secret, ranger_enabled)
+        try:
+            env = self._build_base_environment(truststore_pwd, int_comms_secret, ranger_enabled)
+        except ProxyConfigError as err:
+            logger.error(str(err))
+            return
         file_hashes.update(self._configure_trino(container, env))
         file_hashes.update(self._configure_resource_groups(container, env))
         file_hashes.update(self._configure_session_property_manager(container, env))

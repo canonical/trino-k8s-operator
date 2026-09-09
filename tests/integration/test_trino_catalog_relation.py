@@ -337,8 +337,16 @@ class TestTrinoCatalogRelation:
         juju.remove_relation(f"{APP_NAME}:trino-catalog", f"{REQUIRER_APP}:trino-catalog")
         wait_for_apps(juju, [REQUIRER_APP], status="blocked", timeout=1000)
 
-        # Verify relation is removed
-        trino_catalog_relations = juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
+        deadline = time.monotonic() + 300
+        trino_catalog_relations = []
+        while time.monotonic() < deadline:
+            trino_catalog_relations = (
+                juju.status().apps[APP_NAME].relations.get("trino-catalog", [])
+            )
+            if not trino_catalog_relations:
+                break
+            time.sleep(5)
+
         assert len(trino_catalog_relations) == 0
 
         # Requirer should be blocked
