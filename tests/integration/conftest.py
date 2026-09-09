@@ -15,19 +15,9 @@ from helpers import (
     WORKER_CONFIG,
     WORKER_NAME,
     get_unit,
-    log_model_diagnostics,
     wait_for_apps,
 )
 from pytest import FixtureRequest
-
-
-@pytest.fixture
-def diagnose_failure(juju: jubilant.Juju, request: FixtureRequest):
-    """Collect diagnostics while the test model still exists."""
-    yield
-    reports = [getattr(request.node, f"rep_{phase}", None) for phase in ("setup", "call")]
-    if any(report is not None and report.failed for report in reports):
-        log_model_diagnostics(juju)
 
 
 def pack_charm(source_dir: Path) -> Path:

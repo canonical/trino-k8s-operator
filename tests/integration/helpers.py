@@ -570,46 +570,6 @@ def _wait_for_replacement_pods(
     raise TimeoutError(f"Timed out waiting for replacement pods to be Ready: {sorted(pending)}")
 
 
-def log_model_diagnostics(juju: jubilant.Juju):
-    """Collect diagnostics before model teardown without hiding the test failure."""
-    commands = [
-        ["juju", "status", "-m", juju.model],
-        ["juju", "debug-log", "-m", juju.model, "--replay", "--no-tail", "--limit", "5000"],
-        ["kubectl", "get", "pods", "-n", juju.model, "-o", "wide"],
-        ["kubectl", "describe", "pods", "-n", juju.model],
-        ["kubectl", "get", "events", "-n", juju.model, "--sort-by=.metadata.creationTimestamp"],
-    ]
-    try:
-        for pod in _get_pods(juju):
-            command = [
-                "kubectl",
-                "logs",
-                "-n",
-                juju.model,
-                pod["metadata"]["name"],
-                "--all-containers=true",
-                "--timestamps=true",
-                "--tail=1000",
-            ]
-            commands.extend([command, [*command, "--previous=true"]])
-    except (OSError, subprocess.SubprocessError, ValueError):
-        logger.exception("Could not list pods for container log collection")
-    for command in commands:
-        try:
-            result = subprocess.run(  # nosec B603
-                command, capture_output=True, text=True, timeout=30, check=False
-            )
-            logger.info(
-                "Diagnostics: %s (exit %s)\n%s\n%s",
-                " ".join(command),
-                result.returncode,
-                result.stdout,
-                result.stderr,
-            )
-        except (OSError, subprocess.SubprocessError):
-            logger.exception("Diagnostic command failed: %s", command)
-
-
 def curl_unit_ip(juju: jubilant.Juju):
     """Curl the coordinator unit IP.
 

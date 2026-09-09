@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.incremental
-@pytest.mark.usefixtures("diagnose_failure", "deploy")
+@pytest.mark.usefixtures("deploy")
 class TestDeployment:
     """Integration tests for Trino charm."""
 
