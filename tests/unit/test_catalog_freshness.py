@@ -16,6 +16,9 @@ from ops.testing import Mount
 
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
+    MODEL_HTTPS_PROXY,
+    MODEL_HTTPS_PROXY_HOST,
+    MODEL_HTTPS_PROXY_PORT,
     POSTGRESQL_2_CATALOG_PATH,
     UPDATED_JVM_OPTIONS,
     USER_JVM_STRING,
@@ -33,12 +36,17 @@ from tests.unit.helpers import (
 logger = logging.getLogger(__name__)
 
 
-def test_config_changed(ctx):
-    """The pebble plan changes according to config changes."""
+def test_config_changed(ctx, monkeypatch):
+    """The pebble plan changes according to config changes.
+
+    Also exercises proxy configuration: a model `juju-https-proxy` combines
+    with `additional-jvm-options` (JVM precedence rules), while the OAuth
+    proxy property is derived from model config alone.
+    """
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", MODEL_HTTPS_PROXY)
     oauth_secret = observer_secret({"secret": "test-client-secret"})  # nosec B105
     state_in, _ = build_coordinator_state(
         config={
-            "web-proxy": "proxy:port",
             "charm-function": "all",
             "additional-jvm-options": USER_JVM_STRING,
         },
@@ -69,7 +77,8 @@ def test_config_changed(ctx):
                 "OAUTH_USERINFO_ENDPOINT": "https://idp.example/userinfo",
                 "OAUTH_JWKS_ENDPOINT": "https://idp.example/.well-known/jwks.json",
                 "OAUTH_SCOPES": "openid profile email",
-                "WEB_PROXY": "proxy:port",
+                "OAUTH_HTTP_PROXY": f"{MODEL_HTTPS_PROXY_HOST}:{MODEL_HTTPS_PROXY_PORT}",
+                "OAUTH_HTTP_PROXY_SECURE": None,
                 "CHARM_FUNCTION": "all",
                 "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
                 "APPLICATION_NAME": "trino-k8s",

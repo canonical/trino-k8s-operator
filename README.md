@@ -442,6 +442,87 @@ Finally, relate the applications:
 juju relate trino-k8s opensearch
 ```
 
+## Egress proxy
+
+Trino's outbound connections are configured from the **Juju model** proxy settings:
+`juju-http-proxy`, `juju-https-proxy` and `juju-no-proxy`. The `additional-jvm-options` charm
+config can override the resulting JVM options per property, see
+[Overriding the JVM options](#overriding-the-jvm-options).
+
+```bash
+juju model-config juju-https-proxy=http://proxy.example.com:3128
+juju model-config juju-http-proxy=http://proxy.example.com:3128
+juju model-config juju-no-proxy=localhost,127.0.0.1,.svc.cluster.local
+```
+
+> **Note:** the `web-proxy` charm config option has been removed. Any value previously set is
+> discarded on refresh. Move the setting to the model configuration shown above, adding the
+> `http://` or `https://` scheme that `web-proxy` did not require.
+
+### Accepted proxy URLs
+
+A proxy URL must be a bare authority carrying an explicit scheme, for example
+`http://proxy.example.com:3128`. The following are rejected and put the unit into `blocked`:
+
+| Rejected value                                | Reason                                          |
+| --------------------------------------------- | ----------------------------------------------- |
+| `proxy.example.com:3128`                      | No scheme; `http://` or `https://` is required. |
+| `socks5://proxy.example.com:1080`             | Only HTTP `CONNECT` proxies are supported.      |
+| `http://proxy.example.com:3128/pac`           | A path, query or fragment is not supported.     |
+| `http://user:password@proxy.example.com:3128` | Authenticated proxies are not supported.        |
+
+The blocked status message names the offending model setting and never contains credential
+values.
+
+If the port is omitted it is derived from the **proxy URL's own scheme**: `http://` yields `80`
+and `https://` yields `443`. This is the scheme of the proxy itself, not of the destination, so
+`juju-https-proxy=http://proxy.example.com` means a plaintext proxy on port `80` that is used
+to reach HTTPS destinations.
+
+IPv6 proxy hosts are supported, for example `http://[::1]:3128`.
+
+### What the settings control
+
+The model settings are translated into JVM proxy system properties in `jvm.config` on **every**
+unit, coordinator and worker alike, since workers open their own connections to data sources:
+
+| Model setting      | Resulting JVM options                                                      |
+| ------------------ | -------------------------------------------------------------------------- |
+| `juju-http-proxy`  | `-Dhttp.proxyHost`, `-Dhttp.proxyPort`                                     |
+| `juju-https-proxy` | `-Dhttps.proxyHost`, `-Dhttps.proxyPort`                                   |
+| `juju-no-proxy`    | `-Dhttp.nonProxyHosts` (comma-separated value converted to pipe-separated) |
+
+`-Dhttp.nonProxyHosts` accepts literal hosts and `*` wildcards only. CIDR entries such as
+`10.0.0.0/8` are dropped, with a warning naming them written to the unit log.
+
+Nothing is added to `juju-no-proxy` implicitly. If you set a proxy but leave `juju-no-proxy`
+unset, in-cluster traffic such as worker-to-coordinator communication is routed through the
+proxy. List `localhost`, `127.0.0.1` and your cluster-internal domains to avoid this.
+
+When the `oauth` relation is present, the coordinator also proxies its JWKS fetches. Trino's
+internal HTTP client does not use the JVM properties above, so it is configured separately from
+the same model settings, preferring `juju-https-proxy` and falling back to `juju-http-proxy`.
+If the selected URL uses `https://`, the connection to the proxy itself is made over TLS.
+
+### Overriding the JVM options
+
+`additional-jvm-options` takes precedence over the model-derived JVM options, one property at a
+time:
+
+```bash
+juju config trino-k8s additional-jvm-options="-Dhttps.proxyHost=other-proxy -Dhttps.proxyPort=8080"
+```
+
+This affects `jvm.config` only; the OAuth JWKS proxy always follows the model configuration.
+Supplying a `proxyHost` without its matching `proxyPort`, or the reverse, puts the unit into
+`blocked`.
+
+### Applying changes
+
+Model configuration changes do not fire `config-changed`. The charm picks up new proxy settings
+on the next `update-status`, so allow up to one update-status interval for a change to take
+effect. Proxy settings are part of the workload environment, so applying them restarts Trino.
+
 ## Observability
 
 The Trino charm can be related to the

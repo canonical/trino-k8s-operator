@@ -35,6 +35,17 @@ def _charm_meta() -> dict:
     return {key: _CHARMCRAFT[key] for key in _META_KEYS if key in _CHARMCRAFT}
 
 
+@pytest.fixture(autouse=True)
+def _clear_juju_proxy_env(monkeypatch):
+    """Ensure Juju model proxy env vars are unset unless a test sets them.
+
+    Guards proxy derivation tests against leaking `os.environ` state
+    between tests (and against these variables being set in the outer shell).
+    """
+    for var in ("JUJU_CHARM_HTTP_PROXY", "JUJU_CHARM_HTTPS_PROXY", "JUJU_CHARM_NO_PROXY"):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 def ctx():
     """Return a Scenario `Context` for the Trino charm.

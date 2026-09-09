@@ -119,6 +119,13 @@ DEFAULT_JVM_STRING = " ".join(
 )
 
 USER_JVM_STRING = "-Xmx4G -XX:InitialRAMPercentage=50 -Xxs10G"
+
+# A plaintext model https-proxy on a non-443 port, used by test_catalog_freshness
+# to exercise proxy derivation alongside additional-jvm-options.
+MODEL_HTTPS_PROXY = "http://proxy.example:3128"
+MODEL_HTTPS_PROXY_HOST = "proxy.example"
+MODEL_HTTPS_PROXY_PORT = "3128"
+
 UPDATED_JVM_OPTIONS = " ".join(
     [
         "-Xmx4G",
@@ -129,6 +136,8 @@ UPDATED_JVM_OPTIONS = " ".join(
         "-Dfile.encoding=UTF-8",
         "-XX:+ExitOnOutOfMemoryError",
         "-XX:+HeapDumpOnOutOfMemoryError",
+        f"-Dhttps.proxyHost={MODEL_HTTPS_PROXY_HOST}",
+        f"-Dhttps.proxyPort={MODEL_HTTPS_PROXY_PORT}",
         "-Xxs10G",
     ]
 )

@@ -13,7 +13,15 @@ import time
 import jubilant
 import pytest
 import yaml
-from helpers import APP_NAME, TRAEFIK_NAME, TRINO_USER, get_unit, query_trino, wait_for_apps
+from helpers import (
+    APP_NAME,
+    TRAEFIK_NAME,
+    TRINO_USER,
+    fast_forward_ctx,
+    get_unit,
+    query_trino,
+    wait_for_apps,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +172,88 @@ class TestOAuth:
             ),
         )
 
+
+MODEL_PROXY_URL = "http://192.0.2.1:3128"
+MODEL_NO_PROXY = "localhost,127.0.0.1,.svc.cluster.local"
+ZZUSERZZ = "ZZUSERZZ"  # nosec B105
+ZZPASSZZ = "ZZPASSZZ"  # nosec B105
+JVM_CONFIG_PATH = "/usr/lib/trino/etc/jvm.config"
+
+
+def _read_trino_jvm_config(juju: jubilant.Juju) -> str:
+    """Read Trino's rendered jvm.config file."""
+    return juju.ssh(
+        f"{APP_NAME}/0",
+        "cat",
+        JVM_CONFIG_PATH,
+        container="trino",
+    )
+
+
+@pytest.mark.incremental
+@pytest.mark.usefixtures("deploy-oauth")
+class TestModelProxyConfiguration:
+    """Exercise model-config-derived proxy settings.
+
+    Placed in this module and reusing its already-deployed, OAuth-enabled
+    Trino application: the OAuth proxy property is only rendered when the
+    OAuth relation is active, and no additional application deployment is
+    introduced to keep CI cost low.
+    """
+
+    def test_model_proxy_config_renders_and_returns_to_active(self, juju: jubilant.Juju):
+        """Setting juju-https-proxy/juju-no-proxy at model level stays active."""
+        juju.model_config(
+            {
+                "juju-https-proxy": MODEL_PROXY_URL,
+                "juju-no-proxy": MODEL_NO_PROXY,
+            }
+        )
+
+        with fast_forward_ctx(juju, "10s"):
+            wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+
+            config = _wait_for_trino_config(
+                juju,
+                contains=("oauth2-jwk.http-client.http-proxy=192.0.2.1:3128",),
+            )
+        assert "oauth2-jwk.http-client.http-proxy.secure" not in config
+
+        jvm_config = _read_trino_jvm_config(juju)
+        assert "-Dhttps.proxyHost=192.0.2.1" in jvm_config
+        assert "-Dhttps.proxyPort=3128" in jvm_config
+        assert "-Dhttp.nonProxyHosts=localhost|127.0.0.1|.svc.cluster.local" in jvm_config
+
+    def test_credential_bearing_proxy_blocks_without_exposing_credentials(
+        self, juju: jubilant.Juju
+    ):
+        """An authenticated proxy URL blocks the unit without leaking credentials.
+
+        Sentinel credential values are used so this assertion cannot pass by
+        accident.
+        """
+        juju.model_config({"juju-https-proxy": f"http://{ZZUSERZZ}:{ZZPASSZZ}@192.0.2.1:3128"})
+
+        wait_for_apps(juju, [APP_NAME], status="blocked", timeout=600)
+
+        status_output = juju.cli("status", "--format=yaml")
+        assert ZZUSERZZ not in status_output
+        assert ZZPASSZZ not in status_output
+
+    def test_unsetting_model_proxy_converges_via_update_status(self, juju: jubilant.Juju):
+        """Unsetting the model proxy returns the unit to active via update-status.
+
+        Model config changes fire no `config-changed` event, so this specifically
+        proves convergence through the `update-status` hook.
+        """
+        juju.model_config(reset=["juju-https-proxy", "juju-no-proxy"])
+
+        with fast_forward_ctx(juju, "10s"):
+            wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
+
+    # Kept in this class, despite testing OAuth rather than proxying, because the
+    # incremental tests above depend on the OAuth relation this one removes, and
+    # classes execute in file order.
     def test_removing_oauth_restores_password_authentication(self, juju: jubilant.Juju):
         """Removing the relation disables OAuth without disrupting password auth."""
         juju.remove_relation(

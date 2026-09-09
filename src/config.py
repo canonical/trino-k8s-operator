@@ -85,7 +85,6 @@ class CharmConfig(BaseConfigModel):
     """Typed configuration for the charm."""
 
     log_level: str = "info"
-    web_proxy: Optional[str] = None
     ranger_service_name: Optional[str] = None
     external_hostname: Optional[str] = None
     tls_secret_name: Optional[str] = None
@@ -146,13 +145,6 @@ class CharmConfig(BaseConfigModel):
         return v
 
     # ── String sanity validators ───────────────────────────────────────────
-
-    @validator("web_proxy")
-    def validate_web_proxy(cls, v):
-        """Reject whitespace-only web-proxy values."""
-        if v is not None and not v.strip():
-            raise ValueError("web-proxy value cannot be an empty string")
-        return v
 
     @validator("max_concurrent_queries")
     def validate_max_concurrent_queries(cls, v):
