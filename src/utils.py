@@ -686,10 +686,11 @@ def validate_jvm_proxy_overrides(user_opts):
 
     for family, kinds in seen.items():
         if kinds != {"Host", "Port"}:
-            missing = "Port" if "Host" in kinds else "Host"
+            present = "Host" if "Host" in kinds else "Port"
+            missing = "Port" if present == "Host" else "Host"
             raise ProxyConfigError(
-                f"additional-jvm-options: -D{family}.proxy{missing} is missing its "
-                f"matching -D{family}.proxy{'Host' if missing == 'Port' else 'Port'}"
+                f"additional-jvm-options: -D{family}.proxy{present} is missing its "
+                f"matching -D{family}.proxy{missing}"
             )
 
 

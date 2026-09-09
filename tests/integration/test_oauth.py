@@ -251,6 +251,9 @@ class TestModelProxyConfiguration:
         with fast_forward_ctx(juju, "10s"):
             wait_for_apps(juju, [APP_NAME], status="active", timeout=600)
 
+    # Kept in this class, despite testing OAuth rather than proxying, because the
+    # incremental tests above depend on the OAuth relation this one removes, and
+    # classes execute in file order.
     def test_removing_oauth_restores_password_authentication(self, juju: jubilant.Juju):
         """Removing the relation disables OAuth without disrupting password auth."""
         juju.remove_relation(
