@@ -467,65 +467,6 @@ class TestCreateAndDropCatalog(TestCase):
         mock_delete.assert_called_once()
 
 
-class TestReconcilePostgresqlCatalogs(TestCase):
-    """Tests for reconcile_postgresql_catalogs orchestration over the primitives."""
-
-    def _make_handler(self, wanted, tracked, create_side_effect=None, drop_side_effect=None):
-        """Bind the orchestration methods to a mock handler with stubbed primitives."""
-        handler = mock.MagicMock()
-        handler.reconcile_postgresql_catalogs = (
-            PostgresqlCatalogRelationHandler.reconcile_postgresql_catalogs.__get__(handler)
-        )
-        handler._create_or_recreate_catalog = (
-            PostgresqlCatalogRelationHandler._create_or_recreate_catalog.__get__(handler)
-        )
-        handler.charm.config.charm_function = "coordinator"
-        handler._write_databag = mock.Mock()
-        handler.render_dynamic_catalogs = mock.Mock(return_value=wanted)
-        handler.is_trino_ready = mock.Mock(return_value=True)
-        handler._read_tracked_catalogs = mock.Mock(return_value=tracked)
-        handler.create_catalog = mock.Mock(side_effect=create_side_effect)
-        handler.drop_catalog = mock.Mock(side_effect=drop_side_effect)
-        return handler
-
-    def test_one_failing_catalog_does_not_block_others(self):
-        """Verify a create failure for one catalog does not stop the rest."""
-        wanted = {"cat_a": {"k": "v1"}, "cat_b": {"k": "v2"}}
-
-        def create_side_effect(name, _props):
-            if name == "cat_a":
-                raise CatalogSQLError("boom")
-
-        handler = self._make_handler(wanted, {}, create_side_effect=create_side_effect)
-
-        handler.reconcile_postgresql_catalogs()
-
-        created = [c.args[0] for c in handler.create_catalog.call_args_list]
-        self.assertEqual(sorted(created), ["cat_a", "cat_b"])
-
-    def test_drop_failure_does_not_block_creates(self):
-        """Verify a drop failure for an obsolete catalog does not stop new creates."""
-        wanted = {"cat_new": {"k": "v"}}
-        tracked = {"cat_old": "k=old"}
-        handler = self._make_handler(wanted, tracked, drop_side_effect=CatalogSQLError("boom"))
-
-        handler.reconcile_postgresql_catalogs()
-
-        handler.drop_catalog.assert_called_once_with("cat_old")
-        handler.create_catalog.assert_called_once_with("cat_new", {"k": "v"})
-
-    def test_unchanged_catalog_is_not_recreated(self):
-        """Verify a byte-identical canonical definition triggers no SQL."""
-        wanted = {"cat": {"a": "1"}}
-        tracked = {"cat": canonical_properties({"a": "1"})}
-        handler = self._make_handler(wanted, tracked)
-
-        handler.reconcile_postgresql_catalogs()
-
-        handler.create_catalog.assert_not_called()
-        handler.drop_catalog.assert_not_called()
-
-
 def _pg_yaml(entries: dict) -> str:
     """Serialise a postgresql-catalog-config dict to a YAML string."""
     return yaml.dump(entries)

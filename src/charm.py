@@ -43,6 +43,7 @@ from ops.pebble import CheckStatus, ExecError, PathError
 from pydantic import ValidationError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
+from catalog_planner import DesiredCatalogs, reconcile_catalogs
 from config import CharmConfig
 from literals import (
     CACERTS_MANIFEST,
@@ -382,6 +383,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        duplicates = self._duplicate_catalog_names()
+        if duplicates:
+            event.add_status(
+                BlockedStatus(
+                    "catalog name(s) claimed by both static and dynamic state: "
+                    f"{', '.join(sorted(duplicates))}"
+                )
+            )
+            return
+
         try:
             self._validate_proxy_config(cfg.additional_jvm_options)
         except ProxyConfigError as err:
@@ -638,16 +649,19 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
         add_users_to_password_db(container, credentials, db_path)
 
-    def _configure_catalogs(self, container, truststore_pwd):
-        """Render and push static catalog and credential files.
+    def _render_catalogs(self, truststore_pwd):
+        """Render the desired static catalog properties, credentials and certs.
+
+        Pure: never touches the container. The catalog planner applies the
+        result to the workload filesystem.
 
         Args:
-            container: The Trino container.
             truststore_pwd: The stable truststore password embedded in catalog
                 property files.
 
         Returns:
-            A tuple of (per-file content hashes for the Pebble plan, desired
+            A tuple of (desired `.properties` text keyed by catalog name,
+            desired credential file content keyed by file name, desired
             truststore certificates keyed by alias).
         """
         catalog_index = yaml.safe_load(self._effective_catalog_config() or "")
@@ -661,47 +675,17 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             catalog_index["backends"],
         )
 
-        file_hashes = {}
-        desired_certs = {}
-        upserted_catalogs = []
+        static, credentials, certs = {}, {}, {}
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
             catalog_instance = self._create_catalog_instance(truststore_pwd, name, info, backend)
             rendered = catalog_instance.render()
-            upserted_catalogs.extend(rendered.properties.keys())
-            for key, content in rendered.properties.items():
-                container.push(
-                    self.catalog_abs_path.joinpath(f"{key}.properties"),
-                    content,
-                    make_dirs=True,
-                )
-                file_hashes[self._hash_key(f"catalog_{key}.properties")] = content_hash(content)
-            for credential_name, credential_content in rendered.credentials.items():
-                container.push(
-                    self.credential_abs_path.joinpath(credential_name),
-                    credential_content,
-                    make_dirs=True,
-                )
-            desired_certs.update(rendered.certs)
+            static.update(rendered.properties)
+            credentials.update(rendered.credentials)
+            certs.update(rendered.certs)
 
-        # Remove obsolete catalog files that are neither config- nor relation-managed.
-        if container.isdir(self.catalog_abs_path):
-            pg_catalogs = self.postgresql_catalog_handler.get_postgresql_relation_catalogs()
-            for file in container.list_files(self.catalog_abs_path, pattern="*.properties"):
-                stem = Path(file.name).stem
-                if stem in upserted_catalogs or stem in pg_catalogs:
-                    continue
-                try:
-                    container.remove_path(file.path)
-                except PathError as e:
-                    logging.debug(
-                        "Could not remove obsolete catalog file '%s': %s",
-                        file.name,
-                        str(e),
-                    )
-
-        return file_hashes, desired_certs
+        return static, credentials, certs
 
     def _create_catalog_instance(self, truststore_pwd, name, info, backend):
         """Create catalog instances based on connector type.
@@ -860,6 +844,22 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             properties_filename="session-property-config.properties",
             config_filename="session-property-config.json",
         )
+
+    def _duplicate_catalog_names(self) -> set:
+        """Return catalog names claimed by both static and dynamic desired state.
+
+        A cheap, side-effect-free name-level check for `collect-unit-status`:
+        it reads the statically configured catalog names directly from
+        `catalog-config` and the dynamic catalog names from PostgreSQL
+        relations, without rendering or pushing any catalog content.
+
+        Returns:
+            The set of catalog names claimed by both sources.
+        """
+        catalog_index = yaml.safe_load(self._effective_catalog_config() or "")
+        static_names = set((catalog_index or {}).get("catalogs", {}))
+        dynamic_names = set(self.postgresql_catalog_handler.render_dynamic_catalogs())
+        return static_names & dynamic_names
 
     def _validate_relations(self):
         """Validate that required relations are valid and ready.
@@ -1233,10 +1233,34 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # Per-relation users must exist before password.db is rebuilt.
         self.trino_catalog.reconcile_trino_catalog_relations()
 
-        # Static catalog files and truststore contents.
-        file_hashes, conf_certs = self._configure_catalogs(container, truststore_pwd)
+        # Static catalog properties, credentials and certs are rendered
+        # (pure); the PG relation databag write is a pure write too and must
+        # happen regardless of Trino readiness, so the provider can start
+        # provisioning while the live SQL below waits for a reachable server.
+        static_catalogs, catalog_credentials, conf_certs = self._render_catalogs(truststore_pwd)
+        if is_coordinator:
+            self.postgresql_catalog_handler._write_databag()
+
         conf_certs.update(self.postgresql_catalog_handler.get_desired_tls_certs())
-        file_hashes.update(self._reconcile_truststores(container, truststore_pwd, conf_certs))
+        file_hashes = self._reconcile_truststores(container, truststore_pwd, conf_certs)
+
+        # Dynamic SQL runs against the still-running service from the
+        # previous replan; this cycle's replan happens only after it settles.
+        desired_dynamic = self.postgresql_catalog_handler.render_dynamic_catalogs()
+        desired_catalogs = DesiredCatalogs(
+            static=static_catalogs, credentials=catalog_credentials, dynamic=desired_dynamic
+        )
+        catalog_result = reconcile_catalogs(
+            container,
+            self.postgresql_catalog_handler,
+            desired_catalogs,
+            str(self.catalog_abs_path),
+            str(self.credential_abs_path),
+            str(self.trino_abs_path),
+            dynamic_enabled=is_coordinator,
+        )
+        if catalog_result.duplicates or catalog_result.failed:
+            return
 
         # Render and push managed config files, hashing each for the plan.
         try:
@@ -1261,6 +1285,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             for name, content in (rendered or {}).items():
                 file_hashes[self._hash_key(name)] = content_hash(content)
 
+        env["CATALOG_STATE_HASH"] = catalog_result.state_hash
         env.update(file_hashes)
 
         if is_coordinator:
@@ -1272,14 +1297,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         container.replan()
 
         # Publishing coordinator relation data is a pure databag write and is
-        # always safe. reconcile_postgresql_catalogs writes its request databag
-        # unconditionally and self-guards the live CREATE/DROP CATALOG SQL with a
-        # reachability check, so calling it during a workload restart still lets
-        # the provider start provisioning; the live SQL converges on a later hook.
-        if is_coordinator:
-            if self.unit.is_leader():
-                self.trino_coordinator.update_coordinator_relation_data()
-            self.postgresql_catalog_handler.reconcile_postgresql_catalogs()
+        # always safe to perform after the restart.
+        if is_coordinator and self.unit.is_leader():
+            self.trino_coordinator.update_coordinator_relation_data()
 
 
 if __name__ == "__main__":

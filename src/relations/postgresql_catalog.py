@@ -11,7 +11,7 @@ from typing import Callable, Optional
 import pydantic
 import requests
 import yaml
-from ops import framework, pebble
+from ops import framework
 from ops.model import SecretNotFoundError
 
 from literals import DEFAULT_CREDENTIALS, POSTGRESQL_RELATION_NAME
@@ -245,96 +245,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         self.charm = charm
         self.relation_name = relation_name
 
-    def reconcile_postgresql_catalogs(self):
-        """Reconcile wanted vs tracked catalog state via CREATE/DROP CATALOG.
-
-        Compares what catalogs should exist (from relations and config) against
-        what currently exists on disk (`.properties` files with the dynamic
-        catalog marker), then issues CREATE/DROP CATALOG SQL to correct
-        discrepancies.
-
-        Trino must already be running with the current password env vars (the
-        charm reconciler applies the Pebble plan before calling this). No-ops
-        when Trino is unreachable or still initializing; convergence happens on
-        the next hook.
-        """
-        # While invalid configuration is caught during config changes
-        # other hooks can still fire afterwards even if the charm is blocked.
-        try:
-            charm_function = self.charm.config.charm_function
-        except pydantic.ValidationError:
-            logger.warning("Skipping PG catalog reconciliation: charm config is invalid")
-            return
-
-        if charm_function not in ("coordinator", "all"):
-            return
-
-        self._write_databag()
-
-        wanted_catalogs = self.render_dynamic_catalogs()
-
-        if not self.is_trino_ready():
-            logger.warning("Trino not reachable, skipping catalog reconciliation")
-            return
-
-        tracked_catalogs = self._read_tracked_catalogs()
-
-        # DROP catalogs that should no longer exist. A failure here is
-        # logged and skipped so it never stops the rest of the reconciliation.
-        to_drop = set(tracked_catalogs) - set(wanted_catalogs)
-        for name in to_drop:
-            logger.info("Dropping relation catalog %r", name)
-            try:
-                self.drop_catalog(name)
-            except CatalogSQLError:
-                logger.error("Failed to drop catalog %r", name, exc_info=True)
-
-        # CREATE new catalogs and UPDATE changed ones (drop + re-create).
-        for name, props in wanted_catalogs.items():
-            tracked_canonical = tracked_catalogs.get(name)
-
-            # Already up-to-date
-            if tracked_canonical == canonical_properties(props):
-                continue
-
-            is_update = name in tracked_catalogs
-            action = "Updating" if is_update else "Creating"
-            logger.info("%s relation catalog %r", action, name)
-
-            # Trino has no ALTER CATALOG; drop first then re-create.
-            if is_update:
-                try:
-                    self.drop_catalog(name)
-                except CatalogSQLError:
-                    logger.error("Failed to drop catalog %r before update", name, exc_info=True)
-                    continue
-
-            self._create_or_recreate_catalog(name, props)
-
-    def _create_or_recreate_catalog(self, name, properties):
-        """Create a catalog, recreating it if Trino reports it already exists.
-
-        A stale catalog left over from a previous reconciliation run is the
-        only situation in which an already-exists report is safe to treat as
-        a signal to drop and recreate; any other SQL failure is logged and
-        left for a later reconciliation.
-
-        Args:
-            name: The catalog name.
-            properties: Dict of catalog properties.
-        """
-        try:
-            self.create_catalog(name, properties)
-        except CatalogAlreadyExistsError:
-            logger.warning("Catalog %r already exists, recreating", name)
-            try:
-                self.drop_catalog(name)
-                self.create_catalog(name, properties)
-            except CatalogSQLError:
-                logger.error("Failed to recreate catalog %r", name, exc_info=True)
-        except CatalogSQLError:
-            logger.error("Failed to create catalog %r", name, exc_info=True)
-
     def get_desired_tls_certs(self) -> dict:
         """Return the desired TLS CA certificates for PostgreSQL relations.
 
@@ -352,17 +262,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
                 continue
             certs[f"pg-relation-{relation.id}"] = pg.tls_ca
         return certs
-
-    def get_postgresql_relation_catalogs(self) -> list:
-        """Return catalog names managed by this handler.
-
-        Reads `.properties` files from the catalog directory and returns
-        names of catalogs that contain the dynamic catalog marker.
-
-        Returns:
-            List of catalog name strings.
-        """
-        return list(self._read_tracked_catalogs().keys())
 
     def get_postgresql_env_vars(self) -> dict:
         """Return password env vars derived from PG relations.
@@ -388,55 +287,6 @@ class PostgresqlCatalogRelationHandler(framework.Object):
             return {}
         catalogs, _ = self._compute_wanted_catalogs()
         return catalogs
-
-    def _read_tracked_catalogs(self) -> dict:
-        """Read dynamic catalogs from `.properties` files on disk.
-
-        Scans the catalog directory for `.properties` files that contain
-        the `query.comment-format=dynamic catalog` marker.
-
-        Returns:
-            Dict mapping catalog name to the canonical serialization of its
-            on-disk properties.
-        """
-        container = self.charm.unit.get_container(self.charm.name)
-        if not container.can_connect():
-            logger.debug("Container not connectable, cannot read tracked catalogs")
-            return {}
-
-        catalog_dir = str(self.charm.catalog_abs_path)
-        try:
-            files = container.list_files(catalog_dir)
-        except pebble.PathError:
-            logger.debug("Catalog directory %s does not exist yet", catalog_dir)
-            return {}
-        except pebble.Error:
-            logger.warning(
-                "Failed to list catalog directory %s",
-                catalog_dir,
-                exc_info=True,
-            )
-            return {}
-
-        tracked = {}
-        for f in files:
-            if not f.name.endswith(".properties"):
-                continue
-            file_path = f"{catalog_dir}/{f.name}"
-            try:
-                raw = container.pull(file_path).read()
-            except pebble.Error:
-                logger.warning("Failed to read %s", file_path, exc_info=True)
-                continue
-            try:
-                props = _parse_properties(raw)
-            except Exception:
-                logger.warning("Failed to parse %s", file_path, exc_info=True)
-                continue
-            if props.get("query.comment-format") == DYNAMIC_CATALOG_MARKER:
-                catalog_name = f.name[: -len(".properties")]
-                tracked[catalog_name] = canonical_properties(props)
-        return tracked
 
     def _write_databag(self):
         """Write database and requested-secrets for relations missing them."""
