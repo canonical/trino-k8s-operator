@@ -507,6 +507,7 @@ def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
     pods = [f"{APP_NAME}-0", *(f"{WORKER_NAME}-{unit}" for unit in range(workers))]
     original_uids = {pod["metadata"]["name"]: pod["metadata"]["uid"] for pod in _get_pods(juju)}
     original_uids = {name: original_uids[name] for name in pods}
+    juju.model_config({"automatically-retry-hooks": True})
     subprocess.run(  # nosec B603 B607
         [
             "kubectl",
