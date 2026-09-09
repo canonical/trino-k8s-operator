@@ -363,6 +363,7 @@ class TestCreateAndDropCatalog(TestCase):
         handler._raise_for_trino_error = PostgresqlCatalogRelationHandler._raise_for_trino_error
         handler._build_catalog_sql = PostgresqlCatalogRelationHandler._build_catalog_sql
         handler._get_trino_user = PostgresqlCatalogRelationHandler._get_trino_user.__get__(handler)
+        handler._cancel_statement = PostgresqlCatalogRelationHandler._cancel_statement
         handler.charm._effective_user_secret_id.return_value = None
         return handler
 
@@ -434,6 +435,36 @@ class TestCreateAndDropCatalog(TestCase):
         handler = self._make_handler()
         with self.assertRaises(CatalogSQLError):
             handler.drop_catalog("cat")
+
+    def test_quotes_are_escaped_in_generated_sql(self):
+        """Verify names and values cannot break out of their SQL quoting."""
+        sql = PostgresqlCatalogRelationHandler._build_catalog_sql(
+            'ev"il',
+            {"connection-user": "o'brien", 'we"ird': "value"},
+        )
+
+        self.assertIn('CREATE CATALOG "ev""il" USING postgresql', sql)
+        self.assertIn("\"connection-user\" = 'o''brien'", sql)
+        self.assertIn('"we""ird" = ', sql)
+
+    @mock.patch("relations.postgresql_catalog.requests.delete")
+    @mock.patch("relations.postgresql_catalog.requests.get")
+    @mock.patch("relations.postgresql_catalog.requests.post")
+    def test_repeated_next_uri_is_abandoned(self, mock_post, mock_get, mock_delete):
+        """Verify a looping result walk ends instead of blocking the hook."""
+        page = {"nextUri": "http://localhost:8080/v1/statement/q/1"}
+        mock_post.return_value = mock.MagicMock(
+            status_code=200, json=mock.MagicMock(return_value=page)
+        )
+        mock_get.return_value = mock.MagicMock(
+            status_code=200, json=mock.MagicMock(return_value=page)
+        )
+        handler = self._make_handler()
+
+        with self.assertRaises(CatalogSQLError):
+            handler.drop_catalog("cat")
+
+        mock_delete.assert_called_once()
 
 
 class TestReconcilePostgresqlCatalogs(TestCase):

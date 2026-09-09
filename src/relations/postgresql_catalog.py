@@ -5,6 +5,7 @@
 
 import json
 import logging
+import time
 from typing import Callable, Optional
 
 import pydantic
@@ -20,6 +21,33 @@ PASS_ENV_VAR_PREFIX = "PG_PASS_"  # nosec
 DYNAMIC_CATALOG_MARKER = "dynamic catalog"
 
 logger = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT = 30.0
+STATEMENT_DEADLINE = 120.0
+
+
+def _quote_identifier(value) -> str:
+    """Quote a SQL identifier so that it cannot alter the statement.
+
+    Args:
+        value: The identifier to quote.
+
+    Returns:
+        The identifier wrapped in double quotes with embedded quotes doubled.
+    """
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def _quote_literal(value) -> str:
+    """Quote a SQL string literal so that it cannot alter the statement.
+
+    Args:
+        value: The value to quote.
+
+    Returns:
+        The value wrapped in single quotes with embedded quotes doubled.
+    """
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 class CatalogSQLError(Exception):
@@ -670,25 +698,53 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         user = self._get_trino_user()
         headers = {"X-Trino-User": user}
 
+        next_uri = None
         try:
             resp = requests.post(
                 "http://localhost:8080/v1/statement",
                 data=sql,
                 headers=headers,
-                timeout=30.0,
+                timeout=REQUEST_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()
             self._raise_for_trino_error(data)
 
-            # Follow nextUri until completion.
+            # A statement is only complete once its result pages are drained.
+            # The walk is bounded so a looping or stalled query cannot hold
+            # the charm hook open indefinitely.
+            deadline = time.monotonic() + STATEMENT_DEADLINE
+            seen = set()
             while "nextUri" in data:
-                resp = requests.get(data["nextUri"], headers=headers, timeout=30.0)
+                next_uri = data["nextUri"]
+                if next_uri in seen or time.monotonic() > deadline:
+                    raise CatalogSQLError("Trino statement did not complete in time")
+                seen.add(next_uri)
+                resp = requests.get(next_uri, headers=headers, timeout=REQUEST_TIMEOUT)
                 resp.raise_for_status()
                 data = resp.json()
                 self._raise_for_trino_error(data)
+            next_uri = None
         except requests.RequestException as err:
             raise CatalogSQLError(f"Trino SQL request failed: {err}") from err
+        finally:
+            self._cancel_statement(next_uri, headers)
+
+    @staticmethod
+    def _cancel_statement(next_uri, headers) -> None:
+        """Ask Trino to abandon a statement that was left partially consumed.
+
+        Args:
+            next_uri: The pending result URI, or None when there is nothing
+                to cancel.
+            headers: The request headers identifying the Trino user.
+        """
+        if not next_uri:
+            return
+        try:
+            requests.delete(next_uri, headers=headers, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException:
+            logger.debug("Could not cancel an abandoned Trino statement")
 
     @staticmethod
     def _raise_for_trino_error(data: dict) -> None:
@@ -744,8 +800,12 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Returns:
             The SQL string.
         """
-        props_sql = ",\n  ".join(f"\"{k}\" = '{v}'" for k, v in properties.items())
-        return f'CREATE CATALOG "{name}" USING postgresql\nWITH (\n  {props_sql}\n)'
+        props_sql = ",\n  ".join(
+            f"{_quote_identifier(k)} = {_quote_literal(v)}" for k, v in properties.items()
+        )
+        return (
+            f"CREATE CATALOG {_quote_identifier(name)} USING postgresql\nWITH (\n  {props_sql}\n)"
+        )
 
     def drop_catalog(self, name):
         """Drop a Trino catalog via SQL.
@@ -756,5 +816,5 @@ class PostgresqlCatalogRelationHandler(framework.Object):
         Raises:
             CatalogSQLError: SQL execution failed.
         """
-        self._execute_sql(f'DROP CATALOG IF EXISTS "{name}"')
+        self._execute_sql(f"DROP CATALOG IF EXISTS {_quote_identifier(name)}")
         logger.info("Dropped catalog %r", name)
