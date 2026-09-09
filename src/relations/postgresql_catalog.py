@@ -127,6 +127,19 @@ def canonical_from_raw(raw: str) -> str:
     return canonical_properties(_parse_properties(raw))
 
 
+def is_dynamic_catalog(raw: str) -> bool:
+    """Check whether a raw `.properties` file claims dynamic ownership.
+
+    Args:
+        raw: Raw file content.
+
+    Returns:
+        True when the file carries the ownership marker as the value of the
+        `query.comment-format` property, rather than merely mentioning it.
+    """
+    return _parse_properties(raw).get("query.comment-format") == DYNAMIC_CATALOG_MARKER
+
+
 class PostgresqlRelationModel(pydantic.BaseModel):
     """Typed representation of the provider's relation databag.
 

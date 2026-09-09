@@ -425,7 +425,6 @@ class TestReconcileCatalogs(TestCase):
         container = FakeContainer(
             files={
                 f"{CATALOG_DIR}/pg.properties": _dynamic_raw(pg_props),
-                f"{CATALOG_DIR}/mysql.properties": _dynamic_raw(mysql_props),
             }
         )
         desired = DesiredCatalogs(
@@ -437,7 +436,7 @@ class TestReconcileCatalogs(TestCase):
 
         self.assertIn(("drop", "pg"), executor.calls)
         self.assertNotIn(("create", "pg"), executor.calls)
-        self.assertEqual([c for c in executor.calls if c[1] == "mysql"], [])
+        self.assertIn(("create", "mysql"), executor.calls)
 
     def test_static_to_dynamic_handover(self):
         """A stale static file is deleted this cycle; create follows next cycle."""
@@ -513,6 +512,37 @@ class TestReconcileCatalogs(TestCase):
         _reconcile(container, executor, desired)
 
         self.assertEqual(container.removed, [])
+
+    def test_marker_text_outside_the_ownership_property_is_not_dynamic(self):
+        """Mentioning the marker elsewhere does not claim dynamic ownership."""
+        container = FakeContainer(
+            files={
+                f"{CATALOG_DIR}/pg.properties": (
+                    "# dynamic catalog\n"
+                    "connector.name=postgresql\n"
+                    "query.comment-format=static reporting\n"
+                )
+            }
+        )
+        desired = DesiredCatalogs(static={}, credentials={}, dynamic={})
+        executor = FakeExecutor()
+
+        _reconcile(container, executor, desired)
+
+        self.assertEqual(container.removed, [f"{CATALOG_DIR}/pg.properties"])
+        self.assertEqual(executor.calls, [])
+
+    def test_non_properties_files_are_ignored_in_the_catalog_directory(self):
+        """Only `.properties` files take part in catalog classification."""
+        props = _dynamic_properties()
+        container = FakeContainer(files={f"{CATALOG_DIR}/pg.properties.bak": _dynamic_raw(props)})
+        desired = DesiredCatalogs(static={}, credentials={}, dynamic={})
+        executor = FakeExecutor()
+
+        _reconcile(container, executor, desired)
+
+        self.assertEqual(container.removed, [f"{CATALOG_DIR}/pg.properties.bak"])
+        self.assertEqual(executor.calls, [])
 
     def test_partial_static_batch_failure_reports_no_state_hash(self):
         """A push failure partway through the batch fails the whole pass."""

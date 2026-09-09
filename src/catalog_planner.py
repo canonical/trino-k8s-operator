@@ -19,15 +19,17 @@ import posixpath
 
 from file_manager import Inventory, inventory, read_files, reconcile_files
 from relations.postgresql_catalog import (
-    DYNAMIC_CATALOG_MARKER,
     CatalogAlreadyExistsError,
     CatalogSQLError,
     canonical_from_raw,
     canonical_properties,
+    is_dynamic_catalog,
 )
 from utils import content_hash
 
 logger = logging.getLogger(__name__)
+
+CATALOG_SUFFIX = ".properties"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -105,11 +107,10 @@ def _catalog_name(path: str) -> str:
         path: The absolute file path.
 
     Returns:
-        The file stem with a trailing `.properties` suffix removed.
+        The file stem with the `.properties` suffix removed.
     """
     stem = posixpath.basename(path)
-    suffix = ".properties"
-    return stem[: -len(suffix)] if stem.endswith(suffix) else stem
+    return stem[: -len(CATALOG_SUFFIX)] if stem.endswith(CATALOG_SUFFIX) else stem
 
 
 def classify_actual(container, catalog_dir: str, files: dict, desired_static: dict):
@@ -133,7 +134,9 @@ def classify_actual(container, catalog_dir: str, files: dict, desired_static: di
     """
     desired_hashes = {content_hash(text) for text in desired_static.values()}
     catalog_files = {
-        path: digest for path, digest in files.items() if posixpath.dirname(path) == catalog_dir
+        path: digest
+        for path, digest in files.items()
+        if posixpath.dirname(path) == catalog_dir and path.endswith(CATALOG_SUFFIX)
     }
     to_read = [path for path, digest in catalog_files.items() if digest not in desired_hashes]
     contents, failed = read_files(container, to_read)
@@ -149,7 +152,7 @@ def classify_actual(container, catalog_dir: str, files: dict, desired_static: di
             # Deleted between the inventory snapshot and the read: it is no
             # longer a candidate for anything this cycle.
             continue
-        if DYNAMIC_CATALOG_MARKER in raw:
+        if is_dynamic_catalog(raw):
             dynamic[name] = canonical_from_raw(raw)
             protected.add(path)
         else:
