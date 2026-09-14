@@ -458,6 +458,26 @@ def get_active_workers(juju: jubilant.Juju):
     return active_workers
 
 
+def wait_for_active_workers(
+    juju: jubilant.Juju, expected: int, timeout: float = 600, delay: float = 5
+):
+    """Wait until Trino reports the expected number of active workers."""
+    deadline = time.monotonic() + timeout
+    active_workers = []
+    while time.monotonic() < deadline:
+        try:
+            active_workers = get_active_workers(juju)
+        except (requests.RequestException, trino.exceptions.TrinoException):
+            logger.info("Coordinator is not ready to report workers yet")
+        if len(active_workers) == expected:
+            return active_workers
+        time.sleep(delay)
+    raise TimeoutError(
+        f"Trino reported {len(active_workers)} active workers, "
+        f"expected {expected} within {timeout}s"
+    )
+
+
 def simulate_crash_and_restart(juju: jubilant.Juju):
     """Simulate the crash of the Trino coordinator by force-deleting its pod.
 
@@ -480,6 +500,74 @@ def simulate_crash_and_restart(juju: jubilant.Juju):
         idle_period=30,
         timeout=1000,
     )
+
+
+def simulate_cluster_crash_and_restart(juju: jubilant.Juju, workers: int):
+    """Force-delete the coordinator and all worker pods and wait for registration."""
+    pods = [f"{APP_NAME}-0", *(f"{WORKER_NAME}-{unit}" for unit in range(workers))]
+    original_uids = {pod["metadata"]["name"]: pod["metadata"]["uid"] for pod in _get_pods(juju)}
+    original_uids = {name: original_uids[name] for name in pods}
+    juju.model_config({"automatically-retry-hooks": True})
+    subprocess.run(  # nosec B603 B607
+        [
+            "kubectl",
+            "delete",
+            "pod",
+            *pods,
+            "-n",
+            juju.model,
+            "--grace-period=0",
+            "--force",
+        ],
+        check=True,
+        timeout=330,
+    )
+    _wait_for_replacement_pods(juju, original_uids)
+    wait_for_apps(
+        juju,
+        [APP_NAME, WORKER_NAME],
+        status="active",
+        idle_period=30,
+        timeout=1000,
+    )
+    wait_for_active_workers(juju, workers, timeout=1000)
+
+
+def _get_pods(juju: jubilant.Juju) -> list[dict]:
+    """Read pods from the test model's namespace."""
+    result = subprocess.run(  # nosec B603 B607
+        ["kubectl", "get", "pods", "-n", juju.model, "-o", "json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return json.loads(result.stdout)["items"]
+
+
+def _wait_for_replacement_pods(
+    juju: jubilant.Juju, original_uids: dict[str, str], timeout: float = 600
+):
+    """Wait for every named pod to have a new UID and report Ready."""
+    deadline = time.monotonic() + timeout
+    pending = set(original_uids)
+    while time.monotonic() < deadline:
+        ready = {
+            pod["metadata"]["name"]
+            for pod in _get_pods(juju)
+            if pod["metadata"]["name"] in original_uids
+            and pod["metadata"]["uid"] != original_uids[pod["metadata"]["name"]]
+            and not pod["metadata"].get("deletionTimestamp")
+            and any(
+                condition["type"] == "Ready" and condition["status"] == "True"
+                for condition in pod.get("status", {}).get("conditions", [])
+            )
+        }
+        pending = set(original_uids) - ready
+        if not pending:
+            return
+        time.sleep(5)
+    raise TimeoutError(f"Timed out waiting for replacement pods to be Ready: {sorted(pending)}")
 
 
 def curl_unit_ip(juju: jubilant.Juju):
