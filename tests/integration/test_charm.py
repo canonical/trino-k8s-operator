@@ -12,10 +12,14 @@ from conftest import deploy  # noqa: F401, pylint: disable=W0611
 from helpers import (
     APP_NAME,
     TRINO_USER,
+    WORKER_NAME,
     add_juju_secret,
     create_catalog_config,
     curl_unit_ip,
+    get_active_workers,
     get_catalogs,
+    scale,
+    simulate_cluster_crash_and_restart,
     simulate_crash_and_restart,
     update_catalog_config,
     wait_for_apps,
@@ -102,6 +106,15 @@ class TestDeployment:
 
         catalogs = get_catalogs(juju, TRINO_USER, APP_NAME)
         assert catalogs
+
+    def test_workers_register_after_cluster_restart(self, juju: jubilant.Juju):
+        """Workers re-register when the coordinator and every worker restart together."""
+        scale(juju, app=WORKER_NAME, units=2)
+        assert len(get_active_workers(juju)) == 2
+
+        simulate_cluster_crash_and_restart(juju, workers=2)
+
+        assert len(get_active_workers(juju)) == 2
 
     def test_trino_default_policy(self, juju: jubilant.Juju):
         """Update the config and verify no catalog access."""
