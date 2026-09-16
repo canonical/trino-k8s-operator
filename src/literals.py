@@ -39,6 +39,7 @@ CONFIG_FILES = {
 
 CONF_DIR = "conf"
 CATALOG_DIR = "catalog"
+CREDENTIAL_DIR = "credentials"
 RUN_TRINO_COMMAND = "./entrypoint.sh"
 TRINO_PLUGIN_DIR = "/usr/lib/trino/plugin"
 

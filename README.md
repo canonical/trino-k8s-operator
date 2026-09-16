@@ -230,6 +230,13 @@ The catalog-config can be applied with the following:
 juju config trino-k8s catalog-config=@catalog_config.yaml
 ```
 
+The charm owns the catalog files it renders from this configuration. Catalog properties are
+written to `/usr/lib/trino/etc/catalog/` and connector credential files, such as BigQuery and
+Google Sheets service accounts, to `/usr/lib/trino/etc/credentials/`. Both directories are
+managed by the charm: files that are no longer described by `catalog-config` are removed, and
+manual edits are reverted on the next configuration change. Trino is restarted only when the
+rendered catalog content actually changes.
+
 ### Resource group manager
 
 Trino's built-in file-based resource group manager can be enabled with the
@@ -642,9 +649,14 @@ The `postgresql-catalog-config` (SQL-managed catalogs via relations) and `catalo
 
 Removing a static catalog from `catalog-config` does not affect relation-managed catalogs, and vice versa.
 
+A catalog name can be claimed by only one of the two sources. If both claim the same name, the unit blocks and names the conflicting catalogs until the configuration is corrected.
+
 ### Credential rotation
 
-If PostgreSQL rotates credentials, Trino automatically detects the change and recreates the affected catalogs with the new credentials. No manual intervention is required.
+If PostgreSQL rotates credentials, the charm updates the corresponding Pebble environment
+variable and restarts Trino once to pick up the new password. The catalog definition itself is
+unchanged, so no `CREATE`/`DROP CATALOG` statements are issued for a password-only rotation. No
+manual intervention is required.
 
 ### Authorization
 
