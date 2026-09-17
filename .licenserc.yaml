@@ -38,4 +38,5 @@ header:
     - 'trino-tls.svg'
     - 'trino_rock/local-files/**'
     - 'uv.lock'
+    - 'apm.lock.yaml'
   comment: on-failure
