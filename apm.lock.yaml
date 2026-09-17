@@ -1,12 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-09-17T09:36:58.932458+00:00'
+generated_at: '2026-09-17T10:37:21.212135+00:00'
 apm_version: 0.29.0
 dependencies:
 - repo_url: canonical/canonical-data-mesh-docs
   name: data-mesh-guidelines
   host: github.com
-  resolved_commit: e31219825073a851ca34d736c5e9fe8fc0ab5057
-  resolved_ref: apm-demo
+  resolved_commit: ed0d2792287d6dd951321386e63570ae5a9f6537
   version: 0.0.1-rc1
   virtual_path: resources/development
   is_virtual: true
