@@ -150,12 +150,15 @@ def test_ready(ctx):
     environment["INT_COMMS_SECRET"] = "int_comms_secret"  # nosec
     environment["USER_SECRET_ID"] = "secret:secret-id"  # nosec
 
-    # Per-file content hashes drive Pebble restarts; assert they are present as
-    # freshness triggers, then drop them to compare the stable environment.
+    # Per-file content hashes and the aggregate catalog hash drive Pebble
+    # restarts; assert they are present as freshness triggers, then drop
+    # them to compare the stable environment.
     hash_keys = {key for key in environment if key.startswith("HASH_")}
     assert hash_keys
+    assert "CATALOG_STATE_HASH" in environment
     for key in hash_keys:
         del environment[key]
+    del environment["CATALOG_STATE_HASH"]
 
     assert got_services == want_plan["services"]
 
