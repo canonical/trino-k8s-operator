@@ -5,14 +5,20 @@
 """Literals and Scenario state builders for the Trino K8s charm unit tests."""
 
 import dataclasses
+import hashlib
 import json
 from types import SimpleNamespace
 
 from ops.testing import Container, Exec, Model, PeerRelation, Relation, Secret, State
 
+from file_manager import FIND_BIN, SHA256SUM_BIN
+
 SERVER_PORT = "8080"
 
 MODEL_NAME = "trino-model"
+
+CATALOG_INVENTORY_PATH = "/usr/lib/trino/etc/catalog"
+CREDENTIAL_INVENTORY_PATH = "/usr/lib/trino/etc/credentials"
 
 GSHEET_SECRET = """\
 gsheets-1: |
@@ -143,6 +149,105 @@ UPDATED_JVM_OPTIONS = " ".join(
 )
 
 
+def inventory_command(directory: str) -> list:
+    """Build the bulk inventory command the catalog planner runs against a directory.
+
+    Args:
+        directory: The absolute in-container directory to scan.
+
+    Returns:
+        The `find | sha256sum` argv list matching `file_manager.inventory`.
+    """
+    return [FIND_BIN, directory, "-maxdepth", "1", "-type", "f", "-exec", SHA256SUM_BIN, "{}", "+"]
+
+
+def _missing_dir_exec(directory: str) -> Exec:
+    """Build the inventory `Exec` for a directory that does not exist yet.
+
+    Args:
+        directory: The absolute in-container directory to scan.
+
+    Returns:
+        An `Exec` reproducing the `find` failure for a missing scan root.
+    """
+    return Exec(
+        inventory_command(directory),
+        return_code=1,
+        stderr=f"{FIND_BIN}: '{directory}': No such file or directory\n",
+    )
+
+
+def failed_inventory_exec(directory: str) -> Exec:
+    """Build the inventory `Exec` for an untrustworthy scan of `directory`.
+
+    Unlike `_missing_dir_exec`, the failure is not the scoped root being
+    absent (a permission error, say), so the caller must treat the whole
+    snapshot as untrustworthy and make no mutation.
+
+    Args:
+        directory: The absolute in-container directory to scan.
+
+    Returns:
+        An `Exec` reproducing a `find` failure unrelated to a missing root.
+    """
+    return Exec(
+        inventory_command(directory),
+        return_code=1,
+        stderr=f"{FIND_BIN}: '{directory}': Permission denied\n",
+    )
+
+
+def _inventory_exec(directory: str, local_dir) -> Exec:
+    """Build the inventory `Exec` reflecting a local directory's current contents.
+
+    Args:
+        directory: The absolute in-container directory the planner scans.
+        local_dir: The local filesystem path backing `directory` in the
+            simulated container.
+
+    Returns:
+        An `Exec` reproducing what `find | sha256sum` would report for
+        `directory`, computed from `local_dir` at the time of the call. Two
+        spaces separate the digest from the path, matching `sha256sum`'s
+        text-mode output that `file_manager` parses.
+    """
+    if not local_dir.is_dir():
+        return _missing_dir_exec(directory)
+    lines = "".join(
+        f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {directory}/{f.name}\n"
+        for f in sorted(local_dir.iterdir())
+        if f.is_file()
+    )
+    return Exec(inventory_command(directory), return_code=0, stdout=lines)
+
+
+def refresh_catalog_execs(state, ctx, container="trino"):
+    """Recompute the catalog and credential inventory `Exec`s from disk.
+
+    The planner's bulk `find | sha256sum` inventory is mocked as a static
+    `Exec` per directory, so a test performing more than one `ctx.run` must
+    recompute it against whatever the previous run actually wrote before the
+    next run, exactly as a real Pebble inventory would see it.
+
+    Args:
+        state: The output `State` from a previous `ctx.run`.
+        ctx: The Scenario `Context` the container's filesystem is rooted in.
+        container: The container name.
+
+    Returns:
+        A new `State` whose container carries fresh inventory `Exec`s.
+    """
+    cont = state.get_container(container)
+    root = cont.get_filesystem(ctx)
+    fresh = {
+        _inventory_exec(CATALOG_INVENTORY_PATH, root / CATALOG_INVENTORY_PATH.lstrip("/")),
+        _inventory_exec(CREDENTIAL_INVENTORY_PATH, root / CREDENTIAL_INVENTORY_PATH.lstrip("/")),
+    }
+    other_execs = {e for e in cont.execs if e.command_prefix[0] != FIND_BIN}
+    new_cont = dataclasses.replace(cont, execs=frozenset(other_execs | fresh))
+    return dataclasses.replace(state, containers={new_cont})
+
+
 def trino_container(can_connect=True, **kwargs):
     """Build the Trino workload container with the standard mocked execs.
 
@@ -161,6 +266,8 @@ def trino_container(can_connect=True, **kwargs):
             Exec(["keytool"], return_code=0),
             Exec(["/bin/sh"], stdout="/usr/lib/jvm/java-25-openjdk-amd64/"),
             Exec(["bash"], return_code=0),
+            _missing_dir_exec(CATALOG_INVENTORY_PATH),
+            _missing_dir_exec(CREDENTIAL_INVENTORY_PATH),
         },
         **kwargs,
     )

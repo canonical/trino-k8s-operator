@@ -31,14 +31,14 @@ class SqlCatalog(CatalogBase):
         """Handle PostgreSQL/MySQL/Redshift catalog configuration.
 
         Returns:
-            replicas: the database replica configuration.
+            A tuple of (the database replica configuration, truststore
+            certificates keyed by alias).
         """
         validate_keys(self.backend, SQL_BACKEND_SCHEMA)
         secret = self._get_secret_content(self.info["secret-id"])
         replicas = yaml.safe_load(secret["replicas"])
-        certs = yaml.safe_load(secret.get("cert", ""))
-        self._add_certs(certs)
-        return replicas
+        certs = yaml.safe_load(secret.get("cert", "")) or {}
+        return replicas, certs
 
     def _create_properties(self, replicas):
         """Create the PostgreSQL/MySQL/Redshift connector catalog files.
@@ -47,7 +47,8 @@ class SqlCatalog(CatalogBase):
             replicas: the database replica configuration.
 
         Returns:
-            catalogs: a dictionary of catalog name and configuration.
+            A tuple of (catalog name to configuration, an empty credentials
+            mapping).
         """
         catalogs = {}
         for replica_info in replicas.values():
@@ -72,7 +73,7 @@ class SqlCatalog(CatalogBase):
             )
             catalog_content += self.backend.get("config", "")
             catalogs[catalog_name] = catalog_content
-        return catalogs
+        return catalogs, {}
 
 
 class RedshiftCatalog(SqlCatalog):
