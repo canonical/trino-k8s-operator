@@ -38,4 +38,6 @@ header:
     - 'trino-tls.svg'
     - 'trino_rock/local-files/**'
     - 'uv.lock'
+    - 'apm.lock.yaml'
+    - '**/keyring_broker.py'
   comment: on-failure
