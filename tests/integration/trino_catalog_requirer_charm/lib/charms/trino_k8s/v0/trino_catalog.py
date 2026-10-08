@@ -1,7 +1,7 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
-# This file is a copy of lib/charms/trino_k8s/v0/trino_catalog.py and should not be linted independently.
-# ruff: noqa
+# This file is a copy of lib/charms/trino_k8s/v0/trino_catalog.py
+# and must be kept in sync with it.
 
 """Library for the trino_catalog relation.
 
@@ -92,12 +92,15 @@ class TrinoCatalog:
         )
 
     def __repr__(self) -> str:
-        """String representation for debugging.
+        """Return a string representation for debugging.
 
         Returns:
             String representation of the TrinoCatalog object.
         """
-        return f"TrinoCatalog(name={self.name}, connector={self.connector}, description={self.description})"
+        return (
+            f"TrinoCatalog(name={self.name}, connector={self.connector}, "
+            f"description={self.description})"
+        )
 
     def __eq__(self, other) -> bool:
         """Compare two catalogs for equality.
