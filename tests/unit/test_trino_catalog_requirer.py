@@ -99,7 +99,7 @@ def test_single_relation(requirer_ctx):
     assert credentials == {relation.id: ("user", "pass")}
 
 
-def test_several_relations(requirer_ctx):
+def test_multiple_relation_support(requirer_ctx):
     """Every complete relation is returned with its own data and credentials."""
     secrets = [_secret(f"-{app}") for app in ("a", "b", "c")]
     relations = [
