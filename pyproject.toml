@@ -16,7 +16,7 @@ dependencies = [
     "httpx>=0.28.1,<0.29",
     "lightkube>=0.21.0,<0.22",
     "lightkube-models>=1.35.0.8,<2",
-    "cosl>=1.9.1,<2",
+    "cosl>=1.9.1,<1.11",
     "requests>=2.34.2,<3",
     "pydantic>=1.10,<2",
     "pyyaml>=6,<7",
@@ -29,7 +29,7 @@ charmlibs-pydeps = [
     "jsonschema>=4.26.0,<5",
     "lightkube>=0.21.0,<0.22",
     "lightkube-models>=1.35.0.8,<2",
-    "cosl>=1.9.1,<2",
+    "cosl>=1.9.1,<1.11",
     "pydantic>=1.10,<2",
     "pyyaml>=6,<7",
 ]
