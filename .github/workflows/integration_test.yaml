@@ -17,6 +17,7 @@ jobs:
       packages: write
       pull-requests: write
     with:
+      extra-ignored-file-patterns: '^apm\.yml$|^apm\.lock\.yaml$|^\.agents/|^\.github/instructions/'
       channel: 1.35-classic/stable
       modules: >-
         ["test_charm.py",
