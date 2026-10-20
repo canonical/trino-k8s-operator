@@ -11,17 +11,17 @@ import os
 import re
 import secrets
 import string
-import subprocess  # nosec B404
 import textwrap
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+import bcrypt
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import Error as PebbleError
 from ops.pebble import ExecError
 
-from literals import REPLICA_SCHEMA
+from literals import BCRYPT_COST, BCRYPT_MAX_PASSWORD_BYTES, REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -439,40 +439,63 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
         raise
 
 
-def add_users_to_password_db(container, credentials, db_path):
-    """Create necessary db users for authentication.
+def is_valid_username(username: str) -> bool:
+    """Report whether a username can be written safely to `password.db`.
+
+    The file holds one `user:hash` entry per line, so a name with a colon, whitespace or a
+    control character could corrupt an entry or inject another one.
+
+    Args:
+        username: The username to check.
+
+    Returns:
+        True if the username is not empty and has no colon, whitespace or control character.
+    """
+    return bool(username) and not any(
+        char == ":" or char.isspace() or not char.isprintable() for char in username
+    )
+
+
+def has_valid_password_length(password: str) -> bool:
+    """Report whether bcrypt can hash the password without truncating it.
+
+    Args:
+        password: The plaintext password.
+
+    Returns:
+        True if the password is at most 72 bytes in UTF-8.
+    """
+    return len(password.encode()) <= BCRYPT_MAX_PASSWORD_BYTES
+
+
+def write_password_db(container, credentials, db_path) -> list[str]:
+    """Write the authentication database from the full set of credentials.
+
+    The file is built in memory and pushed once, which replaces it atomically. Users whose
+    name or password cannot be stored are skipped.
 
     Args:
         container: The trino container.
         credentials: A dictionary of user/password.
         db_path: The path to the `password.db`.
 
-    Raises:
-        ExecError: in case the container exec is unsuccessful.
+    Returns:
+        The usernames written to the file.
     """
-    if container.exists(db_path):
-        container.remove_path(db_path)
-
-    db_exists = False
+    lines = []
+    written = []
     for user, password in credentials.items():
-        command = [
-            "htpasswd",
-            "-b",
-            "-B",
-            "-C",
-            "10",
-            db_path,
-            user,
-            password,
-        ]
-        if not db_exists:
-            command.insert(2, "-c")
-        try:
-            container.exec(command).wait_output()
-            db_exists = True
-        except (subprocess.CalledProcessError, ExecError) as e:
-            logger.error(f"unable to add user credentials {e.stderr}")
-            raise
+        if not is_valid_username(user):
+            logger.warning("Skipping user with an invalid name: %r", user)
+            continue
+        if not has_valid_password_length(password):
+            logger.warning("Skipping user %r: password longer than 72 bytes", user)
+            continue
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=BCRYPT_COST))
+        lines.append(f"{user}:{password_hash.decode()}\n")
+        written.append(user)
+    container.push(db_path, "".join(lines), make_dirs=True, permissions=0o644)
+    return written
 
 
 class ProxyConfigError(Exception):

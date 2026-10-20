@@ -46,6 +46,12 @@ def _clear_juju_proxy_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _low_bcrypt_cost(monkeypatch):
+    """Hash at bcrypt's minimum cost so tests that write `password.db` stay fast."""
+    monkeypatch.setattr("utils.BCRYPT_COST", 4)
+
+
 @pytest.fixture
 def ctx():
     """Return a Scenario `Context` for the Trino charm.

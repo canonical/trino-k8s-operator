@@ -76,7 +76,7 @@ class TrinoCatalogRelationHandler(Object):
         except SecretNotFoundError:
             pass
 
-    def _get_url(self) -> Optional[str]:
+    def get_url(self) -> Optional[str]:
         """Get the Trino URL from the stored ingress URL or fall back to the internal service URL.
 
         Returns:
@@ -302,7 +302,7 @@ class TrinoCatalogRelationHandler(Object):
         active_relations = self.charm.model.relations.get(self.relation_name, [])
 
         # Get Trino URL
-        url = self._get_url()
+        url = self.get_url()
         if not url:
             logger.debug("Trino URL not available, skipping reconciliation")
             return
