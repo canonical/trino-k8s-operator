@@ -440,7 +440,10 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
 
 
 def add_users_to_password_db(container, credentials, db_path):
-    """Create necessary db users for authentication.
+    """Atomically replace the authentication database with the given users.
+
+    The database is built in a temporary file next to `db_path` and renamed onto
+    it, so Trino never reads a partial file.
 
     Args:
         container: The trino container.
@@ -450,29 +453,30 @@ def add_users_to_password_db(container, credentials, db_path):
     Raises:
         ExecError: in case the container exec is unsuccessful.
     """
-    if container.exists(db_path):
-        container.remove_path(db_path)
+    tmp_path = f"{db_path}.tmp"
+    if container.exists(tmp_path):
+        container.remove_path(tmp_path)
 
-    db_exists = False
-    for user, password in credentials.items():
-        command = [
-            "htpasswd",
-            "-b",
-            "-B",
-            "-C",
-            "10",
-            db_path,
-            user,
-            password,
-        ]
-        if not db_exists:
+    if not credentials:
+        if container.exists(db_path):
+            container.remove_path(db_path)
+        return
+
+    for index, (user, password) in enumerate(credentials.items()):
+        command = ["htpasswd", "-b", "-B", "-C", "10", tmp_path, user, password]
+        if index == 0:
             command.insert(2, "-c")
         try:
             container.exec(command).wait_output()
-            db_exists = True
         except (subprocess.CalledProcessError, ExecError) as e:
             logger.error(f"unable to add user credentials {e.stderr}")
             raise
+
+    try:
+        container.exec(["mv", "-f", tmp_path, db_path]).wait_output()
+    except (subprocess.CalledProcessError, ExecError) as e:
+        logger.error(f"unable to replace the password database {e.stderr}")
+        raise
 
 
 class ProxyConfigError(Exception):

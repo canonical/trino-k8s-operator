@@ -14,6 +14,7 @@ POLICY_RELATION_NAME = "policy"
 OPENSEARCH_RELATION_NAME = "opensearch"
 INGRESS_RELATION_NAME = "ingress"
 OAUTH_RELATION_NAME = "oauth"
+TRINO_GATEWAY_RELATION_NAME = "trino-gateway-integration"
 TRINO_PORTS = {
     "HTTPS": 443,
     "HTTP": 8080,
@@ -48,6 +49,21 @@ PASSWORD_DB = "password.db"  # nosec
 OAUTH_SCOPE = "openid profile email"
 OAUTH_GRANT_TYPES = ["authorization_code"]
 OIDC_CALLBACK_PATH = "/oauth2/callback"
+
+# Trino Gateway relation literals
+GATEWAY_REQUESTED_USERS_KEY = "requested_users"
+GATEWAY_TRINO_URL_KEY = "trino_url"
+GATEWAY_REGISTERED_USERS_KEY = "registered_users"
+GATEWAY_REFUSED_USERS_KEY = "refused_users"
+GATEWAY_USER_CLAIMS_KEY = "gateway_user_claims"
+GATEWAY_PENDING_USERS_KEY = "gateway_pending_users"
+GATEWAY_REFUSAL_EXISTING_USER = "username already exists on this Trino"
+GATEWAY_REFUSAL_OTHER_GATEWAY = "username already requested by another Trino Gateway"
+GATEWAY_REFUSAL_WORKER = "Trino worker applications do not authenticate clients"
+GATEWAY_WORKER_BLOCKED_MESSAGE = "trino-gateway-integration requires a coordinator"
+GATEWAY_CONFLICT_BLOCKED_MESSAGE = (
+    "user-secret-id user(s) conflict with Trino Gateway users: {names}"
+)
 
 # Ranger plugin literals
 RANGER_PLUGIN_FILES = {

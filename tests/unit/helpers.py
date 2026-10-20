@@ -263,6 +263,7 @@ def trino_container(can_connect=True, **kwargs):
         can_connect=can_connect,
         execs={
             Exec(["htpasswd"], return_code=0),
+            Exec(["mv"], return_code=0),
             Exec(["keytool"], return_code=0),
             Exec(["/bin/sh"], stdout="/usr/lib/jvm/java-25-openjdk-amd64/"),
             Exec(["bash"], return_code=0),

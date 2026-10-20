@@ -12,12 +12,12 @@ https://discourse.charmhub.io/t/4208
 
 # pylint: disable=too-many-lines
 
-import json
 import logging
 import os
 import socket
 import subprocess  # nosec B404
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 from charms.comsys_libs.v0.kubernetes_statefulset_patch import (
@@ -56,6 +56,8 @@ from literals import (
     CREDENTIAL_DIR,
     DEFAULT_CREDENTIALS,
     DEFAULT_JVM_OPTIONS,
+    GATEWAY_CONFLICT_BLOCKED_MESSAGE,
+    GATEWAY_WORKER_BLOCKED_MESSAGE,
     INDEX_NAME,
     INGRESS_RELATION_NAME,
     INT_COMMS_SECRET_LABEL,
@@ -72,6 +74,7 @@ from literals import (
     RUN_TRINO_COMMAND,
     TRINO_CATALOG_RELATION_NAME,
     TRINO_COORDINATOR_RELATION_NAME,
+    TRINO_GATEWAY_RELATION_NAME,
     TRINO_HOME,
     TRINO_PORTS,
     TRINO_WORKER_RELATION_NAME,
@@ -85,6 +88,7 @@ from relations.policy import PolicyRelationHandler
 from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
+from relations.trino_gateway_integration import TrinoGatewayRelationHandler
 from relations.trino_worker import TrinoWorker
 from sql_catalog import RedshiftCatalog, SqlCatalog
 from state import State
@@ -114,6 +118,20 @@ def _format_config_error(err: ValidationError) -> str:
     if not errors:
         return str(err)
     return errors[0]["msg"]
+
+
+class Credentials(NamedTuple):
+    """The credentials written to `password.db`.
+
+    Attrs:
+        users: Mapping of username to plaintext password.
+        gateway_users: The Trino Gateway usernames included in `users`.
+        conflicts: The configured usernames dropped because a Gateway user claimed them.
+    """
+
+    users: dict[str, str]
+    gateway_users: frozenset[str]
+    conflicts: list[str]
 
 
 class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
@@ -190,6 +208,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.trino_worker = TrinoWorker(self)
         self.trino_catalog = TrinoCatalogRelationHandler(self)
         self.oauth = OAuthRelationHandler(self)
+        self.trino_gateway = TrinoGatewayRelationHandler(self)
 
         # Every hook converges through a single idempotent reconciler; unit
         # status is derived separately by collect-unit-status.
@@ -211,6 +230,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             TRINO_WORKER_RELATION_NAME,
             POLICY_RELATION_NAME,
             POSTGRESQL_RELATION_NAME,
+            TRINO_GATEWAY_RELATION_NAME,
         ):
             self.framework.observe(self.on[endpoint].relation_created, self._reconcile_hook)
             self.framework.observe(self.on[endpoint].relation_changed, self._reconcile_hook)
@@ -402,6 +422,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        if self.trino_gateway.is_related and cfg.charm_function == "worker":
+            event.add_status(BlockedStatus(GATEWAY_WORKER_BLOCKED_MESSAGE))
+            return
+
         if self.oauth.is_related:
             if cfg.charm_function == "worker":
                 event.add_status(BlockedStatus("oauth relation requires a coordinator"))
@@ -418,9 +442,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
 
         try:
-            self._compute_credentials()
+            credentials = self._compute_credentials()
         except ValueError as err:
             event.add_status(BlockedStatus(str(err)))
+            return
+        if credentials.conflicts:
+            event.add_status(
+                BlockedStatus(
+                    GATEWAY_CONFLICT_BLOCKED_MESSAGE.format(names=", ".join(credentials.conflicts))
+                )
+            )
             return
 
         if cfg.charm_function in ("coordinator", "all"):
@@ -496,6 +527,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 "relation-users": (
                     ", ".join(relation_creds.keys()) if relation_creds else "(none)"
                 ),
+                "gateway-users": ", ".join(self.trino_gateway.claimed_usernames()) or "(none)",
             }
         )
 
@@ -615,11 +647,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             raise
         return content
 
-    def _compute_credentials(self):
-        """Return the full set of authentication credentials for `password.db`.
-
-        Merges the configured system users (or defaults) with per-relation
-        trino-catalog users.
+    def _configured_credentials(self):
+        """Return the configured system users, or the defaults.
 
         Returns:
             Mapping of username to plaintext password.
@@ -628,19 +657,57 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             ValueError: if the configured user secret is malformed.
         """
         secret_id = self._effective_user_secret_id()
-        if secret_id:
-            try:
-                credentials = yaml.safe_load(self._get_secret_content(secret_id)["users"])
-            except (yaml.YAMLError, KeyError, SecretNotFoundError) as e:
-                logger.error(f"Error reading secret {secret_id!r}: {e}")
-                raise ValueError(f"invalid user secret {secret_id!r}") from None
-            if not isinstance(credentials, dict):
-                raise ValueError(f"invalid user secret {secret_id!r}: 'users' must be a mapping")
-        else:
-            credentials = dict(DEFAULT_CREDENTIALS)
-
-        credentials.update(self.trino_catalog.get_relation_credentials())
+        if not secret_id:
+            return dict(DEFAULT_CREDENTIALS)
+        try:
+            credentials = yaml.safe_load(self._get_secret_content(secret_id)["users"])
+        except (yaml.YAMLError, KeyError, SecretNotFoundError) as e:
+            logger.error(f"Error reading secret {secret_id!r}: {e}")
+            raise ValueError(f"invalid user secret {secret_id!r}") from None
+        if not isinstance(credentials, dict):
+            raise ValueError(f"invalid user secret {secret_id!r}: 'users' must be a mapping")
         return credentials
+
+    def _compute_credentials(self):
+        """Return the full set of authentication credentials for `password.db`.
+
+        Merges the configured system users (or defaults) with per-relation
+        trino-catalog users and the claimed Trino Gateway users. A Gateway user
+        wins over a configured user of the same name.
+
+        Returns:
+            The credentials, the Gateway usernames among them and the configured
+            usernames dropped in favour of a Gateway user.
+
+        Raises:
+            ValueError: if the configured user secret is malformed.
+        """
+        configured = self._configured_credentials()
+        gateway = self.trino_gateway.claimed_credentials()
+        conflicts = sorted(set(configured) & set(gateway))
+
+        users = dict(configured)
+        users.update(self.trino_catalog.get_relation_credentials())
+        users.update(gateway)
+        return Credentials(users, frozenset(gateway), conflicts)
+
+    def _plan_gateway_claims(self):
+        """Plan the Trino Gateway user claims. Only the leader may call this.
+
+        Planning is skipped while the configured user secret is unreadable, so a
+        name that exists in a secret Trino cannot read yet is never claimed.
+
+        Returns:
+            The refused usernames and their reasons, by relation ID.
+        """
+        if self.config.charm_function == "worker":
+            return self.trino_gateway.plan_claims(())
+        try:
+            trino_users = set(self._configured_credentials())
+        except ValueError:
+            return {}
+        trino_users.update(self.trino_catalog.get_relation_credentials())
+        return self.trino_gateway.plan_claims(trino_users)
 
     def _write_password_db(self, container, credentials):
         """Write the authentication database file.
@@ -1214,6 +1281,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # treats a missing coordinator relation as a blocking error.
         if function == "worker" and not self.model.relations[TRINO_WORKER_RELATION_NAME]:
             self._clean_catalog_dir(container)
+            if self.unit.is_leader():
+                self.trino_gateway.publish_users((), self._plan_gateway_claims())
             return
 
         try:
@@ -1258,6 +1327,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         # Per-relation users must exist before password.db is rebuilt.
         self.trino_catalog.reconcile_trino_catalog_relations()
+        gateway_refusals = {}
+        if self.unit.is_leader():
+            gateway_refusals = self._plan_gateway_claims()
+            self.trino_gateway.publish_url()
 
         # Static catalog properties, credentials and certs are rendered
         # (pure); the PG relation databag write is a pure write too and must
@@ -1306,8 +1379,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         except ValueError as err:
             logger.error(err)
             return
-        self._write_password_db(container, credentials)
-        file_hashes["HASH_PASSWORD_DB"] = content_hash(json.dumps(credentials, sort_keys=True))
+        # password.db is deliberately absent from the Pebble plan: Trino reloads
+        # it within `file.refresh-period`, so credential changes never restart it.
+        self._write_password_db(container, credentials.users)
+        if self.unit.is_leader():
+            self.trino_gateway.publish_users(credentials.gateway_users, gateway_refusals)
 
         if is_coordinator and ranger_enabled:
             rendered = self.policy._configure_ranger_plugin(container)

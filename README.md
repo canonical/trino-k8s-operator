@@ -26,6 +26,8 @@ For deployments where workers cannot reach the coordinator through the cluster-l
 juju config trino-k8s discovery-uri=https://trino-coordinator.example.com
 ```
 
+A coordinator application runs a single unit: only that unit authenticates clients, and the charm confirms users to [Trino Gateway](#trino-gateway-relation) based on that unit. Scale the worker application to add capacity.
+
 ## HTTPS
 The Trino Charm is configured to secure communications via a load balancer or proxy server that
 terminates TLS. The ingress provider accepts TLS connections from clients and forwards plain HTTP
@@ -340,6 +342,8 @@ juju relate trino-k8s <requirer-app>
 
 No manual secret granting is required. Each requirer gets a unique username in the format `app-<requirer-app-name>-<relation-id>` with an auto-generated password. This works across both same-model and cross-model relations.
 
+New and removed relation users take effect without restarting Trino: the charm updates `password.db` atomically and Trino reloads it within one minute (`file.refresh-period=1m`).
+
 ## User management
 By default, password authentication is enabled for Charmed Trino. Trino can use
 OAuth and password authentication at the same time. We recommend passwords for
@@ -395,6 +399,29 @@ Where the `user-secrets.yaml` has the below format:
 <user>:<password>
 <another-user>:<another-password>
 ```
+
+Added, removed and rotated users take effect without restarting Trino: the charm updates `password.db` atomically and Trino reloads it within one minute. A removed or rotated password keeps working for up to one minute.
+
+## Trino Gateway relation
+The `trino-gateway-integration` relation lets [Trino Gateway](https://github.com/canonical/trino-gateway-k8s-operator) request the users it needs to authenticate against this Trino. The relation is optional, and Trino can be related to several Gateways.
+
+```bash
+juju integrate trino-k8s:trino-gateway-integration trino-gateway-k8s:trino-gateway-integration
+```
+
+The Gateway requests users and grants each user's credentials as a Juju secret. Trino:
+- writes each requested user to `password.db`, without restarting Trino;
+- confirms the users it wrote and refuses, with a reason, the ones it cannot register;
+- publishes its URL to the Gateway, the same one it publishes on `trino-catalog`.
+
+The first holder of a username keeps it:
+- a request for a name that already belongs to a `user-secret-id`, default or `trino-catalog` user is refused, and that user's credentials are unchanged;
+- a request for a name already held by another Gateway is refused;
+- a `user-secret-id` user added later with the name of a Gateway user is dropped, the Gateway user is kept and the charm is `blocked` until the configuration is fixed. All other users keep working.
+
+Gateway users are subject to the same access control rules and Ranger policies as any other user.
+
+Trino reloads `password.db` once a minute, so a user is confirmed up to one minute before it can authenticate. Only coordinator (or `all`) applications can be related; a worker application refuses every request and is `blocked`. The `list-system-users` action reports the Gateway users in `gateway-users`.
 
 ## Policy
 ### Ranger
