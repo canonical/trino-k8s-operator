@@ -28,6 +28,9 @@ ADDED_USER = ("bob", "bob-added-password")  # nosec B105
 # `file.refresh-period` is one minute; leave room for the secret-changed hook and Trino's schedule.
 REFRESH_TIMEOUT = 240
 POLL_INTERVAL = 5
+# Trino reports uptime rounded to two decimals of its largest unit (for example `2.35m`), and
+# each request adds latency. A restart sets uptime back to about zero, far below this slack.
+UPTIME_TOLERANCE = 30
 
 _DURATION_UNIT_SECONDS = {
     "ns": 1e-9,
@@ -106,6 +109,18 @@ def _wait_for_authentication(
     )
 
 
+def _assert_not_restarted(juju: jubilant.Juju, uptime_before: float, started: float) -> None:
+    """Assert that Trino kept running: its uptime kept growing instead of resetting.
+
+    Args:
+        juju: Jubilant Juju object.
+        uptime_before: The uptime read at `started`, in seconds.
+        started: The `time.monotonic()` value when `uptime_before` was read.
+    """
+    expected = uptime_before + (time.monotonic() - started)
+    assert _uptime_seconds(juju) >= expected - UPTIME_TOLERANCE
+
+
 @pytest.fixture(name="deploy-trino", scope="module")
 def deploy_trino(juju: jubilant.Juju, charm: str, charm_image: str):
     """Deploy a single `all` Trino unit once for the module."""
@@ -156,8 +171,7 @@ class TestPasswordRefresh:
             old_rejected_after,
         )
 
-        # The JVM kept running: its uptime kept growing instead of resetting.
-        assert _uptime_seconds(juju) >= uptime_before + (time.monotonic() - started) - 30
+        _assert_not_restarted(juju, uptime_before, started)
 
     def test_03_removed_user_is_rejected_without_restart(self, juju: jubilant.Juju):
         """Removing a user from the secret revokes it within the refresh period."""
@@ -168,4 +182,4 @@ class TestPasswordRefresh:
 
         _wait_for_authentication(juju, ADDED_USER, expected=False)
         assert _can_authenticate(juju, ROTATED_USER)
-        assert _uptime_seconds(juju) >= uptime_before + (time.monotonic() - started) - 30
+        _assert_not_restarted(juju, uptime_before, started)

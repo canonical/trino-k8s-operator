@@ -12,6 +12,7 @@ import re
 import secrets
 import string
 import textwrap
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -439,33 +440,53 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
         raise
 
 
-def is_valid_username(username: str) -> bool:
+def is_valid_username(username: object) -> bool:
     """Report whether a username can be written safely to `password.db`.
 
     The file holds one `user:hash` entry per line, so a name with a colon, whitespace or a
     control character could corrupt an entry or inject another one.
 
     Args:
-        username: The username to check.
+        username: The username to check. YAML can produce non-string names, which are invalid.
 
     Returns:
-        True if the username is not empty and has no colon, whitespace or control character.
+        True if the username is a non-empty string with no colon, whitespace or control
+        character.
     """
-    return bool(username) and not any(
-        char == ":" or char.isspace() or not char.isprintable() for char in username
+    return (
+        isinstance(username, str)
+        and bool(username)
+        and not any(char == ":" or char.isspace() or not char.isprintable() for char in username)
     )
 
 
-def has_valid_password_length(password: str) -> bool:
+def has_valid_password_length(password: object) -> bool:
     """Report whether bcrypt can hash the password without truncating it.
 
     Args:
-        password: The plaintext password.
+        password: The plaintext password. YAML can produce non-string passwords, which are
+            invalid.
 
     Returns:
-        True if the password is at most 72 bytes in UTF-8.
+        True if the password is a string of at most 72 bytes in UTF-8.
     """
-    return len(password.encode()) <= BCRYPT_MAX_PASSWORD_BYTES
+    return isinstance(password, str) and len(password.encode()) <= BCRYPT_MAX_PASSWORD_BYTES
+
+
+def invalid_usernames(credentials: Mapping) -> list[str]:
+    """Return the users that cannot be written to `password.db`.
+
+    Args:
+        credentials: A mapping of username to plaintext password.
+
+    Returns:
+        The offending usernames as strings, sorted. Passwords are never included.
+    """
+    return sorted(
+        str(user)
+        for user, password in credentials.items()
+        if not is_valid_username(user) or not has_valid_password_length(password)
+    )
 
 
 def write_password_db(container, credentials, db_path) -> list[str]:
@@ -489,7 +510,7 @@ def write_password_db(container, credentials, db_path) -> list[str]:
             logger.warning("Skipping user with an invalid name: %r", user)
             continue
         if not has_valid_password_length(password):
-            logger.warning("Skipping user %r: password longer than 72 bytes", user)
+            logger.warning("Skipping user %r: password not a string or longer than 72 bytes", user)
             continue
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=BCRYPT_COST))
         lines.append(f"{user}:{password_hash.decode()}\n")

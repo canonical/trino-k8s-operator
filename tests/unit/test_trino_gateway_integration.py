@@ -229,6 +229,59 @@ def test_writer_skips_unstorable_users_without_logging_passwords(caplog):
     assert "long-password" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    "credentials",
+    [{123: "pw"}, {True: "pw"}, {"num-password": 123}, {"none-password": None}],
+)
+def test_writer_skips_non_string_users(caplog, credentials):
+    """YAML can produce non-string names and passwords; they are skipped, never raise."""
+    container = mock.Mock()
+
+    with caplog.at_level(logging.WARNING):
+        written = utils.write_password_db(container, {"good": "pw", **credentials}, "/db")
+
+    assert written == ["good"]
+    assert "Skipping user" in caplog.text
+
+
+def test_invalid_usernames_lists_offending_users_sorted():
+    """Invalid names, non-strings and unstorable passwords are listed by name only."""
+    credentials = {
+        "good": "pw",
+        "b:ad": "pw",
+        123: "pw",
+        "long": "x" * 73,
+        "num": 5,
+    }  # nosec B105
+
+    assert utils.invalid_usernames(credentials) == ["123", "b:ad", "long", "num"]
+
+
+def test_invalid_configured_users_block_but_others_are_written(ctx, tmp_path):
+    """Invalid users in `user-secret-id` block the charm; every other user is still written."""
+    secret = _gateway_secret()
+    gateway = gateway_relation({GATEWAY_USER: secret.id})
+    operator_users = observer_secret(
+        {"users": "good: good-pw\nbad:name: colon-pw\n123: number-pw\nnone-pw:\n"}
+    )
+    state_in, _ = build_coordinator_state(
+        config={"user-secret-id": operator_users.id},
+        container=_container(tmp_path),
+        extra_relations=(gateway,),
+        extra_secrets=(secret, operator_users),
+    )
+
+    state_out = ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    assert set(_password_db(tmp_path)) == {"good", GATEWAY_USER}
+    assert state_out.unit_status == BlockedStatus(
+        "invalid users in user secret: 123, bad:name, none-pw"
+    )
+    for password in ("good-pw", "colon-pw", "number-pw"):
+        assert password not in state_out.unit_status.message
+    assert json.loads(_reply(state_out, gateway)["registered_users"]) == [GATEWAY_USER]
+
+
 def test_all_mode_writes_accepted_users_and_replies(ctx, tmp_path):
     """Accepted Gateway users are written to `password.db` and confirmed to the Gateway."""
     secret = _gateway_secret()
@@ -622,6 +675,32 @@ def test_changes_are_logged_at_debug(ctx, tmp_path, caplog):
     assert f"Registered Trino Gateway users in relation {gateway.id}: ['{GATEWAY_USER}']" in text
     assert "username already exists on this Trino" in text
     assert f"Trino Gateway users pending in relation {gateway.id}: ['gw-pending']" in text
+
+
+def test_pending_users_are_logged_on_leader_only(ctx, tmp_path, caplog):
+    """A non-leader takes no action on pending users, so it does not log them."""
+    gateway = gateway_relation({"gw-pending": "secret:unknown"})
+    int_comms = Secret(
+        tracked_content={"secret": "int-comms"},  # nosec
+        owner="app",
+        label=INT_COMMS_SECRET_LABEL,
+    )
+    truststore = Secret(
+        tracked_content={"password": "truststore"},  # nosec
+        owner="app",
+        label=TRUSTSTORE_SECRET_LABEL,
+    )
+    state_in, _ = build_coordinator_state(
+        leader=False,
+        container=_container(tmp_path),
+        extra_relations=(gateway,),
+        extra_secrets=(int_comms, truststore),
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    assert "pending" not in caplog.text
 
 
 def test_list_system_users_reports_gateway_users(ctx, tmp_path):

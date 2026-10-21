@@ -67,7 +67,8 @@ class UsersPlan:
     """The desired state computed from the current inputs.
 
     Attributes:
-        password_db: Every user to write to `password.db` with its plaintext password.
+        password_db: Every user to write to `password.db` with its plaintext password: the
+            local credentials plus the accepted Gateway credentials.
         replies: The desired reply per relation ID, as encoded databag values. Empty for a
             worker.
         pending: The usernames still waiting for a readable secret, per relation ID.
@@ -82,7 +83,7 @@ class UsersPlan:
 
 def plan_users(
     is_coordinator: bool,
-    trino_users: Mapping[str, str],
+    local_credentials: Mapping[str, str],
     requests: Mapping[int, Mapping[str, str]],
     read_password: Callable[[str], Optional[str]],
 ) -> UsersPlan:
@@ -92,7 +93,7 @@ def plan_users(
 
     Args:
         is_coordinator: Whether this application serves clients. Workers take no part.
-        trino_users: The configured or default users plus the `trino-catalog` users, with
+        local_credentials: The configured or default users plus the `trino-catalog` users, with
             their plaintext passwords.
         requests: The requests per relation ID, as {username: secret ID}.
         read_password: Returns the password held by a secret, or None if it cannot be read.
@@ -102,11 +103,14 @@ def plan_users(
     """
     if not is_coordinator:
         return UsersPlan(
-            password_db=dict(trino_users), replies={relation_id: {} for relation_id in requests}
+            password_db=dict(local_credentials),
+            replies={relation_id: {} for relation_id in requests},
         )
 
-    requesters = Counter(username for requested in requests.values() for username in requested)
-    gateway_passwords: dict[str, str] = {}
+    request_count_by_username = Counter(
+        username for requested in requests.values() for username in requested
+    )
+    gateway_credentials: dict[str, str] = {}
     refused: dict[int, dict[str, str]] = {relation_id: {} for relation_id in requests}
     pending: dict[int, list[str]] = {}
     accepted: dict[int, list[str]] = {relation_id: [] for relation_id in requests}
@@ -115,9 +119,9 @@ def plan_users(
         for username, secret_id in sorted(requested.items()):
             if not is_valid_username(username):
                 refused[relation_id][username] = GATEWAY_REFUSAL_INVALID_USERNAME
-            elif username in trino_users:
+            elif username in local_credentials:
                 refused[relation_id][username] = GATEWAY_REFUSAL_EXISTING_USER
-            elif requesters[username] > 1:
+            elif request_count_by_username[username] > 1:
                 # Gateway usernames embed a hash of the model UUID and application name, so
                 # two Gateways only request the same name if that contract is broken. Without
                 # stored ownership there is no fair way to pick one, so none of them gets it.
@@ -129,7 +133,7 @@ def plan_users(
                 elif not has_valid_password_length(password):
                     refused[relation_id][username] = GATEWAY_REFUSAL_LONG_PASSWORD
                 else:
-                    gateway_passwords[username] = password
+                    gateway_credentials[username] = password
                     accepted[relation_id].append(username)
 
     replies = {
@@ -140,10 +144,10 @@ def plan_users(
         for relation_id in requests
     }
     return UsersPlan(
-        password_db={**trino_users, **gateway_passwords},
+        password_db={**local_credentials, **gateway_credentials},
         replies=replies,
         pending=pending,
-        gateway_users=sorted(gateway_passwords),
+        gateway_users=sorted(gateway_credentials),
     )
 
 
@@ -238,18 +242,20 @@ class TrinoGatewayRelationHandler(Object):
         except (SecretNotFoundError, ModelError):
             return None
 
-    def plan(self, trino_users: Mapping[str, str]) -> UsersPlan:
+    def plan(self, local_credentials: Mapping[str, str]) -> UsersPlan:
         """Compute the desired users state from the current relation data and secrets.
 
         Args:
-            trino_users: The configured or default users plus the `trino-catalog` users.
+            local_credentials: The configured or default users plus the `trino-catalog` users.
 
         Returns:
             The plan.
         """
-        return plan_users(self._is_coordinator, trino_users, self.requests(), self._read_password)
+        return plan_users(
+            self._is_coordinator, local_credentials, self.requests(), self._read_password
+        )
 
-    def reconcile(self, container, trino_users: Mapping[str, str]) -> UsersPlan:
+    def reconcile(self, container, local_credentials: Mapping[str, str]) -> UsersPlan:
         """Write `password.db` and, on the leader, publish the reply to every Gateway.
 
         Every unit writes the file itself, since the plan only depends on data every unit can
@@ -257,19 +263,20 @@ class TrinoGatewayRelationHandler(Object):
 
         Args:
             container: The Trino container.
-            trino_users: The configured or default users plus the `trino-catalog` users.
+            local_credentials: The configured or default users plus the `trino-catalog` users.
 
         Returns:
             The plan that was applied.
         """
-        plan = self.plan(trino_users)
+        plan = self.plan(local_credentials)
         db_path = str(self.charm.trino_abs_path.joinpath(PASSWORD_DB))
         write_password_db(container, plan.password_db, db_path)
 
-        for relation_id, usernames in plan.pending.items():
-            logger.debug("Trino Gateway users pending in relation %s: %s", relation_id, usernames)
-
         if self.charm.unit.is_leader():
+            for relation_id, usernames in plan.pending.items():
+                logger.debug(
+                    "Trino Gateway users pending in relation %s: %s", relation_id, usernames
+                )
             self._publish(plan)
         return plan
 

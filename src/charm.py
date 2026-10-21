@@ -94,6 +94,7 @@ from utils import (
     ProxyConfigError,
     content_hash,
     generate_password,
+    invalid_usernames,
     jvm_proxy_options,
     oauth_proxy_properties,
     parse_proxy_url,
@@ -425,9 +426,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
 
         try:
-            self._compute_credentials()
+            configured_credentials = self._configured_credentials()
         except ValueError as err:
             event.add_status(BlockedStatus(str(err)))
+            return
+        invalid_users = invalid_usernames(configured_credentials)
+        if invalid_users:
+            event.add_status(
+                BlockedStatus(f"invalid users in user secret: {', '.join(invalid_users)}")
+            )
             return
 
         if cfg.charm_function in ("coordinator", "all"):
@@ -489,7 +496,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if secret_id:
             try:
                 content = self._get_secret_content(secret_id)
-                configured_users = list(yaml.safe_load(content["users"]).keys())
+                configured_users = [str(user) for user in yaml.safe_load(content["users"]).keys()]
             except Exception:
                 configured_users = ["(error reading secret)"]
         else:
@@ -638,7 +645,23 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             Mapping of username to plaintext password.
 
         Raises:
-            ValueError: if the configured user secret is malformed.
+            ValueError: if the configured user secret is unreadable or malformed.
+        """
+        credentials = self._configured_credentials()
+        credentials.update(self.trino_catalog.get_relation_credentials())
+        return credentials
+
+    def _configured_credentials(self):
+        """Return the users from `user-secret-id`, or the default users without it.
+
+        Invalid users are returned as they are; `password.db` skips them and the charm is
+        blocked.
+
+        Returns:
+            Mapping of username to plaintext password.
+
+        Raises:
+            ValueError: if the configured user secret is unreadable or malformed.
         """
         secret_id = self._effective_user_secret_id()
         if secret_id:
@@ -651,8 +674,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 raise ValueError(f"invalid user secret {secret_id!r}: 'users' must be a mapping")
         else:
             credentials = dict(DEFAULT_CREDENTIALS)
-
-        credentials.update(self.trino_catalog.get_relation_credentials())
         return credentials
 
     def _render_catalogs(self, truststore_pwd):
@@ -1314,6 +1335,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         file_hashes.update(self._configure_resource_groups(container, env))
         file_hashes.update(self._configure_session_property_manager(container, env))
 
+        # Credentials are computed before the catalogs so a bad user secret does not hold back
+        # the Gateway reconcile; returning only here lets catalogs, truststores and config
+        # files still converge, and skips only the replan.
         if credentials is None:
             return
 

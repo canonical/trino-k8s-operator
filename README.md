@@ -400,11 +400,11 @@ Where the `user-secrets.yaml` has the below format:
 <another-user>:<another-password>
 ```
 
-Credential changes for any user (added, removed or rotated) take effect within one minute, without restarting Trino. The charm writes the bcrypt hashes to `password.db` on every hook, and Trino reloads the file every `file.refresh-period` (one minute). A removed or rotated password keeps working until the next reload. The hashes are kept out of the Pebble plan, since any change to the plan restarts Trino.
+Credential changes for any user (added, removed or rotated) take effect within one minute, without restarting Trino. The charm writes the bcrypt hashes to `password.db` on every hook, and Trino reloads the file every `file.refresh-period` (one minute). A removed or rotated password keeps working until the next reload.
 
 Notes:
-- The `gw-` username prefix is reserved for [Trino Gateway](#trino-gateway-relation) users. Do not create users with this prefix in `user-secret-id`: a configured user always takes precedence over a Gateway user of the same name.
-- Passwords longer than 72 bytes are not supported (bcrypt limit). The charm skips such users and logs a warning with the username.
+- The `gw-` username prefix is reserved for [Trino Gateway](#trino-gateway-relation) users. Do not create users with this prefix in `user-secret-id`: a configured user with the same name as a Gateway user is kept, whichever was created first, and the Gateway user is refused and removed from Trino.
+- Users whose name is invalid (empty, or containing a colon, whitespace or a control character) or whose password is longer than 72 bytes (bcrypt limit) are not written. The charm is `blocked` and lists them, and every other user still works.
 
 ## Trino Gateway relation
 The `trino-gateway-integration` relation lets [Trino Gateway](https://github.com/canonical/trino-gateway-k8s-operator) request the users it needs to authenticate against this Trino. The relation is optional, and Trino can be related to several Gateways.
@@ -414,12 +414,12 @@ juju integrate trino-k8s:trino-gateway-integration trino-gateway-k8s:trino-gatew
 ```
 
 The Gateway requests users and grants each user's credentials as a Juju secret. Trino:
-- writes each requested user to `password.db`, without restarting Trino;
+- writes each requested user to `password.db`;
 - confirms the users it wrote and refuses, with a reason, the ones it cannot register;
 - publishes its URL to the Gateway, the same one it publishes on `trino-catalog`.
 
 Trino keeps no record of who owns a username; every hook recomputes the outcome from the current configuration and relation data. A request is refused when:
-- the name already belongs to a `user-secret-id`, default or `trino-catalog` user ("username already exists on this Trino"), and that user's credentials are unchanged;
+- the name already belongs to a `user-secret-id`, default or `trino-catalog` user ("username already exists on this Trino");
 - the same name is requested by more than one Gateway ("username requested by more than one Trino Gateway"), in which case it is refused on all of them;
 - the name is empty or contains a colon, whitespace or a control character ("invalid username");
 - the password is longer than 72 bytes ("password longer than 72 bytes").
@@ -430,7 +430,9 @@ Gateway users are subject to the same access control rules and Ranger policies a
 
 Trino reloads `password.db` once a minute, so a confirmed user can take up to one minute to authenticate. Changes on the Gateway are applied on the next hook.
 
-Only coordinator (or `all`) applications can be related. A relation to a worker application is not supported: the worker is `blocked` and publishes nothing. The `list-system-users` action reports the Gateway users in `gateway-users`.
+Only coordinator (or `all`) applications can be related. A relation to a worker application is not supported: the worker is `blocked` and publishes nothing.
+
+The `list-system-users` action reports the Gateway users in `gateway-users` when run on a coordinator (or `all`) unit. On a worker it is always `(none)`.
 
 ## Policy
 ### Ranger
