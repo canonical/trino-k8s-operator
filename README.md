@@ -416,7 +416,7 @@ juju integrate trino-k8s:trino-gateway-integration trino-gateway-k8s:trino-gatew
 The Gateway requests users and grants each user's credentials as a Juju secret. Trino:
 - writes each requested user to `password.db`;
 - confirms the users it wrote and refuses, with a reason, the ones it cannot register;
-- publishes its URL to the Gateway, the same one it publishes on `trino-catalog`.
+- publishes its URL to the Gateway, the same one it publishes on `trino-catalog`. The two always match, including while the `user-secret-id` secret cannot be read.
 
 Trino keeps no record of who owns a username; every hook recomputes the outcome from the current configuration and relation data. A request is refused when:
 - the name already belongs to a `user-secret-id`, default or `trino-catalog` user ("username already exists on this Trino");

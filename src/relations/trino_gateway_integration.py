@@ -326,10 +326,32 @@ class TrinoGatewayRelationHandler(Object):
             return dict.fromkeys(_PUBLISHED_KEYS, "")
 
         desired = dict(plan.replies[relation.id])
-        url = self.charm.trino_catalog.get_url()
-        if url:
-            desired[GATEWAY_TRINO_URL_KEY] = url
+        desired.update(self._desired_url())
         return desired
+
+    def _desired_url(self) -> dict[str, str]:
+        """Build the `trino_url` part of our databag, the same URL `trino-catalog` publishes.
+
+        Returns:
+            The URL key to set, or nothing when there is no URL, which keeps the published one.
+        """
+        url = self.charm.trino_catalog.get_url()
+        return {GATEWAY_TRINO_URL_KEY: url} if url else {}
+
+    def publish_url(self) -> None:
+        """Keep `trino_url` current when the local credentials cannot be read.
+
+        Users are left as they are: `password.db` is not written and `registered_users` and
+        `refused_users` are untouched. Only the leader publishes, and a worker clears our keys.
+        """
+        if not self.charm.unit.is_leader():
+            return
+        for relation in self.relations:
+            if self._is_coordinator:
+                desired = self._desired_url()
+            else:
+                desired = dict.fromkeys(_PUBLISHED_KEYS, "")
+            relation.data[self.charm.app].update(desired)
 
     def _publish(self, plan: UsersPlan) -> None:
         """Publish the desired databag on every relation. Only called on the leader.

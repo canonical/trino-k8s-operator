@@ -1287,11 +1287,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         # Gateway users and the reply to each Gateway follow the published
         # trino-catalog URL, and do not depend on later configuration errors.
+        # Without readable credentials, only the URL is kept in sync.
         try:
             credentials = self._compute_credentials()
         except ValueError as err:
             logger.error(err)
             credentials = None
+            self.trino_gateway.publish_url()
         else:
             self.trino_gateway.reconcile(container, credentials)
 

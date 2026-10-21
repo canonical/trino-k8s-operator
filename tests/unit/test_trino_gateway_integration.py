@@ -644,25 +644,105 @@ def test_later_reconcile_error_still_writes_users_and_replies(ctx, tmp_path):
     assert state_out.get_container("trino").plan.to_dict() == {}
 
 
-def test_unreadable_user_secret_does_nothing(ctx, tmp_path):
-    """Without readable configured users nothing is written or published."""
+PUBLISHED_USERS = {"registered_users": '["kept"]', "refused_users": '{"gw-x": "reason"}'}
+
+
+def test_unreadable_user_secret_keeps_url_in_sync(ctx, tmp_path, gateway_sleep):
+    """Without readable configured users, only `trino_url` follows `trino-catalog`."""
     secret = _gateway_secret()
     gateway = gateway_relation(
-        {GATEWAY_USER: secret.id}, local_app_data={"registered_users": '["kept"]'}
+        {GATEWAY_USER: secret.id},
+        local_app_data={"trino_url": CATALOG_URL, **PUBLISHED_USERS},
     )
     state_in, _ = build_coordinator_state(
         config={"user-secret-id": "secret:unreadable"},
         container=_container(tmp_path),
-        extra_relations=(gateway,),
+        extra_relations=(gateway, ingress_relation("https://trino.example")),
         extra_secrets=(secret,),
     )
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
 
+    assert _reply(state_out, gateway) == {"trino_url": "trino.example:443", **PUBLISHED_USERS}
     assert not (tmp_path / "password.db").exists()
-    assert _reply(state_out, gateway) == {"registered_users": '["kept"]'}
     assert state_out.get_container("trino").plan.to_dict() == {}
     assert isinstance(state_out.unit_status, BlockedStatus)
+    gateway_sleep.assert_not_called()
+
+
+def test_unreadable_user_secret_follows_ingress_like_trino_catalog(ctx, tmp_path):
+    """With an ingress change and an unreadable user secret, both relations agree."""
+    gateway = gateway_relation({}, local_app_data={"trino_url": CATALOG_URL, **PUBLISHED_USERS})
+    state_in, _ = build_coordinator_state(
+        config={"user-secret-id": "secret:unreadable"},
+        container=_container(tmp_path),
+        extra_relations=(gateway, ingress_relation("https://trino.example")),
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _reply(state_out, gateway)["trino_url"] == "trino.example:443"
+    assert {k: _reply(state_out, gateway)[k] for k in PUBLISHED_USERS} == PUBLISHED_USERS
+
+
+def test_unreadable_user_secret_without_url_keeps_published_url(ctx, tmp_path):
+    """Without a URL, the existing `trino_url` is left untouched in the URL-only path."""
+    published = {"trino_url": "old.example:8080", **PUBLISHED_USERS}
+    gateway = gateway_relation({}, local_app_data=published)
+    state_in, _ = build_coordinator_state(
+        config={"user-secret-id": "secret:unreadable"},
+        container=_container(tmp_path),
+        extra_relations=(gateway,),
+    )
+
+    with mock.patch(
+        "relations.trino_catalog.TrinoCatalogRelationHandler.get_url", return_value=None
+    ):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _reply(state_out, gateway) == published
+
+
+def test_unreadable_user_secret_non_leader_writes_nothing(ctx, tmp_path):
+    """A non-leader neither writes `password.db` nor publishes in the URL-only path."""
+    gateway = gateway_relation({}, local_app_data={"trino_url": "old.example:8080"})
+    int_comms = Secret(
+        tracked_content={"secret": "int-comms"},  # nosec
+        owner="app",
+        label=INT_COMMS_SECRET_LABEL,
+    )
+    truststore = Secret(
+        tracked_content={"password": "truststore"},  # nosec
+        owner="app",
+        label=TRUSTSTORE_SECRET_LABEL,
+    )
+    state_in, _ = build_coordinator_state(
+        leader=False,
+        config={"user-secret-id": "secret:unreadable"},
+        container=_container(tmp_path),
+        extra_relations=(gateway, ingress_relation("https://trino.example")),
+        extra_secrets=(int_comms, truststore),
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _reply(state_out, gateway) == {"trino_url": "old.example:8080"}
+    assert not (tmp_path / "password.db").exists()
+
+
+def test_unreadable_user_secret_worker_clears_keys(ctx, tmp_path):
+    """A worker clears our keys in the URL-only path too."""
+    stale = {"trino_url": "old:8080", **PUBLISHED_USERS}
+    gateway = gateway_relation({}, local_app_data=stale)
+    state_in, _ = build_worker_state(container=_container(tmp_path), extra_relations=(gateway,))
+
+    with mock.patch(
+        "charm.TrinoK8SCharm._compute_credentials", side_effect=ValueError("unreadable")
+    ):
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _reply(state_out, gateway) == {}
+    assert not (tmp_path / "password.db").exists()
 
 
 def test_pebble_not_ready_leaves_databags_untouched(ctx):
