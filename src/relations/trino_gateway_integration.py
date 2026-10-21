@@ -16,13 +16,19 @@ Trino to Trino Gateway:
     `registered_users`: JSON list of the accepted usernames, sorted.
     `refused_users`: JSON object mapping each refused username to a human-readable reason.
 
+The Gateway sends each password in plaintext rather than as a hash. Trino owns `password.db`,
+its format and its hashing settings, so hashing stays in one place; if each relation sent
+hashes, a change to Trino's hashing would need matching changes in every related charm. The
+plaintext only travels inside a Juju secret granted to the relation.
+
 Nothing is stored between hooks. Every hook computes the desired state from the current
 relation data and secrets, writes `password.db` and publishes the reply.
 
 Glossary:
     request: a username, with the ID of the secret holding its password, that a Gateway asks
         for in `requested_users`.
-    accepted: a request that is written to `password.db`. The Gateway sees it as registered.
+    accepted: a request that is written to `password.db`, and that is confirmed once Trino has
+        had time to reload the file. The Gateway sees it as registered.
     refused: a request that cannot be honored. The Gateway sees it with the reason.
     pending: a request whose secret cannot be read yet. It is neither accepted nor refused,
         and a later hook picks it up.
@@ -31,6 +37,7 @@ Glossary:
 
 import json
 import logging
+import time
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -49,6 +56,7 @@ from literals import (
     GATEWAY_REGISTERED_USERS_KEY,
     GATEWAY_TRINO_URL_KEY,
     PASSWORD_DB,
+    PASSWORD_DB_REFRESH_SECONDS,
     TRINO_GATEWAY_RELATION_NAME,
 )
 from utils import has_valid_password_length, is_valid_username, write_password_db
@@ -259,7 +267,8 @@ class TrinoGatewayRelationHandler(Object):
         """Write `password.db` and, on the leader, publish the reply to every Gateway.
 
         Every unit writes the file itself, since the plan only depends on data every unit can
-        read. Only the leader publishes, and what it confirms is what it wrote.
+        read. Only the leader publishes, and what it confirms is what it wrote, once Trino has
+        had time to reload it.
 
         Args:
             container: The Trino container.
@@ -270,15 +279,38 @@ class TrinoGatewayRelationHandler(Object):
         """
         plan = self.plan(local_credentials)
         db_path = str(self.charm.trino_abs_path.joinpath(PASSWORD_DB))
-        write_password_db(container, plan.password_db, db_path)
+        salt_key = f"{self.charm.model.uuid}/{self.charm.app.name}"
+        if write_password_db(container, plan.password_db, db_path, salt_key).pushed:
+            logger.debug("Updated %s", db_path)
 
         if self.charm.unit.is_leader():
             for relation_id, usernames in plan.pending.items():
                 logger.debug(
                     "Trino Gateway users pending in relation %s: %s", relation_id, usernames
                 )
+            if self._is_coordinator and self.relations:
+                self._wait_for_reload(container, db_path)
             self._publish(plan)
         return plan
+
+    def _wait_for_reload(self, container, db_path: str) -> None:
+        """Wait until Trino has had time to reload `password.db` since its content last changed.
+
+        Trino re-reads the file lazily, at most once per refresh period, and a confirmation
+        must mean the user can log in. The file is only pushed when its content changes, so its
+        modification time is when the current content landed; a retried hook waits only for
+        what remains. Waiting on the leader alone relies on the coordinator running a single
+        unit.
+
+        Args:
+            container: The Trino container.
+            db_path: The path to `password.db`.
+        """
+        last_modified = container.list_files(db_path)[0].last_modified.timestamp()
+        delay = last_modified + PASSWORD_DB_REFRESH_SECONDS + 1 - time.time()
+        if delay > 0:
+            logger.debug("Waiting %.1fs for Trino to reload %s", delay, db_path)
+            time.sleep(delay)
 
     def _desired_databag(self, relation: Relation, plan: UsersPlan) -> dict[str, str]:
         """Build the content our application databag should have on a relation.

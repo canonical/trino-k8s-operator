@@ -342,7 +342,7 @@ juju relate trino-k8s <requirer-app>
 
 No manual secret granting is required. Each requirer gets a unique username in the format `app-<requirer-app-name>-<relation-id>` with an auto-generated password. This works across both same-model and cross-model relations.
 
-New and removed relation users take effect within one minute, without restarting Trino.
+New and removed relation users take effect within a few seconds (Trino reloads `password.db` every 5 seconds), without restarting Trino.
 
 ## User management
 By default, password authentication is enabled for Charmed Trino. Trino can use
@@ -400,7 +400,7 @@ Where the `user-secrets.yaml` has the below format:
 <another-user>:<another-password>
 ```
 
-Credential changes for any user (added, removed or rotated) take effect within one minute, without restarting Trino. The charm writes the bcrypt hashes to `password.db` on every hook, and Trino reloads the file every `file.refresh-period` (one minute). A removed or rotated password keeps working until the next reload.
+Credential changes for any user (added, removed or rotated) take effect within a few seconds of the charm's next hook, without restarting Trino. The charm writes the bcrypt hashes to `password.db`, and Trino reloads the file every 5 seconds. A removed or rotated password keeps working until Trino reloads the file.
 
 Notes:
 - The `gw-` username prefix is reserved for [Trino Gateway](#trino-gateway-relation) users. Do not create users with this prefix in `user-secret-id`: a configured user with the same name as a Gateway user is kept, whichever was created first, and the Gateway user is refused and removed from Trino.
@@ -428,7 +428,7 @@ A user whose secret cannot be read yet is neither confirmed nor refused until a 
 
 Gateway users are subject to the same access control rules and Ranger policies as any other user.
 
-Trino reloads `password.db` once a minute, so a confirmed user can take up to one minute to authenticate. Changes on the Gateway are applied on the next hook.
+Trino confirms a user only after it has had time to reload `password.db`, so a confirmed user can log in immediately; the charm waits a few seconds after a change before confirming. Changes on the Gateway are applied on the next hook.
 
 Only coordinator (or `all`) applications can be related. A relation to a worker application is not supported: the worker is `blocked` and publishes nothing.
 

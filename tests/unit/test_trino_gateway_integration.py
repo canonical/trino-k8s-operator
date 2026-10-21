@@ -7,16 +7,19 @@
 import dataclasses
 import json
 import logging
+import os
+import time
 from unittest import mock
 
 import bcrypt
 import pytest
 from ops.model import ActiveStatus, BlockedStatus
+from ops.pebble import PathError
 from ops.testing import Mount, Secret
 
 import literals
 import utils
-from literals import INT_COMMS_SECRET_LABEL, TRUSTSTORE_SECRET_LABEL
+from literals import INT_COMMS_SECRET_LABEL, PASSWORD_DB_REFRESH_SECONDS, TRUSTSTORE_SECRET_LABEL
 from relations.trino_gateway_integration import plan_users
 from tests.unit.helpers import (
     build_coordinator_state,
@@ -32,6 +35,8 @@ CATALOG_URL = "trino-k8s.trino-model.svc.cluster.local:8080"
 GATEWAY_USER = "gw-0123456789abcdef-trino-gateway-k8s-7"  # nosec B105
 GATEWAY_PASSWORD = "gateway-password"  # nosec B105
 TRINO_USERS = {"existing": "existing-password"}  # nosec B105
+SALT_KEY = "model-uuid/trino-k8s"
+DB_PATH = "/etc/password.db"
 
 
 def _gateway_secret(username=GATEWAY_USER, password=GATEWAY_PASSWORD):
@@ -52,6 +57,27 @@ def _password_db(path):
 
 def _container(tmp_path):
     return trino_container(mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)})
+
+
+class _FakeContainer:
+    """A container whose files live in memory, counting pushes."""
+
+    def __init__(self, files=None):
+        self.files = dict(files or {})
+        self.pushes = 0
+
+    def pull(self, path):
+        if path not in self.files:
+            raise PathError("not-found", f"stat {path}: no such file or directory")
+        return mock.Mock(read=mock.Mock(return_value=self.files[path]))
+
+    def push(self, path, content, **kwargs):
+        self.files[path] = content
+        self.pushes += 1
+
+
+def _write(container, credentials):
+    return utils.write_password_db(container, credentials, DB_PATH, SALT_KEY)
 
 
 def _reply(state, relation):
@@ -174,9 +200,9 @@ def test_writer_pushes_one_hash_per_user():
     container = mock.Mock()
     credentials = {"alice": "alice-pw", "bob": "bob-pw"}  # nosec B105
 
-    written = utils.write_password_db(container, credentials, "/etc/password.db")
+    result = _write(container, credentials)
 
-    assert written == ["alice", "bob"]
+    assert result == utils.PasswordDbWrite(written=["alice", "bob"], pushed=True)
     container.push.assert_called_once()
     (path, content), kwargs = container.push.call_args
     assert path == "/etc/password.db"
@@ -194,19 +220,18 @@ def test_writer_hashes_with_production_cost(monkeypatch):
     monkeypatch.setattr("utils.BCRYPT_COST", literals.BCRYPT_COST)
     container = mock.Mock()
 
-    utils.write_password_db(container, {"alice": "pw"}, "/etc/password.db")
+    _write(container, {"alice": "pw"})
 
     assert container.push.call_args.args[1].startswith("alice:$2b$10$")
 
 
 def test_writer_pushes_empty_file_without_users():
     """Trino must always find the file, even without users."""
-    container = mock.Mock()
+    container = _FakeContainer()
 
-    assert utils.write_password_db(container, {}, "/etc/password.db") == []
+    assert _write(container, {}) == utils.PasswordDbWrite(written=[], pushed=True)
 
-    container.push.assert_called_once()
-    assert container.push.call_args.args[1] == ""
+    assert container.files == {DB_PATH: ""}
 
 
 def test_writer_skips_unstorable_users_without_logging_passwords(caplog):
@@ -219,7 +244,7 @@ def test_writer_skips_unstorable_users_without_logging_passwords(caplog):
     }  # nosec B105
 
     with caplog.at_level(logging.DEBUG):
-        written = utils.write_password_db(container, credentials, "/etc/password.db")
+        written = _write(container, credentials).written
 
     assert written == ["good"]
     assert container.push.call_args.args[1].count("\n") == 1
@@ -227,6 +252,77 @@ def test_writer_skips_unstorable_users_without_logging_passwords(caplog):
     assert "'long'" in caplog.text
     assert "colon-password" not in caplog.text
     assert "long-password" not in caplog.text
+
+
+def test_salt_is_stable_per_key_and_username():
+    """The same key and username always give the same salt; anything else changes it."""
+    salt = utils._derive_bcrypt_salt(SALT_KEY, "alice")
+
+    assert salt == utils._derive_bcrypt_salt(SALT_KEY, "alice")
+    assert salt != utils._derive_bcrypt_salt(SALT_KEY, "bob")
+    assert salt != utils._derive_bcrypt_salt("other-model/trino-k8s", "alice")
+
+
+def test_salt_is_a_valid_bcrypt_salt_with_the_configured_cost(monkeypatch):
+    """Bcrypt keeps the derived salt as given and the hash verifies."""
+    salt = utils._derive_bcrypt_salt(SALT_KEY, "alice")
+    assert salt.startswith(b"$2b$04$")
+    assert len(salt) == 29
+
+    password_hash = bcrypt.hashpw(b"pw", salt)
+    assert password_hash.startswith(salt)
+    assert bcrypt.checkpw(b"pw", password_hash)
+
+    monkeypatch.setattr("utils.BCRYPT_COST", literals.BCRYPT_COST)
+    assert utils._derive_bcrypt_salt(SALT_KEY, "alice").startswith(b"$2b$10$")
+
+
+def test_same_password_gives_different_hashes_per_user():
+    """Two users with the same password do not share a hash."""
+    container = _FakeContainer()
+
+    _write(container, {"alice": "pw", "bob": "pw"})
+
+    hashes = dict(line.split(":", 1) for line in container.files[DB_PATH].splitlines())
+    assert hashes["alice"] != hashes["bob"]
+
+
+def test_writer_does_not_push_unchanged_credentials():
+    """Writing the same credentials twice pushes once."""
+    container = _FakeContainer()
+    credentials = {"alice": "alice-pw", "bob": "bob-pw"}  # nosec B105
+
+    assert _write(container, credentials).pushed
+    assert _write(container, credentials) == utils.PasswordDbWrite(
+        written=["alice", "bob"], pushed=False
+    )
+    assert container.pushes == 1
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"alice": "rotated-pw"},
+        {"alice": "alice-pw", "carol": "carol-pw"},
+        {},
+    ],
+    ids=["rotated", "added", "removed"],
+)
+def test_writer_pushes_changed_credentials(changed):
+    """A rotated password, an added user and a removed user each change the file."""
+    container = _FakeContainer()
+    _write(container, {"alice": "alice-pw"})
+
+    assert _write(container, changed).pushed
+    assert container.pushes == 2
+
+
+def test_writer_pushes_missing_file():
+    """A missing file counts as empty, so even an empty database is pushed."""
+    container = _FakeContainer()
+
+    assert _write(container, {"alice": "pw"}).pushed
+    assert DB_PATH in container.files
 
 
 @pytest.mark.parametrize(
@@ -238,7 +334,7 @@ def test_writer_skips_non_string_users(caplog, credentials):
     container = mock.Mock()
 
     with caplog.at_level(logging.WARNING):
-        written = utils.write_password_db(container, {"good": "pw", **credentials}, "/db")
+        written = _write(container, {"good": "pw", **credentials}).written
 
     assert written == ["good"]
     assert "Skipping user" in caplog.text
@@ -701,6 +797,118 @@ def test_pending_users_are_logged_on_leader_only(ctx, tmp_path, caplog):
         ctx.run(ctx.on.relation_changed(gateway), state_in)
 
     assert "pending" not in caplog.text
+
+
+def _fresh_coordinator(tmp_path, leader=True, with_gateway=True):
+    """Build a coordinator state with a Gateway that requests one user."""
+    secret = _gateway_secret()
+    gateway = gateway_relation({GATEWAY_USER: secret.id})
+    extra_secrets = [secret]
+    if not leader:
+        extra_secrets += [
+            Secret(
+                tracked_content={"secret": "int-comms"},  # nosec
+                owner="app",
+                label=INT_COMMS_SECRET_LABEL,
+            ),
+            Secret(
+                tracked_content={"password": "truststore"},  # nosec
+                owner="app",
+                label=TRUSTSTORE_SECRET_LABEL,
+            ),
+        ]
+    state_in, _ = build_coordinator_state(
+        leader=leader,
+        container=_container(tmp_path),
+        extra_relations=(gateway,) if with_gateway else (),
+        extra_secrets=tuple(extra_secrets),
+    )
+    return state_in, gateway
+
+
+def _set_age(tmp_path, seconds):
+    """Make `password.db` look like it was written the given number of seconds ago."""
+    then = time.time() - seconds
+    os.utime(tmp_path / "password.db", (then, then))
+
+
+def test_leader_waits_for_reload_before_confirming(ctx, tmp_path, gateway_sleep):
+    """After a change, the leader waits for Trino to reload the file, then publishes."""
+    state_in, gateway = _fresh_coordinator(tmp_path)
+
+    state_out = ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    gateway_sleep.assert_called_once()
+    (delay,) = gateway_sleep.call_args.args
+    assert PASSWORD_DB_REFRESH_SECONDS < delay <= PASSWORD_DB_REFRESH_SECONDS + 1
+    assert json.loads(_reply(state_out, gateway)["registered_users"]) == [GATEWAY_USER]
+
+
+def test_no_wait_when_file_is_unchanged_and_old(ctx, tmp_path, gateway_sleep):
+    """An unchanged file written more than a refresh period ago needs no wait."""
+    state_in, gateway = _fresh_coordinator(tmp_path)
+    configured = carry_forward(ctx.run(ctx.on.relation_changed(gateway), state_in))
+    _set_age(tmp_path, 100)
+    gateway_sleep.reset_mock()
+
+    ctx.run(ctx.on.update_status(), configured)
+
+    gateway_sleep.assert_not_called()
+
+
+def test_retried_hook_waits_only_the_remaining_time(ctx, tmp_path, gateway_sleep):
+    """A file written recently but unchanged in this hook waits only for what remains."""
+    state_in, gateway = _fresh_coordinator(tmp_path)
+    configured = carry_forward(ctx.run(ctx.on.relation_changed(gateway), state_in))
+    _set_age(tmp_path, 2)
+    gateway_sleep.reset_mock()
+
+    ctx.run(ctx.on.update_status(), configured)
+
+    gateway_sleep.assert_called_once()
+    (delay,) = gateway_sleep.call_args.args
+    assert PASSWORD_DB_REFRESH_SECONDS - 2 < delay <= PASSWORD_DB_REFRESH_SECONDS - 1
+
+
+def test_non_leader_does_not_wait(ctx, tmp_path, gateway_sleep):
+    """Only the leader confirms users, so only it waits."""
+    state_in, gateway = _fresh_coordinator(tmp_path, leader=False)
+
+    ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    gateway_sleep.assert_not_called()
+
+
+def test_no_wait_without_gateway_relation(ctx, tmp_path, gateway_sleep):
+    """Without a Gateway, no confirmation depends on the reload."""
+    state_in, _ = _fresh_coordinator(tmp_path, with_gateway=False)
+
+    ctx.run(ctx.on.config_changed(), state_in)
+
+    gateway_sleep.assert_not_called()
+
+
+def test_worker_does_not_wait(ctx, tmp_path, gateway_sleep):
+    """A worker confirms nothing, so it never waits."""
+    secret = _gateway_secret()
+    gateway = gateway_relation({GATEWAY_USER: secret.id})
+    state_in, _ = build_worker_state(
+        container=_container(tmp_path), extra_relations=(gateway,), extra_secrets=(secret,)
+    )
+
+    ctx.run(ctx.on.config_changed(), state_in)
+
+    gateway_sleep.assert_not_called()
+
+
+def test_refresh_period_is_rendered_from_the_constant(ctx, tmp_path):
+    """Trino reloads `password.db` every `PASSWORD_DB_REFRESH_SECONDS`."""
+    state_in, _ = build_coordinator_state(container=_container(tmp_path))
+
+    ctx.run(ctx.on.config_changed(), state_in)
+
+    properties = (tmp_path / "password-authenticator.properties").read_text()
+    assert f"file.refresh-period={PASSWORD_DB_REFRESH_SECONDS}s" in properties.splitlines()
 
 
 def test_list_system_users_reports_gateway_users(ctx, tmp_path):

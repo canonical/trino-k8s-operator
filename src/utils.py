@@ -4,7 +4,9 @@
 
 """Collection of helper methods for Trino Charm."""
 
+import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -20,7 +22,7 @@ import bcrypt
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import Error as PebbleError
-from ops.pebble import ExecError
+from ops.pebble import ExecError, PathError
 
 from literals import BCRYPT_COST, BCRYPT_MAX_PASSWORD_BYTES, REPLICA_SCHEMA
 
@@ -489,19 +491,59 @@ def invalid_usernames(credentials: Mapping) -> list[str]:
     )
 
 
-def write_password_db(container, credentials, db_path) -> list[str]:
+# Standard base64 and bcrypt's base64 use the same 64 characters in a different order.
+_BCRYPT_BASE64 = bytes.maketrans(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    b"./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+)
+
+
+def _derive_bcrypt_salt(key: str, username: str) -> bytes:
+    """Derive the bcrypt salt for a user from a per-deployment key.
+
+    The salt is deterministic so that rebuilding `password.db` from unchanged credentials gives
+    the same file, which lets the charm detect real changes. This is safe because a salt only
+    has to be unique, not secret, and the key makes it unique per user and per deployment.
+
+    Args:
+        key: A value unique to the deployment, such as the model UUID and application name.
+        username: The user the salt is for.
+
+    Returns:
+        A bcrypt salt, as accepted by `bcrypt.hashpw`.
+    """
+    digest = hmac.new(key.encode(), username.encode(), hashlib.sha256).digest()
+    encoded = base64.b64encode(digest[:16]).rstrip(b"=").translate(_BCRYPT_BASE64)
+    return f"$2b${BCRYPT_COST:02d}$".encode() + encoded
+
+
+@dataclass(frozen=True)
+class PasswordDbWrite:
+    """The outcome of `write_password_db`.
+
+    Attributes:
+        written: The usernames in the file.
+        pushed: Whether the file content changed and was pushed.
+    """
+
+    written: list[str]
+    pushed: bool
+
+
+def write_password_db(container, credentials, db_path, salt_key) -> PasswordDbWrite:
     """Write the authentication database from the full set of credentials.
 
-    The file is built in memory and pushed once, which replaces it atomically. Users whose
-    name or password cannot be stored are skipped.
+    The file is built in memory and pushed once, which replaces it atomically, and only if its
+    content changed. Users whose name or password cannot be stored are skipped.
 
     Args:
         container: The trino container.
         credentials: A dictionary of user/password.
         db_path: The path to the `password.db`.
+        salt_key: The per-deployment key the bcrypt salts are derived from.
 
     Returns:
-        The usernames written to the file.
+        The usernames written to the file, and whether the file was pushed.
     """
     lines = []
     written = []
@@ -512,11 +554,20 @@ def write_password_db(container, credentials, db_path) -> list[str]:
         if not has_valid_password_length(password):
             logger.warning("Skipping user %r: password not a string or longer than 72 bytes", user)
             continue
-        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=BCRYPT_COST))
+        password_hash = bcrypt.hashpw(password.encode(), _derive_bcrypt_salt(salt_key, user))
         lines.append(f"{user}:{password_hash.decode()}\n")
         written.append(user)
-    container.push(db_path, "".join(lines), make_dirs=True, permissions=0o644)
-    return written
+    content = "".join(lines)
+
+    try:
+        current = container.pull(db_path).read()
+    except PathError:
+        current = None
+    if content == current:
+        return PasswordDbWrite(written=written, pushed=False)
+
+    container.push(db_path, content, make_dirs=True, permissions=0o644)
+    return PasswordDbWrite(written=written, pushed=True)
 
 
 class ProxyConfigError(Exception):

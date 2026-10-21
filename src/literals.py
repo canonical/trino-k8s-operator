@@ -46,6 +46,7 @@ TRINO_PLUGIN_DIR = "/usr/lib/trino/plugin"
 
 # Authentication literals
 PASSWORD_DB = "password.db"  # nosec
+PASSWORD_DB_REFRESH_SECONDS = 5
 OAUTH_SCOPE = "openid profile email"
 OAUTH_GRANT_TYPES = ["authorization_code"]
 OIDC_CALLBACK_PATH = "/oauth2/callback"

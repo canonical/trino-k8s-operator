@@ -25,8 +25,8 @@ ORIGINAL_USER = ("alice", "alice-original-password")  # nosec B105
 ROTATED_USER = ("alice", "alice-rotated-password")  # nosec B105
 ADDED_USER = ("bob", "bob-added-password")  # nosec B105
 
-# `file.refresh-period` is one minute; leave room for the secret-changed hook and Trino's schedule.
-REFRESH_TIMEOUT = 240
+# `file.refresh-period` is five seconds, so the secret-changed hook dominates; keep a wide margin.
+REFRESH_TIMEOUT = 120
 POLL_INTERVAL = 5
 # Trino reports uptime rounded to two decimals of its largest unit (for example `2.35m`), and
 # each request adds latency. A restart sets uptime back to about zero, far below this slack.
