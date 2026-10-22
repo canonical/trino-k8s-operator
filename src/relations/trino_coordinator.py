@@ -125,6 +125,7 @@ class TrinoCoordinator(Object):
             "discovery-uri": self.charm._coordinator_discovery_uri,
             "user-secret-id": self.charm.config.user_secret_id or "",
             "catalogs": self.charm.config.catalog_config or "",
+            "catalog-management": self.charm._effective_catalog_management(),
         }
 
         for relation in coordinator_relations:
