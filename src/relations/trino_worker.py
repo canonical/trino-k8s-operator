@@ -41,8 +41,9 @@ class TrinoWorker(Object):
         the values are resolved on demand rather than cached in peer state.
 
         Returns:
-            Mapping with discovery_uri, user_secret_id, catalog_config and
-            int_comms_secret_id; values are None/"" when unavailable.
+            Mapping with discovery_uri, user_secret_id, catalog_config,
+            catalog_management and int_comms_secret_id; values are None/""
+            when unavailable.
         """
         relation = self.charm.model.get_relation(self.relation_name)
         if relation is None or relation.app is None:
@@ -50,6 +51,7 @@ class TrinoWorker(Object):
                 "discovery_uri": None,
                 "user_secret_id": None,  # nosec B105
                 "catalog_config": None,
+                "catalog_management": None,
                 "int_comms_secret_id": "",  # nosec B105
             }
 
@@ -58,6 +60,7 @@ class TrinoWorker(Object):
             "discovery_uri": databag.get("discovery-uri"),
             "user_secret_id": databag.get("user-secret-id"),
             "catalog_config": databag.get("catalogs"),
+            "catalog_management": databag.get("catalog-management"),
             "int_comms_secret_id": databag.get(INT_COMMS_SECRET_RELATION_KEY, ""),
         }
 

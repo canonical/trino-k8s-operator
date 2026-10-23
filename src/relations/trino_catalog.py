@@ -177,12 +177,15 @@ class TrinoCatalogRelationHandler(Object):
     def _get_postgresql_catalogs(self) -> List[TrinoCatalog]:
         """Get catalog names from postgresql-catalog-config.
 
-        Only included when the postgresql relation exists.
+        Only included when the postgresql relation exists and catalogs are
+        dynamic, since a static Trino cannot create them.
 
         Returns:
             List of TrinoCatalog objects for dynamic PG catalogs.
         """
         if not self.charm.model.relations.get(POSTGRESQL_RELATION_NAME):
+            return []
+        if self.charm._effective_catalog_management() != "dynamic":
             return []
 
         raw = self.charm.config.postgresql_catalog_config

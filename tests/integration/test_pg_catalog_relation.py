@@ -104,12 +104,13 @@ def destroy_pg(juju: jubilant.Juju, pg_name):
 
 
 def relate_pg(juju: jubilant.Juju, pg_name=POSTGRES_NAME):
-    """Integrate Trino with PG and wait for idle.
+    """Switch Trino to dynamic catalogs, integrate it with PG and wait for idle.
 
     Args:
         juju: Jubilant Juju object.
         pg_name: PG application name.
     """
+    juju.config(APP_NAME, {"catalog-management": "dynamic"})
     juju.integrate(APP_NAME, pg_name)
     wait_for_apps(juju, [APP_NAME, WORKER_NAME, pg_name], status="active", timeout=900)
 

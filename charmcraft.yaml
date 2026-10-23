@@ -171,6 +171,15 @@ config:
       description: |
         Catalogs for which Trino should be connected.
       type: string
+    catalog-management:
+      description: |
+        How Trino manages catalogs, one of `static` or `dynamic`. Changing it restarts Trino.
+        `static` loads catalogs from their files at startup.
+        `dynamic` allows catalogs to be created and dropped at runtime with `CREATE CATALOG`.
+        The postgresql relation requires `dynamic` and blocks the unit if set to `static`.
+        Set it on the coordinator, workers follow the coordinator's value and ignore their own.
+      default: static
+      type: string
     postgresql-catalog-config:
       description: |
         YAML configuration for PostgreSQL catalogs managed via the postgresql relation.

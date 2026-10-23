@@ -420,6 +420,7 @@ def build_worker_state(
     catalogs=None,
     include_int_comms=True,
     postgresql_secrets=None,
+    catalog_management=None,
     extra_relations=(),
     extra_secrets=(),
     container=None,
@@ -437,6 +438,8 @@ def build_worker_state(
         include_int_comms: whether the coordinator has published an int-comms secret.
         postgresql_secrets: mapping of PG password env vars the coordinator has
             published via a granted Juju secret, or None to publish none.
+        catalog_management: the `catalog-management` mode the coordinator
+            publishes, or None to publish none.
         extra_relations: additional relations to include in the state.
         extra_secrets: additional secrets to include in the state.
         container: an explicit container to use instead of the default.
@@ -454,6 +457,8 @@ def build_worker_state(
         "discovery-uri": "http://trino-k8s:8080",
         "catalogs": catalog_config,
     }
+    if catalog_management is not None:
+        remote_data["catalog-management"] = catalog_management
     int_comms = None
     if include_int_comms:
         int_comms = observer_secret({"secret": "test-int-comms-secret"})  # nosec B105

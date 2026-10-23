@@ -212,7 +212,7 @@ def _dynamic_properties(**extra) -> dict:
     return {"connector.name": "postgresql", "query.comment-format": "dynamic catalog", **extra}
 
 
-def _reconcile(container, executor, desired, dynamic_enabled=True):
+def _reconcile(container, executor, desired, dynamic_enabled=True, dynamic_mode=True):
     """Call `reconcile_catalogs` with the fixed test directories.
 
     Args:
@@ -220,12 +220,20 @@ def _reconcile(container, executor, desired, dynamic_enabled=True):
         executor: The fake dynamic catalog SQL executor.
         desired: The `DesiredCatalogs` to reconcile.
         dynamic_enabled: Whether dynamic catalog SQL may run.
+        dynamic_mode: Whether Trino runs with dynamic catalog management.
 
     Returns:
         The resulting `CatalogReconcileResult`.
     """
     return reconcile_catalogs(
-        container, executor, desired, CATALOG_DIR, CREDENTIAL_DIR, ROOT, dynamic_enabled
+        container,
+        executor,
+        desired,
+        CATALOG_DIR,
+        CREDENTIAL_DIR,
+        ROOT,
+        dynamic_enabled,
+        dynamic_mode,
     )
 
 
@@ -560,6 +568,26 @@ class TestReconcileCatalogs(TestCase):
         _reconcile(container, executor, desired)
 
         self.assertEqual(container.removed, [])
+
+    def test_static_mode_removes_dynamic_files_without_sql(self):
+        """In static mode a leftover dynamic file is deleted and no catalog SQL runs."""
+        props = _dynamic_properties()
+        static_text = "connector.name=hive\n"
+        container = FakeContainer(
+            files={
+                f"{CATALOG_DIR}/pg.properties": _dynamic_raw(props),
+                f"{CATALOG_DIR}/hive.properties": static_text,
+            }
+        )
+        desired = DesiredCatalogs(static={"hive": static_text}, credentials={}, dynamic={})
+        executor = FakeExecutor()
+
+        result = _reconcile(container, executor, desired, dynamic_mode=False)
+
+        self.assertEqual(container.removed, [f"{CATALOG_DIR}/pg.properties"])
+        self.assertIn(f"{CATALOG_DIR}/hive.properties", container.files)
+        self.assertEqual(executor.calls, [])
+        self.assertFalse(result.failed)
 
     def test_marker_text_outside_the_ownership_property_is_not_dynamic(self):
         """Mentioning the marker elsewhere does not claim dynamic ownership."""

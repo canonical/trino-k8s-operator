@@ -91,6 +91,7 @@ class CharmConfig(BaseConfigModel):
     charm_function: str = "all"
     discovery_uri: Optional[str] = None
     catalog_config: Optional[str] = None
+    catalog_management: str = "static"
     postgresql_catalog_config: Optional[str] = None
     catalog_exclusions: Optional[str] = None
     resource_groups_config: Optional[str] = None
@@ -133,6 +134,13 @@ class CharmConfig(BaseConfigModel):
             raise ValueError(
                 f"Invalid charm-function {v!r}; must be one of: coordinator, worker, all"
             )
+        return v
+
+    @validator("catalog_management")
+    def validate_catalog_management(cls, v):
+        """Validate catalog_management is dynamic or static."""
+        if v not in {"dynamic", "static"}:
+            raise ValueError(f"Invalid catalog-management {v!r}; must be one of: dynamic, static")
         return v
 
     @validator("acl_mode_default")
