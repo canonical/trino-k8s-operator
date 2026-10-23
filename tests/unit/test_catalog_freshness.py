@@ -97,6 +97,7 @@ def test_config_changed(ctx, monkeypatch):
                 "OAUTH_HTTP_PROXY_SECURE": None,
                 "CHARM_FUNCTION": "all",
                 "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
+                "CATALOG_MANAGEMENT": "static",
                 "APPLICATION_NAME": "trino-k8s",
                 "TRINO_HOME": "/usr/lib/trino/etc",
                 "JMX_PORT": 9081,
@@ -519,7 +520,9 @@ def test_dynamic_password_rotation_replans_once_without_sql(ctx, tmp_path, monke
     container = trino_container(
         mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
     )
-    state_in, _ = build_coordinator_state(container=container)
+    state_in, _ = build_coordinator_state(
+        config={"catalog-management": "dynamic"}, container=container
+    )
 
     first = ctx.run(ctx.on.config_changed(), state_in)
     assert calls == [("create", "pgdyn")]

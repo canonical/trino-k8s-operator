@@ -239,6 +239,24 @@ managed by the charm: files that are no longer described by `catalog-config` are
 manual edits are reverted on the next configuration change. Trino is restarted only when the
 rendered catalog content actually changes.
 
+### Catalog management mode
+
+The `catalog-management` option sets Trino's `catalog.management`. The default, `static`, loads
+catalogs from their files when Trino starts; Trino does not start if a catalog fails to load, so a
+broken `catalog-config` entry stops the node rather than only that catalog. `dynamic` also lets
+catalogs be created and dropped at runtime, which the PostgreSQL relation requires:
+
+```bash
+juju config trino-k8s catalog-management=dynamic
+```
+
+Changing the mode restarts Trino. Set it on the coordinator: workers follow the coordinator's
+mode and ignore their own. Workers on a revision without this option always run dynamic, so
+refresh worker applications before their coordinator. With the `postgresql` relation in place
+and `catalog-management=static`, the relation's catalogs are removed and the unit is blocked with
+`postgresql relation requires catalog-management=dynamic` until the mode is set to `dynamic` or the
+relation is removed.
+
 ### Resource group manager
 
 Trino's built-in file-based resource group manager can be enabled with the
@@ -664,7 +682,11 @@ postgresql-k8s:
 
 ### Establish the relation
 
+The relation's catalogs are created at runtime, which needs dynamic catalog management (see
+[Catalog management mode](#catalog-management-mode)):
+
 ```bash
+juju config trino-coordinator catalog-management=dynamic
 juju relate trino-coordinator postgresql-k8s
 ```
 

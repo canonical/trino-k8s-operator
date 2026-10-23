@@ -299,6 +299,7 @@ def reconcile_catalogs(
     credential_dir: str,
     root: str,
     dynamic_enabled: bool,
+    dynamic_mode: bool,
 ) -> CatalogReconcileResult:
     """Reconcile static and dynamic catalogs against the workload filesystem.
 
@@ -313,6 +314,10 @@ def reconcile_catalogs(
         root: The Trino home directory that restart-hash paths are made
             relative to.
         dynamic_enabled: Whether this unit may execute dynamic catalog SQL.
+        dynamic_mode: Whether Trino runs with `catalog.management=dynamic`.
+            When False no catalog SQL runs and files carrying the dynamic
+            marker are removed with the other unmanaged files, because a
+            static Trino refuses to start on a catalog it cannot load.
 
     Returns:
         The `CatalogReconcileResult` describing what happened. No Pebble
@@ -334,7 +339,9 @@ def reconcile_catalogs(
     if actual.failed:
         return _blocked_result()
 
-    blocked = apply_dynamic(executor, desired.dynamic, actual, dynamic_enabled)
+    if not dynamic_mode:
+        protected = set()
+    blocked = apply_dynamic(executor, desired.dynamic, actual, dynamic_enabled and dynamic_mode)
     result = apply_static(
         container, desired, snapshot, catalog_dir, credential_dir, blocked, protected
     )

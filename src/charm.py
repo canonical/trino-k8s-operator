@@ -464,6 +464,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 event.add_status(MaintenanceStatus("Status check: DOWN"))
                 return
 
+        if self._postgresql_relation_needs_dynamic():
+            event.add_status(
+                BlockedStatus("postgresql relation requires catalog-management=dynamic")
+            )
+            return
+
         event.add_status(ActiveStatus("Status check: UP"))
 
     def _restart_trino(self):
@@ -981,6 +987,49 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return self.trino_worker.get_coordinator_data()["catalog_config"]
         return self.config.catalog_config or ""
 
+    def _postgresql_relation_needs_dynamic(self):
+        """Return whether the postgresql relation exists while catalogs are static.
+
+        The relation's catalogs are created with `CREATE CATALOG`, which Trino
+        only accepts with `catalog.management=dynamic`.
+
+        Returns:
+            True on a coordinator set to `catalog-management=static` while the
+            postgresql relation exists.
+        """
+        return (
+            self.config.charm_function != "worker"
+            and self.config.catalog_management == "static"
+            and bool(self.model.relations[POSTGRESQL_RELATION_NAME])
+        )
+
+    def _effective_catalog_management(self):
+        """Return the Trino `catalog.management` mode for this unit's role.
+
+        Workers follow the mode the coordinator publishes, since a worker in
+        the other mode cannot find the coordinator's catalogs.
+
+        Returns:
+            `dynamic` or `static`; a worker treats a missing or unrecognised
+            published value as `dynamic`, the mode of coordinators that
+            publish none.
+        """
+        if self.config.charm_function == "worker":
+            published = self.trino_worker.get_coordinator_data()["catalog_management"]
+            return published if published in ("dynamic", "static") else "dynamic"
+        return self.config.catalog_management
+
+    def _warn_worker_catalog_management(self):
+        """Log an unrecognised catalog-management value published by the coordinator."""
+        if self.config.charm_function != "worker":
+            return
+        published = self.trino_worker.get_coordinator_data()["catalog_management"]
+        if published not in (None, "dynamic", "static"):
+            logger.warning(
+                "Ignoring unrecognised catalog-management %r from the coordinator; using dynamic",
+                published,
+            )
+
     def _effective_user_secret_id(self):
         """Return the user secret id for this unit's role.
 
@@ -1067,6 +1116,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "OAUTH_HTTP_PROXY_SECURE": oauth_proxy_props.get("secure"),
             "CHARM_FUNCTION": cfg.charm_function,
             "DISCOVERY_URI": self._effective_discovery_uri() or self._coordinator_discovery_uri,
+            "CATALOG_MANAGEMENT": self._effective_catalog_management(),
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
             "PASSWORD_DB_REFRESH_SECONDS": PASSWORD_DB_REFRESH_SECONDS,
@@ -1248,6 +1298,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return
 
         self._warn_deprecated_config()
+        self._warn_worker_catalog_management()
 
         int_comms_secret = self._get_int_comms_secret_value()
         if is_coordinator and int_comms_secret is None:
@@ -1325,6 +1376,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             str(self.credential_abs_path),
             str(self.trino_abs_path),
             dynamic_enabled=is_coordinator,
+            dynamic_mode=self._effective_catalog_management() == "dynamic",
         )
         if catalog_result.duplicates or catalog_result.failed:
             return

@@ -116,6 +116,7 @@ def test_ready(ctx):
                     "OAUTH_HTTP_PROXY_SECURE": None,
                     "CHARM_FUNCTION": "coordinator",
                     "DISCOVERY_URI": "http://trino-k8s.trino-model.svc.cluster.local:8080",
+                    "CATALOG_MANAGEMENT": "static",
                     "APPLICATION_NAME": "trino-k8s",
                     "TRINO_HOME": "/usr/lib/trino/etc",
                     "JMX_PORT": 9081,
@@ -483,6 +484,165 @@ def test_trino_single_node_deployment(ctx):
 
     # The status reflects the healthy `up` check reported by Scenario.
     assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+def _catalog_management_line(state_out, ctx):
+    """Return the `catalog.management` line rendered into config.properties."""
+    config = workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
+    return next(line for line in config.splitlines() if line.startswith("catalog.management="))
+
+
+def _pg_relation():
+    """Return a postgresql relation to a provider that has published nothing yet."""
+    return Relation("postgresql", remote_app_name="postgresql-k8s")
+
+
+def test_catalog_management_defaults_to_static(ctx):
+    """Without the option set, Trino runs static and the coordinator publishes it."""
+    state_in, ids = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _catalog_management_line(state_out, ctx) == "catalog.management=static"
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert relation_data["catalog-management"] == "static"
+
+
+@pytest.mark.parametrize("function", ["coordinator", "all"])
+def test_catalog_management_dynamic_is_applied(ctx, function):
+    """`catalog-management=dynamic` renders dynamic mode on a coordinator or single node."""
+    state_in, ids = build_coordinator_state(
+        config={"charm-function": function, "catalog-management": "dynamic"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _catalog_management_line(state_out, ctx) == "catalog.management=dynamic"
+    assert _services(state_out)["trino"]["environment"]["CATALOG_MANAGEMENT"] == "dynamic"
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
+    if function == "coordinator":
+        relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+        assert relation_data["catalog-management"] == "dynamic"
+
+
+def test_catalog_management_invalid_value_blocks(ctx):
+    """An unknown catalog-management value blocks with the validator's message."""
+    state_in, _ = build_coordinator_state(config={"catalog-management": "lazy"})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == BlockedStatus(
+        "Invalid catalog-management 'lazy'; must be one of: dynamic, static"
+    )
+
+
+def test_postgresql_relation_with_static_blocks_and_stays_static(ctx):
+    """The postgresql relation under static catalogs blocks; Trino keeps running static."""
+    state_in, ids = build_coordinator_state(extra_relations=(_pg_relation(),))
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == BlockedStatus(
+        "postgresql relation requires catalog-management=dynamic"
+    )
+    assert _catalog_management_line(state_out, ctx) == "catalog.management=static"
+    relation_data = state_out.get_relation(ids.coordinator_relation.id).local_app_data
+    assert relation_data["catalog-management"] == "static"
+
+
+def test_postgresql_relation_with_dynamic_is_active(ctx):
+    """The postgresql relation under dynamic catalogs does not block."""
+    state_in, _ = build_coordinator_state(
+        config={"catalog-management": "dynamic"}, extra_relations=(_pg_relation(),)
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _catalog_management_line(state_out, ctx) == "catalog.management=dynamic"
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+@pytest.mark.parametrize("mode, advertised", [("static", False), ("dynamic", True)])
+def test_postgresql_catalogs_advertised_only_when_dynamic(ctx, mode, advertised):
+    """The trino-catalog relation lists the postgresql relation's catalogs only in dynamic mode."""
+    requirer = Relation(
+        "trino-catalog", remote_app_name="superset", remote_app_data={"app_name": "superset"}
+    )
+    state_in, _ = build_coordinator_state(
+        config={
+            "catalog-management": mode,
+            "postgresql-catalog-config": (
+                "postgresql-k8s:\n  database_prefix: testdb*\n  ro_catalog_name: pgdata\n"
+            ),
+        },
+        extra_relations=(_pg_relation(), requirer),
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    names = {
+        c["name"]
+        for c in json.loads(state_out.get_relation(requirer.id).local_app_data["trino_catalogs"])
+    }
+    assert ("pgdata" in names) is advertised
+
+
+def test_workload_down_outranks_postgresql_blocked(ctx):
+    """A down workload is reported over the postgresql relation's mode requirement."""
+    state_in, _ = build_coordinator_state(extra_relations=(_pg_relation(),))
+    mid = ctx.run(ctx.on.config_changed(), state_in)
+    container = dataclasses.replace(
+        mid.get_container("trino"),
+        check_infos={
+            CheckInfo(
+                "up",
+                status=CheckStatus.DOWN,
+                level=CheckLevel.UNSET,
+                startup=CheckStartup.UNSET,
+                threshold=None,
+            )
+        },
+    )
+
+    state_out = ctx.run(ctx.on.update_status(), dataclasses.replace(mid, containers={container}))
+
+    assert state_out.unit_status == MaintenanceStatus("Status check: DOWN")
+
+
+def test_removing_postgresql_relation_clears_the_block(ctx):
+    """Removing the postgresql relation under static catalogs returns the unit to active."""
+    pg_relation = _pg_relation()
+    state_in, _ = build_coordinator_state(extra_relations=(pg_relation,))
+
+    state_out = ctx.run(ctx.on.relation_broken(pg_relation), state_in)
+
+    assert _catalog_management_line(state_out, ctx) == "catalog.management=static"
+    assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+@pytest.mark.parametrize(
+    "published, own, expected",
+    [
+        ("static", "dynamic", "static"),
+        ("dynamic", "static", "dynamic"),
+        (None, "static", "dynamic"),
+        ("Static\nfoo=bar", "static", "dynamic"),
+    ],
+)
+def test_worker_follows_coordinator_catalog_management(ctx, published, own, expected):
+    """A worker renders the coordinator's mode, ignoring its own option.
+
+    A coordinator that publishes no mode, or an unrecognised one, is treated
+    as running dynamic catalog management.
+    """
+    state_in, ids = build_worker_state(
+        catalog_management=published, config={"catalog-management": own}
+    )
+
+    state_out = ctx.run(ctx.on.relation_changed(ids.worker_relation), state_in)
+
+    assert _catalog_management_line(state_out, ctx) == f"catalog.management={expected}"
+    assert "foo=bar" not in workload_path(state_out, ctx, CONFIG_PROPERTIES_PATH).read_text()
 
 
 def test_resource_management_config(ctx):
