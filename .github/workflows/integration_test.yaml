@@ -28,7 +28,8 @@ jobs:
         "test_catalog_updates.py",
         "test_managers.py",
         "test_trino_catalog_relation.py",
-        "test_pg_catalog_relation.py"]
+        "test_pg_catalog_relation.py",
+        "test_password_refresh.py"]
       juju-channel: 3/stable
       use-canonical-k8s: true
       provider: k8s

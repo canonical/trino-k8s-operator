@@ -102,6 +102,7 @@ def test_ready(ctx):
                 "on-check-failure": {"up": "restart"},
                 "environment": {
                     "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
+                    "PASSWORD_DB_REFRESH_SECONDS": 5,
                     "LOG_LEVEL": "info",
                     "OAUTH_CLIENT_ID": None,
                     "OAUTH_CLIENT_SECRET": None,  # nosec

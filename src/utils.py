@@ -4,24 +4,27 @@
 
 """Collection of helper methods for Trino Charm."""
 
+import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
 import re
 import secrets
 import string
-import subprocess  # nosec B404
 import textwrap
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+import bcrypt
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import Error as PebbleError
-from ops.pebble import ExecError
+from ops.pebble import ExecError, PathError
 
-from literals import REPLICA_SCHEMA
+from literals import BCRYPT_COST, BCRYPT_MAX_PASSWORD_BYTES, REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -439,40 +442,132 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
         raise
 
 
-def add_users_to_password_db(container, credentials, db_path):
-    """Create necessary db users for authentication.
+def is_valid_username(username: object) -> bool:
+    """Report whether a username can be written safely to `password.db`.
+
+    The file holds one `user:hash` entry per line, so a name with a colon, whitespace or a
+    control character could corrupt an entry or inject another one.
+
+    Args:
+        username: The username to check. YAML can produce non-string names, which are invalid.
+
+    Returns:
+        True if the username is a non-empty string with no colon, whitespace or control
+        character.
+    """
+    return (
+        isinstance(username, str)
+        and bool(username)
+        and not any(char == ":" or char.isspace() or not char.isprintable() for char in username)
+    )
+
+
+def has_valid_password_length(password: object) -> bool:
+    """Report whether bcrypt can hash the password without truncating it.
+
+    Args:
+        password: The plaintext password. YAML can produce non-string passwords, which are
+            invalid.
+
+    Returns:
+        True if the password is a string of at most 72 bytes in UTF-8.
+    """
+    return isinstance(password, str) and len(password.encode()) <= BCRYPT_MAX_PASSWORD_BYTES
+
+
+def invalid_usernames(credentials: Mapping) -> list[str]:
+    """Return the users that cannot be written to `password.db`.
+
+    Args:
+        credentials: A mapping of username to plaintext password.
+
+    Returns:
+        The offending usernames as strings, sorted. Passwords are never included.
+    """
+    return sorted(
+        str(user)
+        for user, password in credentials.items()
+        if not is_valid_username(user) or not has_valid_password_length(password)
+    )
+
+
+# Standard base64 and bcrypt's base64 use the same 64 characters in a different order.
+_BCRYPT_BASE64 = bytes.maketrans(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    b"./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+)
+
+
+def _derive_bcrypt_salt(key: str, username: str) -> bytes:
+    """Derive the bcrypt salt for a user from a per-deployment key.
+
+    The salt is deterministic so that rebuilding `password.db` from unchanged credentials gives
+    the same file, which lets the charm detect real changes. This is safe because a salt only
+    has to be unique, not secret, and the key makes it unique per user and per deployment.
+
+    Args:
+        key: A value unique to the deployment, such as the model UUID and application name.
+        username: The user the salt is for.
+
+    Returns:
+        A bcrypt salt, as accepted by `bcrypt.hashpw`.
+    """
+    digest = hmac.new(key.encode(), username.encode(), hashlib.sha256).digest()
+    encoded = base64.b64encode(digest[:16]).rstrip(b"=").translate(_BCRYPT_BASE64)
+    return f"$2b${BCRYPT_COST:02d}$".encode() + encoded
+
+
+@dataclass(frozen=True)
+class PasswordDbWrite:
+    """The outcome of `write_password_db`.
+
+    Attributes:
+        written: The usernames in the file.
+        pushed: Whether the file content changed and was pushed.
+    """
+
+    written: list[str]
+    pushed: bool
+
+
+def write_password_db(container, credentials, db_path, salt_key) -> PasswordDbWrite:
+    """Write the authentication database from the full set of credentials.
+
+    The file is built in memory and pushed once, which replaces it atomically, and only if its
+    content changed. Users whose name or password cannot be stored are skipped.
 
     Args:
         container: The trino container.
         credentials: A dictionary of user/password.
         db_path: The path to the `password.db`.
+        salt_key: The per-deployment key the bcrypt salts are derived from.
 
-    Raises:
-        ExecError: in case the container exec is unsuccessful.
+    Returns:
+        The usernames written to the file, and whether the file was pushed.
     """
-    if container.exists(db_path):
-        container.remove_path(db_path)
-
-    db_exists = False
+    lines = []
+    written = []
     for user, password in credentials.items():
-        command = [
-            "htpasswd",
-            "-b",
-            "-B",
-            "-C",
-            "10",
-            db_path,
-            user,
-            password,
-        ]
-        if not db_exists:
-            command.insert(2, "-c")
-        try:
-            container.exec(command).wait_output()
-            db_exists = True
-        except (subprocess.CalledProcessError, ExecError) as e:
-            logger.error(f"unable to add user credentials {e.stderr}")
-            raise
+        if not is_valid_username(user):
+            logger.warning("Skipping user with an invalid name: %r", user)
+            continue
+        if not has_valid_password_length(password):
+            logger.warning("Skipping user %r: password not a string or longer than 72 bytes", user)
+            continue
+        password_hash = bcrypt.hashpw(password.encode(), _derive_bcrypt_salt(salt_key, user))
+        lines.append(f"{user}:{password_hash.decode()}\n")
+        written.append(user)
+    content = "".join(lines)
+
+    try:
+        current = container.pull(db_path).read()
+    except PathError:
+        current = None
+    if content == current:
+        return PasswordDbWrite(written=written, pushed=False)
+
+    container.push(db_path, content, make_dirs=True, permissions=0o644)
+    return PasswordDbWrite(written=written, pushed=True)
 
 
 class ProxyConfigError(Exception):

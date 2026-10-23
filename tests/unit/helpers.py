@@ -262,7 +262,6 @@ def trino_container(can_connect=True, **kwargs):
         "trino",
         can_connect=can_connect,
         execs={
-            Exec(["htpasswd"], return_code=0),
             Exec(["keytool"], return_code=0),
             Exec(["/bin/sh"], stdout="/usr/lib/jvm/java-25-openjdk-amd64/"),
             Exec(["bash"], return_code=0),
@@ -292,6 +291,26 @@ def ingress_relation(url=None):
         "ingress",
         remote_app_name="traefik-k8s",
         remote_app_data=remote_data,
+    )
+
+
+def gateway_relation(requested=None, remote_app_name="trino-gateway-k8s", local_app_data=None):
+    """Build a `trino-gateway-integration` relation.
+
+    Args:
+        requested: mapping of requested username to the secret ID holding its password.
+        remote_app_name: the Gateway application name.
+        local_app_data: our application databag content.
+
+    Returns:
+        A Scenario `Relation` whose remote application databag carries the requests.
+    """
+    remote_data = {"requested_users": json.dumps(requested)} if requested is not None else {}
+    return Relation(
+        "trino-gateway-integration",
+        remote_app_name=remote_app_name,
+        remote_app_data=remote_data,
+        local_app_data=local_app_data or {},
     )
 
 

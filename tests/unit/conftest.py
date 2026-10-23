@@ -4,6 +4,8 @@
 """Shared fixtures for the Scenario-based unit tests."""
 
 import pathlib
+import time
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -44,6 +46,22 @@ def _clear_juju_proxy_env(monkeypatch):
     """
     for var in ("JUJU_CHARM_HTTP_PROXY", "JUJU_CHARM_HTTPS_PROXY", "JUJU_CHARM_NO_PROXY"):
         monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _low_bcrypt_cost(monkeypatch):
+    """Hash at bcrypt's minimum cost so tests that write `password.db` stay fast."""
+    monkeypatch.setattr("utils.BCRYPT_COST", 4)
+
+
+@pytest.fixture(autouse=True)
+def gateway_sleep(monkeypatch):
+    """Replace the wait before confirming Gateway users with a mock, keeping the real clock."""
+    sleep = mock.Mock()
+    monkeypatch.setattr(
+        "relations.trino_gateway_integration.time", SimpleNamespace(time=time.time, sleep=sleep)
+    )
+    return sleep
 
 
 @pytest.fixture
