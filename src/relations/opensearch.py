@@ -10,6 +10,7 @@ from ops import framework
 from ops.model import ModelError, SecretNotFoundError
 
 from literals import INDEX_NAME
+from utils import SecretReadError
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,18 @@ class OpensearchRelationHandler(framework.Object):
 
         Returns:
             content: The content of the secret.
+
+        Raises:
+            SecretNotFoundError: when the secret does not exist.
+            SecretReadError: when `secret-get` fails for another reason.
         """
-        secret = self.model.get_secret(id=secret_id)
-        content = secret.get_content(refresh=True)
-        return content
+        try:
+            secret = self.model.get_secret(id=secret_id)
+            return secret.get_content(refresh=True)
+        except SecretNotFoundError:
+            raise
+        except ModelError as e:
+            raise SecretReadError(self.relation_name, e) from e
 
     def gather_certificate(self):
         """Read the OpenSearch CA certificate from the relation via the model.
@@ -73,7 +82,7 @@ class OpensearchRelationHandler(framework.Object):
         try:
             content = self.get_secret_content(secret_id)
             tls_ca = content["tls-ca"]
-        except (SecretNotFoundError, ModelError, KeyError) as e:
+        except (SecretNotFoundError, KeyError) as e:
             logger.warning("Could not read OpenSearch tls-ca secret: %s", e)
             return None
         pattern = r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----"
@@ -113,6 +122,6 @@ class OpensearchRelationHandler(framework.Object):
                 "username": user_credentials["username"],
                 "is_enabled": True,
             }
-        except (SecretNotFoundError, ModelError, ValueError, KeyError) as e:
+        except (SecretNotFoundError, ValueError, KeyError) as e:
             logger.warning("Could not read OpenSearch connection data: %s", e)
             return {"is_enabled": False}

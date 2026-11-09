@@ -69,6 +69,7 @@ from literals import (
     PEER_RELATION_NAME,
     POLICY_RELATION_NAME,
     POSTGRESQL_RELATION_NAME,
+    RANGER_AUDIT_FILE,
     RUN_TRINO_COMMAND,
     TRINO_CATALOG_RELATION_NAME,
     TRINO_COORDINATOR_RELATION_NAME,
@@ -90,6 +91,7 @@ from sql_catalog import RedshiftCatalog, SqlCatalog
 from state import State
 from utils import (
     ProxyConfigError,
+    SecretReadError,
     add_users_to_password_db,
     content_hash,
     generate_password,
@@ -402,6 +404,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        try:
+            self.opensearch_relation_handler.gather_connection()
+            self.opensearch_relation_handler.gather_certificate()
+        except SecretReadError as err:
+            event.add_status(BlockedStatus(str(err)))
+            return
+
         if self.oauth.is_related:
             if cfg.charm_function == "worker":
                 event.add_status(BlockedStatus("oauth relation requires a coordinator"))
@@ -413,7 +422,12 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             if not ingress_url.startswith("https://"):
                 event.add_status(BlockedStatus("OAuth requires an HTTPS ingress URL"))
                 return
-            if self.oauth.provider_info is None:
+            try:
+                provider = self.oauth.provider_info
+            except SecretReadError as err:
+                event.add_status(BlockedStatus(str(err)))
+                return
+            if provider is None:
                 event.add_status(WaitingStatus("waiting for OAuth provider registration"))
                 return
 
@@ -1135,9 +1149,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         return env
 
     def _get_oauth_config(self):
-        """Return OAuth provider information as workload environment values."""
-        provider = self.oauth.provider_info
-        return {
+        """Return OAuth provider information as workload environment values.
+
+        When the client secret cannot be read, the deployed values are kept.
+        Pebble stores a None value as an empty string, so those map back to None.
+        """
+        try:
+            provider, unreadable = self.oauth.provider_info, None
+        except SecretReadError as err:
+            provider, unreadable = None, err
+        config = {
             "OAUTH_ISSUER_URL": provider.issuer_url if provider else None,
             "OAUTH_AUTHORIZATION_ENDPOINT": (
                 provider.authorization_endpoint if provider else None
@@ -1149,14 +1170,20 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "OAUTH_CLIENT_ID": provider.client_id if provider else None,
             "OAUTH_CLIENT_SECRET": provider.client_secret if provider else None,
         }
+        if unreadable is None:
+            return config
+        logger.warning("Using the deployed OAuth settings: %s", unreadable)
+        deployed = self._deployed_environment()
+        return {key: deployed.get(key) or None for key in config}
 
-    def _reconcile_truststores(self, container, truststore_pwd, conf_certs):
+    def _reconcile_truststores(self, container, truststore_pwd, conf_certs, opensearch):
         """Reconcile both truststores in place and return their plan hashes.
 
         Args:
             container: The Trino container.
             truststore_pwd: The stable truststore password.
             conf_certs: Desired {alias: PEM} certificates for `conf/truststore.jks`.
+            opensearch: `_read_opensearch()`; None keeps the deployed `cacerts`.
 
         Returns:
             Mapping of truststore manifest-hash env vars for the Pebble plan.
@@ -1170,10 +1197,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             str(self.conf_abs_path.joinpath(TRUSTSTORE_MANIFEST)),
         )
 
+        hashes = {"HASH_TRUSTSTORE_JKS": truststore_manifest_hash(conf_certs)}
+        deployed = self._deployed_environment()
+        if opensearch is None and "HASH_CACERTS" in deployed:
+            hashes["HASH_CACERTS"] = deployed["HASH_CACERTS"]
+            return hashes
+
+        connection, certificate = opensearch or ({}, None)
         cacerts_certs = {}
-        opensearch = self.opensearch_relation_handler.gather_connection()
-        certificate = self.opensearch_relation_handler.gather_certificate()
-        if opensearch.get("is_enabled") and certificate:
+        if connection.get("is_enabled") and certificate:
             cacerts_certs[CERTIFICATE_NAME] = certificate
 
         reconcile_truststore(
@@ -1185,10 +1217,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             str(self.conf_abs_path.joinpath(CACERTS_MANIFEST)),
         )
 
-        return {
-            "HASH_TRUSTSTORE_JKS": truststore_manifest_hash(conf_certs),
-            "HASH_CACERTS": truststore_manifest_hash(cacerts_certs),
-        }
+        hashes["HASH_CACERTS"] = truststore_manifest_hash(cacerts_certs)
+        return hashes
 
     def _clean_catalog_dir(self, container):
         """Remove the charm-owned catalog directories when no worker relation is present.
@@ -1235,6 +1265,24 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 }
             }
         return layer
+
+    def _deployed_environment(self):
+        """Return the environment of the planned Trino service, empty when none is planned.
+
+        Optional relation data that cannot be read is taken from here, so the
+        replan sees the values the running Trino was started with.
+        """
+        service = self.unit.get_container(self.name).get_plan().services.get(self.name)
+        return dict(service.environment) if service else {}
+
+    def _read_opensearch(self):
+        """Return the OpenSearch connection and CA, or None when a secret cannot be read."""
+        handler = self.opensearch_relation_handler
+        try:
+            return handler.gather_connection(), handler.gather_certificate()
+        except SecretReadError as err:
+            logger.warning("Using the deployed OpenSearch settings: %s", err)
+            return None
 
     def _reconcile(self):  # noqa: C901
         """Converge the Trino workload to the desired state read from the model.
@@ -1322,7 +1370,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             self.postgresql_catalog_handler._write_databag()
 
         conf_certs.update(self.postgresql_catalog_handler.get_desired_tls_certs())
-        file_hashes = self._reconcile_truststores(container, truststore_pwd, conf_certs)
+        opensearch = self._read_opensearch()
+        file_hashes = self._reconcile_truststores(
+            container, truststore_pwd, conf_certs, opensearch
+        )
 
         # Dynamic SQL runs against the still-running service from the
         # previous replan; this cycle's replan happens only after it settles.
@@ -1362,7 +1413,14 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         file_hashes["HASH_PASSWORD_DB"] = content_hash(json.dumps(credentials, sort_keys=True))
 
         if is_coordinator and ranger_enabled:
-            rendered = self.policy._configure_ranger_plugin(container)
+            audit_key = self._hash_key(RANGER_AUDIT_FILE)
+            deployed = self._deployed_environment()
+            if opensearch is None and audit_key in deployed:
+                file_hashes[audit_key] = deployed[audit_key]
+                connection = None
+            else:
+                connection = opensearch[0] if opensearch else {"is_enabled": False}
+            rendered = self.policy._configure_ranger_plugin(container, connection)
             for name, content in (rendered or {}).items():
                 file_hashes[self._hash_key(name)] = content_hash(content)
 

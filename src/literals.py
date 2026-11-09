@@ -50,10 +50,11 @@ OAUTH_GRANT_TYPES = ["authorization_code"]
 OIDC_CALLBACK_PATH = "/oauth2/callback"
 
 # Ranger plugin literals
+RANGER_AUDIT_FILE = "ranger-trino-audit.xml"
 RANGER_PLUGIN_FILES = {
     "access-control.jinja": "access-control.properties",
     "ranger-trino-security.jinja": "ranger-trino-security.xml",
-    "ranger-trino-audit.jinja": "ranger-trino-audit.xml",
+    "ranger-trino-audit.jinja": RANGER_AUDIT_FILE,
 }
 
 SECRET_LABEL = "catalog-config"  # nosec

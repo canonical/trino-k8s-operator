@@ -7,7 +7,7 @@ import logging
 
 from ops import framework
 
-from literals import RANGER_PLUGIN_FILES, TRINO_HOME, TRINO_PORTS
+from literals import RANGER_AUDIT_FILE, RANGER_PLUGIN_FILES, TRINO_HOME, TRINO_PORTS
 from utils import handle_exec_error, render
 
 logger = logging.getLogger(__name__)
@@ -78,11 +78,13 @@ class PolicyRelationHandler(framework.Object):
         return service
 
     @handle_exec_error
-    def _configure_ranger_plugin(self, container):
+    def _configure_ranger_plugin(self, container, opensearch):
         """Render and push the Ranger plugin files.
 
         Args:
             container: The application container.
+            opensearch: The OpenSearch connection values for the audit config,
+                or None to leave the deployed audit config in place.
 
         Returns:
             Mapping of pushed file name to rendered content, for plan hashing.
@@ -98,22 +100,26 @@ class PolicyRelationHandler(framework.Object):
             container,
             self.read_policy_manager_url(),
             policy_relation,
+            opensearch,
         )
         logger.info("Ranger plugin is enabled.")
         return rendered
 
-    def _push_plugin_files(self, container, policy_manager_url, policy_relation):
+    def _push_plugin_files(self, container, policy_manager_url, policy_relation, opensearch):
         """Configure the Ranger plugin install.properties file.
 
         Args:
             container: The application container
             policy_manager_url: The url of the policy manager
             policy_relation: The relation name and id of policy relation
+            opensearch: The OpenSearch connection values for the audit config,
+                or None to leave the deployed audit config in place.
 
         Returns:
             Mapping of pushed file name to rendered content.
         """
-        opensearch = self.charm.opensearch_relation_handler.gather_connection()
+        keep_audit = opensearch is None
+        opensearch = opensearch or {}
         policy_context = {
             "TRINO_HOME": TRINO_HOME,
             "POLICY_MGR_URL": policy_manager_url,
@@ -128,6 +134,8 @@ class PolicyRelationHandler(framework.Object):
         }
         rendered = {}
         for template, file in RANGER_PLUGIN_FILES.items():
+            if keep_audit and file == RANGER_AUDIT_FILE:
+                continue
             content = render(template, policy_context)
             path = self.charm.trino_abs_path.joinpath(file)
             container.push(path, content, make_dirs=True, permissions=0o744)
