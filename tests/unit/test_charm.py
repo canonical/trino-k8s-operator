@@ -38,6 +38,7 @@ from tests.unit.helpers import (
     build_worker_state,
     carry_forward,
     create_single_catalog_config,
+    failing_secret_reads,
     ingress_relation,
     oauth_relation,
     observer_secret,
@@ -1019,6 +1020,68 @@ def test_oauth_provider_data_configures_trino_and_registers_client(ctx):
     assert "http-server.authentication.oauth2.oidc.discovery=false" in config
     assert "http-server.authentication.oauth2.scopes=openid,email" in config
     assert "accounts.google.com" not in config
+
+
+def test_oauth_secret_timeout_keeps_running_plan(ctx):
+    """A failed OAuth client secret read keeps the running plan and blocks the unit."""
+    client_secret = observer_secret({"secret": "shhh"})  # nosec B105
+    oauth = oauth_relation(client_secret.id, scope="openid email")
+    ingress = ingress_relation("https://trino.example/")
+    state_in, _ = build_coordinator_state(
+        extra_relations=(oauth, ingress),
+        extra_secrets=(client_secret,),
+    )
+    state = carry_forward(ctx.run(ctx.on.relation_changed(oauth), state_in))
+    plan_before = state.get_container("trino").plan.to_dict()
+
+    with failing_secret_reads(client_secret.id):
+        state_out = ctx.run(ctx.on.update_status(), state)
+
+    assert state_out.get_container("trino").plan.to_dict() == plan_before
+    assert state_out.unit_status == BlockedStatus(
+        "cannot read oauth relation secret: "
+        "creating remote secret client: cannot log in: context deadline exceeded"
+    )
+
+
+def test_oauth_secret_timeout_keeps_oauth_off_when_not_deployed(ctx):
+    """Pebble stores an unset OAuth value as an empty string; it must not enable OAuth."""
+    client_secret = observer_secret({"secret": "shhh"})  # nosec B105
+    oauth = oauth_relation(client_secret.id)
+    ingress = ingress_relation("https://trino.example/")
+    state_in, _ = build_coordinator_state(
+        extra_relations=(oauth, ingress),
+        extra_secrets=(client_secret,),
+    )
+    with failing_secret_reads(client_secret.id):
+        state = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+        container = state.get_container("trino")
+        layers = {
+            name: Layer(
+                {
+                    **layer.to_dict(),
+                    "services": {
+                        svc: {
+                            **spec,
+                            "environment": {
+                                k: "" if v is None else v
+                                for k, v in spec.get("environment", {}).items()
+                            },
+                        }
+                        for svc, spec in layer.to_dict().get("services", {}).items()
+                    },
+                }
+            )
+            for name, layer in container.layers.items()
+        }
+        state = dataclasses.replace(
+            state, containers={dataclasses.replace(container, layers=layers)}
+        )
+        state_out = ctx.run(ctx.on.update_status(), state)
+
+    config = workload_path(state_out, ctx, "/usr/lib/trino/etc/config.properties").read_text()
+    assert "oauth2" not in config
+    assert state_out.unit_status.name == "blocked"
 
 
 def test_oauth_without_ingress_url_waits(ctx):

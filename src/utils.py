@@ -475,6 +475,24 @@ def add_users_to_password_db(container, credentials, db_path):
             raise
 
 
+class SecretReadError(Exception):
+    """Raised when a relation secret exists but `secret-get` fails.
+
+    Rendering without the secret would change the Pebble plan and restart
+    Trino, so the reconcile keeps the values the running plan was built from.
+    """
+
+    def __init__(self, relation_name, error):
+        """Build the message reported as the unit status.
+
+        Args:
+            relation_name: The relation whose secret could not be read.
+            error: The `ModelError` raised by `secret-get`.
+        """
+        detail = str(error).strip().removeprefix("ERROR ").strip()
+        super().__init__(f"cannot read {relation_name} relation secret: {detail}")
+
+
 class ProxyConfigError(Exception):
     """Raised when a Juju model proxy URL or a JVM proxy override is invalid.
 
