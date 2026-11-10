@@ -8,7 +8,9 @@ import dataclasses
 import hashlib
 import json
 from types import SimpleNamespace
+from unittest import mock
 
+import ops.model
 from ops.testing import Container, Exec, Model, PeerRelation, Relation, Secret, State
 
 from file_manager import FIND_BIN, SHA256SUM_BIN
@@ -746,3 +748,24 @@ def create_single_catalog_config(postgresql_secret_id, backend_params=None):
             config: |
                 case-insensitive-name-matching=true
     """
+
+
+def failing_secret_reads(*failing_ids):
+    """Patch `Model.get_secret` so reads of the given secret ids time out.
+
+    Args:
+        failing_ids: secret ids whose reads raise the controller timeout.
+
+    Returns:
+        A context manager applying the patch.
+    """
+    original = ops.model.Model.get_secret
+
+    def get_secret(self, *, id=None, label=None):  # noqa: A002
+        if id in failing_ids:
+            raise ops.model.ModelError(
+                "ERROR creating remote secret client: cannot log in: context deadline exceeded"
+            )
+        return original(self, id=id, label=label)
+
+    return mock.patch.object(ops.model.Model, "get_secret", autospec=True, side_effect=get_secret)

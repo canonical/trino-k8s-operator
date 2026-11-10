@@ -65,10 +65,11 @@ GATEWAY_REFUSAL_LONG_PASSWORD = "password longer than 72 bytes"  # nosec
 GATEWAY_WORKER_BLOCKED_MESSAGE = "trino-gateway-integration requires a coordinator"
 
 # Ranger plugin literals
+RANGER_AUDIT_FILE = "ranger-trino-audit.xml"
 RANGER_PLUGIN_FILES = {
     "access-control.jinja": "access-control.properties",
     "ranger-trino-security.jinja": "ranger-trino-security.xml",
-    "ranger-trino-audit.jinja": "ranger-trino-audit.xml",
+    "ranger-trino-audit.jinja": RANGER_AUDIT_FILE,
 }
 
 SECRET_LABEL = "catalog-config"  # nosec

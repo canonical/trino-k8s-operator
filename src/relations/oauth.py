@@ -23,6 +23,7 @@ from literals import (
     OAUTH_SCOPE,
     OIDC_CALLBACK_PATH,
 )
+from utils import SecretReadError
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,11 @@ class OAuthRelationHandler(framework.Object):
                     secret = self.charm.model.get_secret(id=secret_id)
                     provider.client_secret = secret.get_content(refresh=True)["secret"]
             return provider
-        except (KeyError, ModelError, SecretNotFoundError) as err:
+        except (KeyError, SecretNotFoundError) as err:
             logger.info("OAuth client secret is not available yet: %s", err)
             return None
+        except ModelError as err:
+            raise SecretReadError(OAUTH_RELATION_NAME, err) from err
 
     def publish_client_config(self) -> None:
         """Publish the ingress-derived OAuth client configuration."""

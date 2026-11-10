@@ -12,7 +12,7 @@ import dataclasses
 import logging
 import re
 
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, BlockedStatus
 from ops.pebble import CheckLevel, CheckStartup, CheckStatus
 from ops.testing import CheckInfo, Relation
 
@@ -22,11 +22,14 @@ from tests.unit.helpers import (
     RANGER_SECURITY_PATH,
     build_coordinator_state,
     carry_forward,
+    failing_secret_reads,
     observer_secret,
     workload_path,
 )
 
 logger = logging.getLogger(__name__)
+
+ACCESS_CONTROL_PATH = "/usr/lib/trino/etc/access-control.properties"
 
 OPENSEARCH_TLS_CA = """-----BEGIN CERTIFICATE-----
     MIIC+DCCAeCgAwIBAgIJAKJdWfG2zRAQMA0GCSqGSIb3DQEBCwUAMIGPMQswCQYD
@@ -261,3 +264,60 @@ def test_opensearch_single_cert_bundle_no_error(ctx):
     state = dataclasses.replace(state, containers={_up_check_container(state)})
     state_out = ctx.run(ctx.on.update_status(), state)
     assert state_out.unit_status == ActiveStatus("Status check: UP")
+
+
+def test_opensearch_secret_timeout_keeps_running_plan(ctx):
+    """A failed OpenSearch secret read keeps the running plan and blocks the unit.
+
+    Rendering without the OpenSearch CA or credentials changes the plan hashes,
+    and the replan restarts the coordinator.
+    """
+    state, opensearch_rel = _opensearch_setup(ctx)
+    state = carry_forward(state)
+    plan_before = state.get_container("trino").plan.to_dict()
+    remote = state.get_relation(opensearch_rel.id).remote_app_data
+
+    for failing in (remote["secret-tls"], remote["secret-user"]):
+        with failing_secret_reads(failing):
+            state_out = ctx.run(ctx.on.update_status(), state)
+
+        assert state_out.get_container("trino").plan.to_dict() == plan_before
+        assert state_out.unit_status == BlockedStatus(
+            "cannot read opensearch relation secret: "
+            "creating remote secret client: cannot log in: context deadline exceeded"
+        )
+
+
+def test_opensearch_secret_timeout_on_fresh_pod_starts_trino(ctx):
+    """With no Trino service planned yet, a failed read does not keep it from starting."""
+    state, opensearch_rel = _opensearch_setup(ctx)
+    state = carry_forward(state)
+    fresh = dataclasses.replace(state.get_container("trino"), layers={}, service_statuses={})
+    state = dataclasses.replace(state, containers={fresh})
+    remote = state.get_relation(opensearch_rel.id).remote_app_data
+
+    with failing_secret_reads(remote["secret-tls"]):
+        state_out = ctx.run(ctx.on.update_status(), state)
+
+    assert "trino" in state_out.get_container("trino").plan.services
+    assert state_out.unit_status.name == "blocked"
+
+
+def test_opensearch_secret_timeout_config_change_keeps_audit_only(ctx):
+    """A config change during a failed read applies, and only the audit config is kept."""
+    state, opensearch_rel = _opensearch_setup(ctx)
+    state = carry_forward(state)
+    env_before = state.get_container("trino").plan.services["trino"].environment
+    remote = state.get_relation(opensearch_rel.id).remote_app_data
+    state = dataclasses.replace(state, config={**state.config, "log-level": "debug"})
+
+    with failing_secret_reads(remote["secret-tls"]):
+        state_out = ctx.run(ctx.on.config_changed(), state)
+
+    env_after = state_out.get_container("trino").plan.services["trino"].environment
+    assert env_after != env_before
+    assert env_after["HASH_RANGER_TRINO_AUDIT_XML"] == env_before["HASH_RANGER_TRINO_AUDIT_XML"]
+    assert env_after["HASH_CACERTS"] == env_before["HASH_CACERTS"]
+    access_control = workload_path(state_out, ctx, ACCESS_CONTROL_PATH).read_text()
+    policy_rel = next(rel for rel in state.relations if rel.endpoint == "policy")
+    assert f"ranger.service.name=relation_{policy_rel.id}" in access_control
