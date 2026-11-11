@@ -148,6 +148,13 @@ def test_path_is_rejected_not_truncated():
         utils.parse_proxy_url("http://proxy.corp:3128/pac", "juju-http-proxy")
 
 
+def test_malformed_ipv6_url_is_rejected():
+    """A malformed bracketed IPv6 host raises `ProxyConfigError`, not `ValueError`."""
+    with pytest.raises(utils.ProxyConfigError) as exc_info:
+        utils.parse_proxy_url("http://[fd00::/8]:3128", "juju-https-proxy")
+    assert "juju-https-proxy" in str(exc_info.value)
+
+
 def test_query_is_rejected():
     """A proxy URL carrying a query string is rejected."""
     with pytest.raises(utils.ProxyConfigError):
@@ -249,30 +256,117 @@ def test_wildcard_entry_preserved_verbatim():
     assert "-Dhttp.nonProxyHosts=*.svc.cluster.local" in result
 
 
-def test_cidr_entry_dropped():
-    """A CIDR entry is dropped, leaving only the literal host."""
-    result = utils.jvm_proxy_options(None, None, "localhost,10.0.0.0/8")
-    assert result == "-Dhttp.nonProxyHosts=localhost"
-
-
-def test_multiple_dropped_cidrs_produce_one_aggregated_warning(caplog):
-    """Multiple dropped CIDR entries produce exactly one aggregated warning."""
+@pytest.mark.parametrize(
+    "cidr, expected",
+    [
+        pytest.param("10.0.0.0/8", "10.*", id="slash-8"),
+        pytest.param("172.16.0.0/16", "172.16.*", id="slash-16"),
+        pytest.param("192.168.1.0/24", "192.168.1.*", id="slash-24"),
+        pytest.param("10.0.0.5/32", "10.0.0.5", id="slash-32"),
+        pytest.param(
+            "172.16.0.0/12",
+            "|".join(f"172.{octet}.*" for octet in range(16, 32)),
+            id="slash-12-expanded",
+        ),
+        pytest.param("10.0.0.0/30", "10.0.0.0|10.0.0.1|10.0.0.2|10.0.0.3", id="slash-30-expanded"),
+        pytest.param("10.1.2.3/8", "10.*", id="host-bits-set"),
+    ],
+)
+def test_ipv4_cidr_converted_to_wildcards(cidr, expected, caplog):
+    """An IPv4 CIDR is expressed exactly as wildcard or literal patterns, silently."""
     with caplog.at_level(logging.WARNING):
-        result = utils.jvm_proxy_options(None, None, "10.0.0.0/8,192.168.0.0/16,localhost")
+        result = utils.jvm_proxy_options(None, None, cidr)
+    assert result == f"-Dhttp.nonProxyHosts={expected}"
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_multiple_unconvertible_entries_produce_one_aggregated_warning(caplog):
+    """IPv6 and invalid CIDRs are dropped with one warning naming them all."""
+    with caplog.at_level(logging.WARNING):
+        result = utils.jvm_proxy_options(None, None, "fd00::/8,10.0.0.0/33,foo/bar,localhost")
     assert result == "-Dhttp.nonProxyHosts=localhost"
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
-    assert "10.0.0.0/8" in warnings[0].message
-    assert "192.168.0.0/16" in warnings[0].message
+    assert "fd00::/8" in warnings[0].message
+    assert "10.0.0.0/33" in warnings[0].message
+    assert "foo/bar" in warnings[0].message
 
 
-def test_only_cidr_entries_emit_no_flag_but_one_warning(caplog):
-    """If every entry is a CIDR, no flag is emitted, but one warning is logged."""
+def test_only_unconvertible_entries_emit_no_flag_but_one_warning(caplog):
+    """If every entry is unconvertible, no flag is emitted, but one warning is logged."""
     with caplog.at_level(logging.WARNING):
-        result = utils.jvm_proxy_options(None, None, "10.0.0.0/8,192.168.0.0/16")
+        result = utils.jvm_proxy_options(None, None, "fd00::/8,10.0.0.0/33")
     assert result == ""
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
+
+
+def test_match_all_cidr_ignored_with_dedicated_warning(caplog):
+    """`0.0.0.0/0` is dropped with its own warning; other entries are kept."""
+    with caplog.at_level(logging.WARNING):
+        result = utils.jvm_proxy_options(None, None, "localhost,0.0.0.0/0,10.0.0.0/8")
+    assert result == "-Dhttp.nonProxyHosts=localhost|10.*"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "0.0.0.0/0" in warnings[0].message
+    assert "'*'" in warnings[0].message
+
+
+def test_only_match_all_cidr_emits_no_flag_but_one_warning(caplog):
+    """If `0.0.0.0/0` is the only entry, no flag is emitted, but one warning is logged."""
+    with caplog.at_level(logging.WARNING):
+        result = utils.jvm_proxy_options(None, None, "0.0.0.0/0")
+    assert result == ""
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "0.0.0.0/0" in warnings[0].message
+
+
+def test_leading_dot_matches_domain_and_subdomains():
+    """A leading-dot entry yields both the domain and its `*.` wildcard."""
+    result = utils.jvm_proxy_options(None, None, ".svc.cluster.local")
+    assert result == "-Dhttp.nonProxyHosts=svc.cluster.local|*.svc.cluster.local"
+
+
+def test_domain_without_leading_dot_gets_no_wildcard():
+    """A bare domain is passed through without an added wildcard."""
+    result = utils.jvm_proxy_options(None, None, "example.com")
+    assert result == "-Dhttp.nonProxyHosts=example.com"
+
+
+@pytest.mark.parametrize(
+    "entry, expected",
+    [
+        pytest.param("::1", "[::1]", id="loopback"),
+        pytest.param("fd00::1", "[fd00::1]", id="ula"),
+        pytest.param("[::1]", "[::1]", id="already-bracketed"),
+        pytest.param("fd00:0::1", "[fd00::1]", id="compressed"),
+        pytest.param("FD00::1", "[fd00::1]", id="lowercased"),
+    ],
+)
+def test_ipv6_address_bracketed(entry, expected):
+    """A bare IPv6 address is bracketed in compressed form, as the JVM matches `[::1]`."""
+    result = utils.jvm_proxy_options(None, None, entry)
+    assert result == f"-Dhttp.nonProxyHosts={expected}"
+
+
+def test_juju_default_no_proxy_converted():
+    """Juju's default `juju-no-proxy` value converts to JVM-matchable patterns."""
+    result = utils.jvm_proxy_options(None, None, "127.0.0.1,localhost,::1")
+    assert result == "-Dhttp.nonProxyHosts=127.0.0.1|localhost|[::1]"
+
+
+@pytest.mark.parametrize(
+    "no_proxy, expected",
+    [
+        pytest.param(".a.com,a.com", "a.com|*.a.com", id="leading-dot-and-domain"),
+        pytest.param("10.0.0.0/8,10.1.2.3/8,10.*", "10.*", id="overlapping-cidrs"),
+    ],
+)
+def test_duplicate_patterns_are_removed(no_proxy, expected):
+    """Duplicate patterns are removed, keeping the first occurrence."""
+    result = utils.jvm_proxy_options(None, None, no_proxy)
+    assert result == f"-Dhttp.nonProxyHosts={expected}"
 
 
 def test_entries_with_surrounding_whitespace_are_trimmed():
@@ -285,6 +379,19 @@ def test_empty_segments_are_dropped():
     """Empty segments produced by stray commas are dropped."""
     result = utils.jvm_proxy_options(None, None, "a,,b,")
     assert result == "-Dhttp.nonProxyHosts=a|b"
+
+
+@pytest.mark.parametrize(
+    "no_proxy, expected",
+    [
+        pytest.param(".,a", "-Dhttp.nonProxyHosts=a", id="with-other-entries"),
+        pytest.param(".", "", id="alone"),
+    ],
+)
+def test_lone_dot_entry_is_dropped(no_proxy, expected):
+    """A lone `.` names no domain, so it is dropped like an empty segment."""
+    result = utils.jvm_proxy_options(None, None, no_proxy)
+    assert result == expected
 
 
 def test_no_implicit_entries_are_added():

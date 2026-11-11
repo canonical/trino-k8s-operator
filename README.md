@@ -515,10 +515,25 @@ unit, coordinator and worker alike, since workers open their own connections to 
 | ------------------ | -------------------------------------------------------------------------- |
 | `juju-http-proxy`  | `-Dhttp.proxyHost`, `-Dhttp.proxyPort`                                     |
 | `juju-https-proxy` | `-Dhttps.proxyHost`, `-Dhttps.proxyPort`                                   |
-| `juju-no-proxy`    | `-Dhttp.nonProxyHosts` (comma-separated value converted to pipe-separated) |
+| `juju-no-proxy`    | `-Dhttp.nonProxyHosts` (entries converted as below, then pipe-separated)   |
 
-`-Dhttp.nonProxyHosts` accepts literal hosts and `*` wildcards only. CIDR entries such as
-`10.0.0.0/8` are dropped, with a warning naming them written to the unit log.
+`-Dhttp.nonProxyHosts` accepts literal hosts and leading/trailing `*` wildcards only, so
+`juju-no-proxy` entries are converted:
+
+- IPv4 CIDRs become wildcards: an octet-aligned range becomes a single wildcard
+  (`10.0.0.0/8` becomes `10.*`), a non-aligned range is expanded exactly into several entries
+  (`172.16.0.0/12` becomes `172.16.*` to `172.31.*`) and a `/32` becomes the literal IP.
+- `0.0.0.0/0` is ignored with a warning in the unit log. Use `*` to bypass the proxy for all
+  destinations.
+- IPv6 CIDRs and invalid CIDRs are dropped with a warning in the unit log.
+- Bare IPv6 addresses are wrapped in brackets in compressed form (`::1` becomes `[::1]`,
+  `fd00:0::1` becomes `[fd00::1]`).
+- Entries with a leading dot match the domain and its subdomains (`.example.com` becomes
+  `example.com` and `*.example.com`).
+- Other entries are passed through unchanged.
+
+Matching is done on the host as written in the URL, without DNS resolution: a hostname that
+resolves into a listed CIDR range is still proxied.
 
 Nothing is added to `juju-no-proxy` implicitly. If you set a proxy but leave `juju-no-proxy`
 unset, in-cluster traffic such as worker-to-coordinator communication is routed through the
