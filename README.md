@@ -528,6 +528,8 @@ unit, coordinator and worker alike, since workers open their own connections to 
 - IPv6 CIDRs and invalid CIDRs are dropped with a warning in the unit log.
 - Bare IPv6 addresses are wrapped in brackets in compressed form (`::1` becomes `[::1]`,
   `fd00:0::1` becomes `[fd00::1]`).
+- Bare IPv6 exclusions are matched literally, so IPv6 addresses in application URLs must use the
+  same compressed form.
 - Entries with a leading dot match the domain and its subdomains (`.example.com` becomes
   `example.com` and `*.example.com`).
 - Other entries are passed through unchanged.
