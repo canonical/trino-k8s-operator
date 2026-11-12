@@ -43,6 +43,7 @@ from tests.unit.helpers import (
     oauth_relation,
     observer_secret,
     peer_state_value,
+    refresh_catalog_execs,
     trino_container,
     workload_path,
 )
@@ -746,6 +747,71 @@ def test_resource_group_manager_files_removed(ctx, tmp_path):
 
     assert not (tmp_path / "resource-groups.properties").exists()
     assert not (tmp_path / "resource-groups.json").exists()
+
+
+def test_prometheus_ca_uses_java_truststore(ctx):
+    """The catalog CA reaches the default truststore used by the HTTP client."""
+    certificate = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+    secret = observer_secret({"tls-ca": certificate})
+    catalog_config = yaml.safe_dump(
+        {
+            "catalogs": {"metrics": {"backend": "prometheus", "secret-id": secret.id}},
+            "backends": {
+                "prometheus": {
+                    "connector": "prometheus",
+                    "url": "https://prometheus.example.com",
+                }
+            },
+        }
+    )
+    state_in, _ = build_coordinator_state(
+        config={"catalog-config": catalog_config}, extra_secrets=(secret,)
+    )
+
+    with mock.patch("charm.reconcile_truststore") as reconcile:
+        ctx.run(ctx.on.config_changed(), state_in)
+
+    java_store_calls = [
+        call for call in reconcile.call_args_list if call.args[1].endswith("/lib/security/cacerts")
+    ]
+    assert len(java_store_calls) == 1
+    assert java_store_calls[0].args[3] == {"prometheus-ca-metrics": certificate}
+
+
+def test_prometheus_token_rotation_changes_restart_hash(ctx):
+    """A secret revision updates the token and triggers the existing restart mechanism."""
+    secret = observer_secret({"bearer-token": "test-old-value"})
+    catalog_config = yaml.safe_dump(
+        {
+            "catalogs": {"metrics": {"backend": "prometheus", "secret-id": secret.id}},
+            "backends": {
+                "prometheus": {
+                    "connector": "prometheus",
+                    "url": "https://prometheus.example.com",
+                }
+            },
+        }
+    )
+    state_in, _ = build_coordinator_state(
+        config={"catalog-config": catalog_config}, extra_secrets=(secret,)
+    )
+    configured = ctx.run(ctx.on.config_changed(), state_in)
+    properties = workload_path(configured, ctx, "/usr/lib/trino/etc/catalog/metrics.properties")
+    assert "connector.name=prometheus\n" in properties.read_text()
+    token_file = workload_path(configured, ctx, "/usr/lib/trino/etc/credentials/metrics.token")
+    assert token_file.read_text() == "test-old-value"
+    original_hash = _services(configured)["trino"]["environment"]["CATALOG_STATE_HASH"]
+    state = refresh_catalog_execs(carry_forward(configured), ctx)
+    rotated = dataclasses.replace(secret, latest_content={"bearer-token": "test-new-value"})
+    state = dataclasses.replace(
+        state, secrets={item for item in state.secrets if item.id != secret.id} | {rotated}
+    )
+
+    state_out = ctx.run(ctx.on.secret_changed(rotated), state)
+
+    token_file = workload_path(state_out, ctx, "/usr/lib/trino/etc/credentials/metrics.token")
+    assert token_file.read_text() == "test-new-value"
+    assert _services(state_out)["trino"]["environment"]["CATALOG_STATE_HASH"] != original_hash
 
 
 def test_per_replica_params_override_backend_params(ctx):

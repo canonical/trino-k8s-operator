@@ -42,7 +42,7 @@ from ops.model import (
 from ops.pebble import CheckStatus, ExecError, PathError
 from pydantic import ValidationError
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, PrometheusCatalog
 from catalog_planner import DesiredCatalogs, reconcile_catalogs
 from config import CharmConfig
 from literals import (
@@ -732,6 +732,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "bigquery": BigqueryCatalog,
             "gsheets": GsheetCatalog,
             "hive": HiveCatalog,
+            "prometheus": PrometheusCatalog,
         }
         catalog_cls = catalog_map.get(backend["connector"], None)
 
@@ -1183,6 +1184,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             container: The Trino container.
             truststore_pwd: The stable truststore password.
             conf_certs: Desired {alias: PEM} certificates for `conf/truststore.jks`.
+                Prometheus CA aliases are also installed in the JVM default store.
             opensearch: `_read_opensearch()`; None keeps the deployed `cacerts`.
 
         Returns:
@@ -1204,7 +1206,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return hashes
 
         connection, certificate = opensearch or ({}, None)
-        cacerts_certs = {}
+        cacerts_certs = {
+            alias: cert for alias, cert in conf_certs.items() if alias.startswith("prometheus-ca-")
+        }
         if connection.get("is_enabled") and certificate:
             cacerts_certs[CERTIFICATE_NAME] = certificate
 

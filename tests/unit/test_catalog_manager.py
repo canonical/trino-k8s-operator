@@ -7,11 +7,18 @@ import copy
 from pathlib import Path
 from unittest import TestCase
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, RenderedCatalog
+from catalog_manager import (
+    BigqueryCatalog,
+    GsheetCatalog,
+    HiveCatalog,
+    PrometheusCatalog,
+    RenderedCatalog,
+)
 from sql_catalog import RedshiftCatalog, SqlCatalog
 
 CREDENTIAL_DIR = Path("/usr/lib/trino/etc/credentials")
 TRUSTSTORE_PATH = Path("/usr/lib/trino/etc/conf/truststore.jks")
+AUTH_VALUE = "test-basic-value"
 
 
 class FakeSecret:
@@ -164,6 +171,104 @@ class TestGsheetCatalog(TestCase):
         )
         self.assertEqual(rendered.credentials, {"gsheets-1.json": '{"key": "b"}'})
         self.assertEqual(rendered.certs, {})
+
+
+class TestPrometheusCatalog(TestCase):
+    """Tests for `PrometheusCatalog.render`."""
+
+    def test_render_without_authentication(self):
+        """Optional settings render without a secret or credential file."""
+        backend = {
+            "connector": "prometheus",
+            "url": "http://prometheus:9090",
+            "config": "prometheus.read-timeout=20s\n",
+        }
+
+        rendered = PrometheusCatalog(FakeCharm(), "trustpwd", "metrics", {}, backend).render()
+
+        self.assertEqual(
+            rendered,
+            RenderedCatalog(
+                properties={
+                    "metrics": (
+                        "connector.name=prometheus\n"
+                        "prometheus.uri=http://prometheus:9090\n"
+                        "prometheus.read-timeout=20s\n"
+                    )
+                },
+                credentials={},
+                certs={},
+            ),
+        )
+
+    def test_render_with_basic_authentication(self):
+        """Basic authentication comes from a Juju secret, not backend config."""
+        secret = FakeSecret({"user": "metrics-reader", "password": AUTH_VALUE})
+        charm = FakeCharm(secrets={"secret:1": secret})
+        backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
+
+        rendered = PrometheusCatalog(
+            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
+        ).render()
+
+        self.assertIn("prometheus.auth.user=metrics-reader\n", rendered.properties["metrics"])
+        self.assertIn(
+            "prometheus.auth.password=test-basic-value\n", rendered.properties["metrics"]
+        )
+        self.assertNotIn("prometheus.bearer.token.file", rendered.properties["metrics"])
+        self.assertEqual(rendered.credentials, {})
+        self.assertEqual(rendered.certs, {})
+
+    def test_render_with_bearer_authentication(self):
+        """The catalog references a managed file instead of embedding the token."""
+        secret = FakeSecret({"bearer-token": "test-bearer-value"})
+        charm = FakeCharm(secrets={"secret:1": secret})
+        backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
+
+        rendered = PrometheusCatalog(
+            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
+        ).render()
+
+        self.assertIn(
+            f"prometheus.bearer.token.file={CREDENTIAL_DIR}/metrics.token\n",
+            rendered.properties["metrics"],
+        )
+        self.assertNotIn("test-bearer-value", rendered.properties["metrics"])
+        self.assertNotIn("prometheus.auth.user", rendered.properties["metrics"])
+        self.assertEqual(rendered.credentials, {"metrics.token": "test-bearer-value"})
+        self.assertEqual(rendered.certs, {})
+
+    def test_render_with_custom_ca(self):
+        """An unauthenticated HTTPS catalog can supply a CA through its secret."""
+        certificate = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+        charm = FakeCharm(secrets={"secret:1": FakeSecret({"tls-ca": certificate})})
+        backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
+
+        rendered = PrometheusCatalog(
+            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
+        ).render()
+
+        self.assertEqual(rendered.certs, {"prometheus-ca-metrics": certificate})
+        self.assertEqual(rendered.credentials, {})
+        self.assertNotIn("prometheus.auth.", rendered.properties["metrics"])
+
+    def test_invalid_authentication_is_rejected(self):
+        """Secrets reject incomplete authentication and empty TLS CA values."""
+        for content in (
+            {"user": "reader"},
+            {"user": "reader", "password": AUTH_VALUE, "bearer-token": "test-value"},
+            {"tls-ca": ""},
+        ):
+            with self.subTest(content=content):
+                charm = FakeCharm(secrets={"secret:1": FakeSecret(content)})
+                with self.assertRaises(ValueError):
+                    PrometheusCatalog(
+                        charm,
+                        "trustpwd",
+                        "metrics",
+                        {"secret-id": "secret:1"},
+                        {"connector": "prometheus", "url": "http://prometheus:9090"},
+                    ).render()
 
 
 class TestHiveCatalog(TestCase):

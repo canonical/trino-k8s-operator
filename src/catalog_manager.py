@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import yaml
 from ops.model import SecretNotFoundError
 
-from literals import BIGQUERY_BACKEND_SCHEMA, GSHEETS_BACKEND_SCHEMA
+from literals import BIGQUERY_BACKEND_SCHEMA, GSHEETS_BACKEND_SCHEMA, PROMETHEUS_BACKEND_SCHEMA
 from utils import validate_keys
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ class RenderedCatalog:
 
     Attrs:
         properties: Mapping of catalog file stem to `.properties` text.
-        credentials: Mapping of credential file name (including the `.json`
-            suffix) to text content.
+        credentials: Mapping of credential file name (including its suffix)
+            to text content.
         certs: Certificates the catalog wants present in the truststore,
             keyed by alias, collected for central truststore reconciliation.
     """
@@ -214,6 +214,77 @@ class GsheetCatalog(CatalogBase):
         )
         catalog_content += self.backend.get("config", "")
         return {self.name: catalog_content}, {credential_name: sa_string}
+
+
+class PrometheusCatalog(CatalogBase):
+    """Class for handling the read-only Prometheus connector."""
+
+    def _get_credentials(self):
+        """Validate the backend and fetch optional credentials and a TLS CA.
+
+        Returns:
+            A tuple of (authentication fields, certificates keyed by alias).
+
+        Raises:
+            ValueError: If the backend, authentication or TLS CA fields are invalid.
+        """
+        validate_keys(self.backend, PROMETHEUS_BACKEND_SCHEMA)
+        if "secret-id" not in self.info:
+            return {}, {}
+
+        content = self._get_secret_content(self.info["secret-id"])
+        certs = {}
+        if "tls-ca" in content:
+            certificate = content["tls-ca"]
+            if not isinstance(certificate, str) or not certificate.strip():
+                raise ValueError("Prometheus tls-ca must be a nonempty string")
+            certs[f"prometheus-ca-{self.name}"] = certificate
+
+        auth_fields = set(content) & {"user", "password", "bearer-token"}
+        if auth_fields not in (set(), {"user", "password"}, {"bearer-token"}) or (
+            not auth_fields and not certs
+        ):
+            raise ValueError("Prometheus requires user/password, bearer-token or tls-ca")
+        if any(
+            not isinstance(content[field], str)
+            or not content[field]
+            or "\n" in content[field]
+            or "\r" in content[field]
+            for field in auth_fields
+        ):
+            raise ValueError(
+                "Prometheus authentication fields must be nonempty single-line strings"
+            )
+        return {field: content[field] for field in auth_fields}, certs
+
+    def _create_properties(self, secret_content):
+        """Create the Prometheus properties and optional managed token file.
+
+        Args:
+            secret_content: Validated basic or bearer authentication fields.
+
+        Returns:
+            A tuple of (catalog properties, credential file contents).
+        """
+        catalog_content = textwrap.dedent(
+            f"""\
+            connector.name=prometheus
+            prometheus.uri={self.backend["url"]}
+            """
+        )
+        credentials = {}
+        if "bearer-token" in secret_content:
+            credential_name = f"{self.name}.token"
+            token_path = self.charm.credential_abs_path.joinpath(credential_name)
+            catalog_content += f"prometheus.bearer.token.file={token_path}\n"
+            credentials[credential_name] = secret_content["bearer-token"]
+        elif "user" in secret_content:
+            catalog_content += (
+                f"prometheus.auth.user={secret_content['user']}\n"
+                f"prometheus.auth.password={secret_content['password']}\n"
+            )
+        catalog_content += self.backend.get("config") or ""
+        return {self.name: catalog_content}, credentials
 
 
 class HiveCatalog(CatalogBase):

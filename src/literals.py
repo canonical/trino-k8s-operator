@@ -134,3 +134,9 @@ GSHEETS_BACKEND_SCHEMA = {
     "connector": {"type": "string"},
     "config": {"type": "string", "nullable": True},
 }
+
+PROMETHEUS_BACKEND_SCHEMA = {
+    "connector": {"type": "string"},
+    "url": {"type": "string"},
+    "config": {"type": "string", "nullable": True},
+}

@@ -83,7 +83,7 @@ can reach Trino externally.
 > as a warning.
 
 ## Trino catalogs
-Adding a catalog to Trino requires user or service account credentials. For this we use Juju secrets.
+Catalogs that require user or service account credentials use Juju secrets.
 
 ### Juju secrets
 Juju secrets are used to manage connector credentials. The format of these differ by connector type. Note: the same secret can be shared by multiple trino catalogs.
@@ -236,6 +236,62 @@ Google Sheets service accounts, to `/usr/lib/trino/etc/credentials/`. Both direc
 managed by the charm: files that are no longer described by `catalog-config` are removed, and
 manual edits are reverted on the next configuration change. Trino is restarted only when the
 rendered catalog content actually changes.
+
+### Prometheus catalogs
+
+The read-only [Prometheus connector](https://trino.io/docs/479/connector/prometheus.html)
+queries an existing Prometheus 2.15.1 or later instance. It does not create a
+Prometheus relation or change the integration used to scrape Trino's own metrics.
+The endpoint must be reachable from both the coordinator and workers.
+
+Merge an entry like this into your existing `catalog-config`:
+
+```yaml
+catalogs:
+  metrics:
+    backend: monitoring
+backends:
+  monitoring:
+    connector: prometheus
+    url: http://prometheus.example.com:9090
+    config: |
+      prometheus.query.chunk.size.duration=10m
+      prometheus.max.query.range.duration=1h
+```
+
+Use an HTTP(S) URL, not a JDBC URL. No `database` or `secret-id` is needed for an
+unauthenticated endpoint. Optional connector properties go in the backend's
+`config` text; properties you omit retain their Trino defaults. The durations
+above are example tuning rather than defaults: size them for your metric volume
+and restrict queries with timestamp predicates. The maximum range must be at
+least the chunk size.
+
+For authentication, add `secret-id: <juju-secret-id>` to `catalogs.metrics`.
+The referenced Juju secret must contain either `user` and `password` for basic
+authentication, or `bearer-token` for token authentication, never both modes.
+These are direct secret fields, not the SQL connectors' `replicas` YAML.
+Authentication values must be nonempty single-line strings. Grant the secret to every Trino
+application that reads it using `juju grant-secret <secret-id> <application>`.
+
+Basic credentials are rendered in the managed properties file. Bearer tokens
+are written to `/usr/lib/trino/etc/credentials/metrics.token`; the charm sets
+`prometheus.bearer.token.file` to that path automatically. Keep credentials out
+of `catalog-config`, including additional headers, and do not repeat generated
+connector, URI or authentication properties in backend `config`.
+Use HTTPS for authenticated remote endpoints. For a private CA or self-signed
+certificate, add a `tls-ca` field containing the PEM certificate to the same Juju
+secret. A secret containing only `tls-ca` is also supported for HTTPS without
+authentication. The charm uses its existing truststore reconciler to install the
+certificate in the JVM default CA store on coordinator and worker units. This
+store is shared across the workload; TLS verification remains enabled.
+
+Apply the file with `juju config <coordinator-app> catalog-config=@catalog_config.yaml`.
+Later property changes or Juju secret revisions use the existing automatic
+reconciliation and restart behavior, without rebuilding or redeploying the charm.
+Changes can briefly interrupt queries, including in dynamic catalog-management
+mode; the connector cache TTL is not a configuration hot-reload mechanism.
+Removing the catalog or switching away from bearer authentication removes its
+obsolete token file.
 
 ### Catalog management mode
 
