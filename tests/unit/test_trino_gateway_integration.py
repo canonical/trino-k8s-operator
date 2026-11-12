@@ -806,6 +806,32 @@ def test_worker_with_gateway_relation_is_blocked_and_clears_keys(ctx, tmp_path):
     )
 
 
+def _without_worker_relation(state):
+    return dataclasses.replace(
+        state, relations={r for r in state.relations if r.endpoint != "trino-worker"}
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda gateway: _without_worker_relation(
+            build_worker_state(extra_relations=(gateway,))[0]
+        ),
+        lambda gateway: build_worker_state(include_int_comms=False, extra_relations=(gateway,))[0],
+    ],
+    ids=["no-coordinator-relation", "no-int-comms-secret"],
+)
+def test_worker_clears_keys_before_reconcile_stops(ctx, build):
+    """A former coordinator clears its reply even when the worker reconcile stops early."""
+    stale = {"trino_url": "old:8080", **PUBLISHED_USERS}
+    gateway = gateway_relation({GATEWAY_USER: "secret:unknown"}, local_app_data=stale)
+
+    state_out = ctx.run(ctx.on.config_changed(), build(gateway))
+
+    assert _reply(state_out, gateway) == {}
+
+
 def test_gateway_users_do_not_restart_trino(ctx, tmp_path):
     """Adding a Gateway user never changes the Pebble plan, so Trino is not restarted."""
     secret = _gateway_secret()

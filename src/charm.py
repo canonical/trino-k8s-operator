@@ -1333,6 +1333,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         function = cfg.charm_function
         is_coordinator = function in ("coordinator", "all")
 
+        # A former coordinator must not leave its Gateway reply behind, whatever stops the
+        # reconcile below.
+        if function == "worker":
+            self.trino_gateway.publish_url()
+
         # A worker with no coordinator relation has nothing to serve; drop any
         # stale catalogs and stop. This runs before relation validation, which
         # treats a missing coordinator relation as a blocking error.
