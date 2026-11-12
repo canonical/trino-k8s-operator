@@ -62,6 +62,7 @@ GATEWAY_REFUSAL_EXISTING_USER = "username already exists on this Trino"
 GATEWAY_REFUSAL_MULTIPLE_GATEWAYS = "username requested by more than one Trino Gateway"
 GATEWAY_REFUSAL_INVALID_USERNAME = "invalid username"
 GATEWAY_REFUSAL_LONG_PASSWORD = "password longer than 72 bytes"  # nosec
+GATEWAY_REFUSAL_MISSING_SECRET = "missing secret ID"  # nosec
 GATEWAY_WORKER_BLOCKED_MESSAGE = "trino-gateway-integration requires a coordinator"
 
 # Ranger plugin literals

@@ -158,6 +158,33 @@ def test_planner_refuses_invalid_usernames(name):
     assert plan.password_db == TRINO_USERS
 
 
+def test_planner_refuses_empty_secret_id():
+    """An empty secret ID is refused without trying to read it."""
+    read_password = mock.Mock(return_value="pw")
+
+    plan = plan_users(True, TRINO_USERS, {1: {"gw-a": "", "gw-b": "s1"}}, read_password)
+
+    assert json.loads(plan.replies[1]["refused_users"]) == {"gw-a": "missing secret ID"}
+    assert plan.replies[1]["registered_users"] == '["gw-b"]'
+    read_password.assert_called_once_with("s1")
+
+
+def test_empty_secret_id_does_not_interrupt_other_users(ctx, tmp_path):
+    """An empty secret ID is refused while other users are still written."""
+    secret = _gateway_secret()
+    gateway = gateway_relation({"gw-empty": "", GATEWAY_USER: secret.id})
+    state_in, _ = build_coordinator_state(
+        container=_container(tmp_path), extra_relations=(gateway,), extra_secrets=(secret,)
+    )
+
+    state_out = ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    assert GATEWAY_USER in _password_db(tmp_path)
+    reply = _reply(state_out, gateway)
+    assert json.loads(reply["registered_users"]) == [GATEWAY_USER]
+    assert json.loads(reply["refused_users"]) == {"gw-empty": "missing secret ID"}
+
+
 def test_planner_leaves_unreadable_secret_pending():
     """A user whose secret cannot be read is neither registered nor refused."""
     plan = _planner({1: {"gw-a": "missing", "gw-b": "s1"}}, {"s1": "pw"})

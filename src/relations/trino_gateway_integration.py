@@ -51,6 +51,7 @@ from literals import (
     GATEWAY_REFUSAL_EXISTING_USER,
     GATEWAY_REFUSAL_INVALID_USERNAME,
     GATEWAY_REFUSAL_LONG_PASSWORD,
+    GATEWAY_REFUSAL_MISSING_SECRET,
     GATEWAY_REFUSAL_MULTIPLE_GATEWAYS,
     GATEWAY_REFUSED_USERS_KEY,
     GATEWAY_REGISTERED_USERS_KEY,
@@ -134,6 +135,8 @@ def plan_users(
                 # two Gateways only request the same name if that contract is broken. Without
                 # stored ownership there is no fair way to pick one, so none of them gets it.
                 refused[relation_id][username] = GATEWAY_REFUSAL_MULTIPLE_GATEWAYS
+            elif not secret_id:
+                refused[relation_id][username] = GATEWAY_REFUSAL_MISSING_SECRET
             else:
                 password = read_password(secret_id)
                 if password is None:
