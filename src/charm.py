@@ -420,6 +420,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        if self.trino_gateway.read_error is not None:
+            event.add_status(BlockedStatus(str(self.trino_gateway.read_error)))
+            return
+
         if self.oauth.is_related:
             if cfg.charm_function == "worker":
                 event.add_status(BlockedStatus("oauth relation requires a coordinator"))
@@ -526,7 +530,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         relation_creds = self.trino_catalog.get_relation_credentials()
 
         try:
-            plan = self.trino_gateway.plan(self._compute_credentials())
+            plan = self.trino_gateway.plan(
+                self.unit.get_container(self.name), self._compute_credentials()
+            )
             gateway_users = ", ".join(plan.gateway_users) or "(none)"
         except ValueError:
             gateway_users = "(error reading secret)"

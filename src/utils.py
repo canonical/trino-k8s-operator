@@ -530,7 +530,7 @@ class PasswordDbWrite:
     pushed: bool
 
 
-def write_password_db(container, credentials, db_path, salt_key) -> PasswordDbWrite:
+def write_password_db(container, credentials, db_path, salt_key, hashes=None) -> PasswordDbWrite:
     """Write the authentication database from the full set of credentials.
 
     The file is built in memory and pushed once, which replaces it atomically, and only if its
@@ -541,6 +541,7 @@ def write_password_db(container, credentials, db_path, salt_key) -> PasswordDbWr
         credentials: A dictionary of user/password.
         db_path: The path to the `password.db`.
         salt_key: The per-deployment key the bcrypt salts are derived from.
+        hashes: Users written with an already hashed password, as {username: hash}.
 
     Returns:
         The usernames written to the file, and whether the file was pushed.
@@ -556,6 +557,9 @@ def write_password_db(container, credentials, db_path, salt_key) -> PasswordDbWr
             continue
         password_hash = bcrypt.hashpw(password.encode(), _derive_bcrypt_salt(salt_key, user))
         lines.append(f"{user}:{password_hash.decode()}\n")
+        written.append(user)
+    for user, password_hash in (hashes or {}).items():
+        lines.append(f"{user}:{password_hash}\n")
         written.append(user)
     content = "".join(lines)
 

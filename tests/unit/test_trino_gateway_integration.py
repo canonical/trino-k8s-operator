@@ -13,7 +13,7 @@ from unittest import mock
 
 import bcrypt
 import pytest
-from ops.model import ActiveStatus, BlockedStatus
+from ops.model import ActiveStatus, BlockedStatus, ModelError
 from ops.pebble import PathError
 from ops.testing import Mount, Secret
 
@@ -25,6 +25,7 @@ from tests.unit.helpers import (
     build_coordinator_state,
     build_worker_state,
     carry_forward,
+    failing_secret_reads,
     gateway_relation,
     ingress_relation,
     observer_secret,
@@ -44,10 +45,14 @@ def _gateway_secret(username=GATEWAY_USER, password=GATEWAY_PASSWORD):
     return observer_secret({"username": username, "password": password})
 
 
-def _planner(requests, secrets=None, users=TRINO_USERS, is_coordinator=True):
+def _planner(requests, secrets=None, users=TRINO_USERS, is_coordinator=True, deployed=None):
     """Run the planner with a mapping of readable secrets."""
     secrets = secrets or {}
-    return plan_users(is_coordinator, users, requests, secrets.get)
+    return plan_users(is_coordinator, users, requests, secrets.get, deployed or {})
+
+
+def _failing_read(secret_id):
+    raise utils.SecretReadError("trino-gateway-integration", ModelError("ERROR timeout"))
 
 
 def _password_db(path):
@@ -162,7 +167,7 @@ def test_planner_refuses_empty_secret_id():
     """An empty secret ID is refused without trying to read it."""
     read_password = mock.Mock(return_value="pw")
 
-    plan = plan_users(True, TRINO_USERS, {1: {"gw-a": "", "gw-b": "s1"}}, read_password)
+    plan = plan_users(True, TRINO_USERS, {1: {"gw-a": "", "gw-b": "s1"}}, read_password, {})
 
     assert json.loads(plan.replies[1]["refused_users"]) == {"gw-a": "missing secret ID"}
     assert plan.replies[1]["registered_users"] == '["gw-b"]'
@@ -192,6 +197,37 @@ def test_planner_leaves_unreadable_secret_pending():
     assert plan.pending == {1: ["gw-a"]}
     assert plan.replies[1] == {"registered_users": '["gw-b"]', "refused_users": "{}"}
     assert "gw-a" not in plan.password_db
+
+
+def test_planner_drops_deployed_user_whose_secret_is_gone():
+    """A deleted secret withdraws the user even if it has a deployed entry."""
+    plan = _planner({1: {"gw-a": "missing"}}, deployed={"gw-a": "$2b$hash"})
+
+    assert plan.pending == {1: ["gw-a"]}
+    assert plan.retained_hashes == {}
+    assert plan.read_error is None
+
+
+def test_planner_retains_deployed_user_whose_secret_cannot_be_read():
+    """A read failure keeps a deployed user registered with its deployed hash."""
+    plan = plan_users(True, TRINO_USERS, {1: {"gw-a": "s1"}}, _failing_read, {"gw-a": "$2b$hash"})
+
+    assert plan.retained_hashes == {"gw-a": "$2b$hash"}
+    assert "gw-a" not in plan.password_db
+    assert plan.replies[1]["registered_users"] == '["gw-a"]'
+    assert plan.gateway_users == ["gw-a"]
+    assert not plan.pending
+    assert str(plan.read_error) == "cannot read trino-gateway-integration relation secret: timeout"
+
+
+def test_planner_leaves_undeployed_user_pending_when_secret_cannot_be_read():
+    """A read failure for a user not yet in `password.db` leaves it pending."""
+    plan = plan_users(True, TRINO_USERS, {1: {"gw-a": "s1"}}, _failing_read, {})
+
+    assert plan.pending == {1: ["gw-a"]}
+    assert plan.retained_hashes == {}
+    assert plan.replies[1]["registered_users"] == "[]"
+    assert plan.read_error is not None
 
 
 @pytest.mark.parametrize("password", ["x" * 73, "é" * 37])
@@ -259,6 +295,18 @@ def test_writer_pushes_empty_file_without_users():
     assert _write(container, {}) == utils.PasswordDbWrite(written=[], pushed=True)
 
     assert container.files == {DB_PATH: ""}
+
+
+def test_writer_writes_hashed_users_as_given():
+    """Already hashed users are written after the hashed credentials, unchanged."""
+    container = _FakeContainer()
+
+    result = utils.write_password_db(
+        container, {"alice": "pw"}, DB_PATH, SALT_KEY, {"bob": "$2b$kept"}
+    )
+
+    assert result.written == ["alice", "bob"]
+    assert container.files[DB_PATH].splitlines()[1] == "bob:$2b$kept"
 
 
 def test_writer_skips_unstorable_users_without_logging_passwords(caplog):
@@ -590,6 +638,53 @@ def test_unreadable_secret_leaves_user_pending(ctx, tmp_path):
         "registered_users": "[]",
         "refused_users": "{}",
     }
+
+
+def test_secret_read_failure_keeps_deployed_user(ctx, tmp_path):
+    """A failed read keeps the deployed entry and confirmation, and blocks the unit."""
+    secret = _gateway_secret()
+    other = _gateway_secret(username="gw-other", password="other-pw")  # nosec B106
+    gateway = gateway_relation({GATEWAY_USER: secret.id})
+    state_in, _ = build_coordinator_state(
+        container=_container(tmp_path), extra_relations=(gateway,), extra_secrets=(secret, other)
+    )
+    configured = carry_forward(ctx.run(ctx.on.relation_changed(gateway), state_in))
+    deployed = _password_db(tmp_path)[GATEWAY_USER]
+
+    requested = _with_requests(
+        configured, gateway.id, {GATEWAY_USER: secret.id, "gw-other": other.id}
+    )
+    with failing_secret_reads(secret.id):
+        state_out = ctx.run(ctx.on.relation_changed(requested.get_relation(gateway.id)), requested)
+
+    db = _password_db(tmp_path)
+    assert db[GATEWAY_USER] == deployed
+    assert bcrypt.checkpw(b"other-pw", db["gw-other"].encode())
+    assert json.loads(_reply(state_out, gateway)["registered_users"]) == sorted(
+        [GATEWAY_USER, "gw-other"]
+    )
+    assert state_out.unit_status == BlockedStatus(
+        "cannot read trino-gateway-integration relation secret: "
+        "creating remote secret client: cannot log in: context deadline exceeded"
+    )
+
+
+def test_secret_read_failure_ignores_malformed_deployed_lines(ctx, tmp_path):
+    """Lines of the deployed `password.db` without a separator are not kept."""
+    (tmp_path / "password.db").write_text(f"junk\n{GATEWAY_USER}:$2b$deployed\n")
+    secret = _gateway_secret()
+    gateway = gateway_relation({GATEWAY_USER: secret.id, "junk": secret.id})
+    state_in, _ = build_coordinator_state(
+        container=_container(tmp_path), extra_relations=(gateway,), extra_secrets=(secret,)
+    )
+
+    with failing_secret_reads(secret.id):
+        state_out = ctx.run(ctx.on.relation_changed(gateway), state_in)
+
+    db = _password_db(tmp_path)
+    assert db[GATEWAY_USER] == "$2b$deployed"
+    assert "junk" not in db
+    assert json.loads(_reply(state_out, gateway)["registered_users"]) == [GATEWAY_USER]
 
 
 @pytest.mark.parametrize("data", ["not json {", '["a"]', '{"gw-a": null}', '"text"'])

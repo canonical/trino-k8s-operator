@@ -21,8 +21,10 @@ its format and its hashing settings, so hashing stays in one place; if each rela
 hashes, a change to Trino's hashing would need matching changes in every related charm. The
 plaintext only travels inside a Juju secret granted to the relation.
 
-Nothing is stored between hooks. Every hook computes the desired state from the current
-relation data and secrets, writes `password.db` and publishes the reply.
+Nothing is stored between hooks except `password.db` itself. Every hook computes the desired
+state from the current relation data and secrets, writes `password.db` and publishes the reply.
+When a secret exists but cannot be read, the user's entry in the deployed `password.db` is
+kept, like the deployed settings of other relations whose secret cannot be read.
 
 Glossary:
     request: a username, with the ID of the secret holding its password, that a Gateway asks
@@ -30,8 +32,9 @@ Glossary:
     accepted: a request that is written to `password.db`, and that is confirmed once Trino has
         had time to reload the file. The Gateway sees it as registered.
     refused: a request that cannot be honored. The Gateway sees it with the reason.
-    pending: a request whose secret cannot be read yet. It is neither accepted nor refused,
-        and a later hook picks it up.
+    pending: a request whose secret cannot be read yet and that has no deployed entry. It is
+        neither accepted nor refused, and a later hook picks it up.
+    retained: an accepted request whose secret cannot be read, kept with its deployed entry.
     desired databag: the content our application databag should have on one relation.
 """
 
@@ -46,6 +49,8 @@ from typing import Any, Optional
 import pydantic
 from ops.framework import Object
 from ops.model import ModelError, Relation, SecretNotFoundError
+from ops.pebble import ConnectionError as PebbleConnectionError
+from ops.pebble import PathError
 
 from literals import (
     GATEWAY_REFUSAL_EXISTING_USER,
@@ -60,7 +65,7 @@ from literals import (
     PASSWORD_DB_REFRESH_SECONDS,
     TRINO_GATEWAY_RELATION_NAME,
 )
-from utils import has_valid_password_length, is_valid_username, write_password_db
+from utils import SecretReadError, has_valid_password_length, is_valid_username, write_password_db
 
 logger = logging.getLogger(__name__)
 
@@ -78,16 +83,41 @@ class UsersPlan:
     Attributes:
         password_db: Every user to write to `password.db` with its plaintext password: the
             local credentials plus the accepted Gateway credentials.
+        retained_hashes: The retained Gateway users with their deployed `password.db` hash.
         replies: The desired reply per relation ID, as encoded databag values. Empty for a
             worker.
         pending: The usernames still waiting for a readable secret, per relation ID.
         gateway_users: The accepted Gateway usernames, sorted.
+        read_error: The first error from a secret that exists but cannot be read.
     """
 
     password_db: dict[str, str]
     replies: dict[int, dict[str, str]]
+    retained_hashes: dict[str, str] = field(default_factory=dict)
     pending: dict[int, list[str]] = field(default_factory=dict)
     gateway_users: list[str] = field(default_factory=list)
+    read_error: Optional[SecretReadError] = None
+
+
+def _refusal_before_read(
+    username: str,
+    secret_id: str,
+    local_credentials: Mapping[str, str],
+    request_count_by_username: Mapping[str, int],
+) -> Optional[str]:
+    """Return why a request is refused without reading its secret, or None."""
+    if not is_valid_username(username):
+        return GATEWAY_REFUSAL_INVALID_USERNAME
+    if username in local_credentials:
+        return GATEWAY_REFUSAL_EXISTING_USER
+    if request_count_by_username[username] > 1:
+        # Gateway usernames embed a hash of the model UUID and application name, so two
+        # Gateways only request the same name if that contract is broken. Without stored
+        # ownership there is no fair way to pick one, so none of them gets it.
+        return GATEWAY_REFUSAL_MULTIPLE_GATEWAYS
+    if not secret_id:
+        return GATEWAY_REFUSAL_MISSING_SECRET
+    return None
 
 
 def plan_users(
@@ -95,6 +125,7 @@ def plan_users(
     local_credentials: Mapping[str, str],
     requests: Mapping[int, Mapping[str, str]],
     read_password: Callable[[str], Optional[str]],
+    deployed_hashes: Mapping[str, str],
 ) -> UsersPlan:
     """Decide which requested users are accepted, refused or pending.
 
@@ -105,7 +136,9 @@ def plan_users(
         local_credentials: The configured or default users plus the `trino-catalog` users, with
             their plaintext passwords.
         requests: The requests per relation ID, as {username: secret ID}.
-        read_password: Returns the password held by a secret, or None if it cannot be read.
+        read_password: Returns the password held by a secret, or None if the secret or its
+            password does not exist. Raises `SecretReadError` if the secret cannot be read.
+        deployed_hashes: The entries of the deployed `password.db`, as {username: hash}.
 
     Returns:
         The plan.
@@ -120,32 +153,37 @@ def plan_users(
         username for requested in requests.values() for username in requested
     )
     gateway_credentials: dict[str, str] = {}
+    retained_hashes: dict[str, str] = {}
+    read_error: Optional[SecretReadError] = None
     refused: dict[int, dict[str, str]] = {relation_id: {} for relation_id in requests}
     pending: dict[int, list[str]] = {}
     accepted: dict[int, list[str]] = {relation_id: [] for relation_id in requests}
 
     for relation_id, requested in requests.items():
         for username, secret_id in sorted(requested.items()):
-            if not is_valid_username(username):
-                refused[relation_id][username] = GATEWAY_REFUSAL_INVALID_USERNAME
-            elif username in local_credentials:
-                refused[relation_id][username] = GATEWAY_REFUSAL_EXISTING_USER
-            elif request_count_by_username[username] > 1:
-                # Gateway usernames embed a hash of the model UUID and application name, so
-                # two Gateways only request the same name if that contract is broken. Without
-                # stored ownership there is no fair way to pick one, so none of them gets it.
-                refused[relation_id][username] = GATEWAY_REFUSAL_MULTIPLE_GATEWAYS
-            elif not secret_id:
-                refused[relation_id][username] = GATEWAY_REFUSAL_MISSING_SECRET
-            else:
+            reason = _refusal_before_read(
+                username, secret_id, local_credentials, request_count_by_username
+            )
+            if reason:
+                refused[relation_id][username] = reason
+                continue
+            try:
                 password = read_password(secret_id)
-                if password is None:
-                    pending.setdefault(relation_id, []).append(username)
-                elif not has_valid_password_length(password):
-                    refused[relation_id][username] = GATEWAY_REFUSAL_LONG_PASSWORD
-                else:
-                    gateway_credentials[username] = password
+            except SecretReadError as err:
+                read_error = read_error or err
+                if username in deployed_hashes:
+                    retained_hashes[username] = deployed_hashes[username]
                     accepted[relation_id].append(username)
+                else:
+                    pending.setdefault(relation_id, []).append(username)
+                continue
+            if password is None:
+                pending.setdefault(relation_id, []).append(username)
+            elif not has_valid_password_length(password):
+                refused[relation_id][username] = GATEWAY_REFUSAL_LONG_PASSWORD
+            else:
+                gateway_credentials[username] = password
+                accepted[relation_id].append(username)
 
     replies = {
         relation_id: {
@@ -157,8 +195,10 @@ def plan_users(
     return UsersPlan(
         password_db={**local_credentials, **gateway_credentials},
         replies=replies,
+        retained_hashes=retained_hashes,
         pending=pending,
-        gateway_users=sorted(gateway_credentials),
+        gateway_users=sorted([*gateway_credentials, *retained_hashes]),
+        read_error=read_error,
     )
 
 
@@ -194,6 +234,7 @@ class TrinoGatewayRelationHandler(Object):
         self.charm = charm
         self.relation_name = relation_name
         self._requests: Optional[dict[int, dict[str, str]]] = None
+        self.read_error: Optional[SecretReadError] = None
 
     @property
     def relations(self) -> list[Relation]:
@@ -245,25 +286,52 @@ class TrinoGatewayRelationHandler(Object):
             secret_id: The ID of the Gateway user's secret.
 
         Returns:
-            The password, or None if the secret or its password cannot be read.
+            The password, or None if the secret or its password does not exist.
+
+        Raises:
+            SecretReadError: when `secret-get` fails for another reason.
         """
         try:
             secret = self.charm.model.get_secret(id=secret_id)
             return secret.get_content(refresh=True).get("password")
-        except (SecretNotFoundError, ModelError):
+        except SecretNotFoundError:
             return None
+        except ModelError as err:
+            raise SecretReadError(self.relation_name, err) from err
 
-    def plan(self, local_credentials: Mapping[str, str]) -> UsersPlan:
+    def _deployed_hashes(self, container) -> dict[str, str]:
+        """Read the entries of the deployed `password.db`.
+
+        Args:
+            container: The Trino container.
+
+        Returns:
+            The entries as {username: hash}, empty if the file cannot be read.
+        """
+        db_path = str(self.charm.trino_abs_path.joinpath(PASSWORD_DB))
+        try:
+            content = container.pull(db_path).read()
+        except (PathError, PebbleConnectionError):
+            return {}
+        entries = (line.partition(":") for line in content.splitlines())
+        return {user: password_hash for user, sep, password_hash in entries if sep}
+
+    def plan(self, container, local_credentials: Mapping[str, str]) -> UsersPlan:
         """Compute the desired users state from the current relation data and secrets.
 
         Args:
+            container: The Trino container.
             local_credentials: The configured or default users plus the `trino-catalog` users.
 
         Returns:
             The plan.
         """
         return plan_users(
-            self._is_coordinator, local_credentials, self.requests(), self._read_password
+            self._is_coordinator,
+            local_credentials,
+            self.requests(),
+            self._read_password,
+            self._deployed_hashes(container),
         )
 
     def reconcile(self, container, local_credentials: Mapping[str, str]) -> UsersPlan:
@@ -280,10 +348,18 @@ class TrinoGatewayRelationHandler(Object):
         Returns:
             The plan that was applied.
         """
-        plan = self.plan(local_credentials)
+        plan = self.plan(container, local_credentials)
+        self.read_error = plan.read_error
+        if plan.retained_hashes:
+            logger.warning(
+                "Keeping deployed Trino Gateway users whose secret cannot be read: %s",
+                sorted(plan.retained_hashes),
+            )
         db_path = str(self.charm.trino_abs_path.joinpath(PASSWORD_DB))
         salt_key = f"{self.charm.model.uuid}/{self.charm.app.name}"
-        if write_password_db(container, plan.password_db, db_path, salt_key).pushed:
+        if write_password_db(
+            container, plan.password_db, db_path, salt_key, plan.retained_hashes
+        ).pushed:
             logger.debug("Updated %s", db_path)
 
         if self.charm.unit.is_leader():
