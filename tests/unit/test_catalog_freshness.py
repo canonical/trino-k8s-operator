@@ -83,6 +83,7 @@ def test_config_changed(ctx, monkeypatch):
             "on-check-failure": {"up": "restart"},
             "environment": {
                 "PASSWORD_DB_PATH": "/usr/lib/trino/etc/password.db",  # nosec
+                "PASSWORD_DB_REFRESH_SECONDS": 5,
                 "LOG_LEVEL": "info",
                 "OAUTH_CLIENT_ID": "client-123",
                 "OAUTH_CLIENT_SECRET": "test-client-secret",  # nosec
