@@ -12,7 +12,6 @@ https://discourse.charmhub.io/t/4208
 
 # pylint: disable=too-many-lines
 
-import json
 import logging
 import os
 import socket
@@ -56,6 +55,7 @@ from literals import (
     CREDENTIAL_DIR,
     DEFAULT_CREDENTIALS,
     DEFAULT_JVM_OPTIONS,
+    GATEWAY_WORKER_BLOCKED_MESSAGE,
     INDEX_NAME,
     INGRESS_RELATION_NAME,
     INT_COMMS_SECRET_LABEL,
@@ -66,6 +66,7 @@ from literals import (
     OAUTH_RELATION_NAME,
     OPENSEARCH_RELATION_NAME,
     PASSWORD_DB,
+    PASSWORD_DB_REFRESH_SECONDS,
     PEER_RELATION_NAME,
     POLICY_RELATION_NAME,
     POSTGRESQL_RELATION_NAME,
@@ -73,6 +74,7 @@ from literals import (
     RUN_TRINO_COMMAND,
     TRINO_CATALOG_RELATION_NAME,
     TRINO_COORDINATOR_RELATION_NAME,
+    TRINO_GATEWAY_RELATION_NAME,
     TRINO_HOME,
     TRINO_PORTS,
     TRINO_WORKER_RELATION_NAME,
@@ -86,15 +88,16 @@ from relations.policy import PolicyRelationHandler
 from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from relations.trino_catalog import TrinoCatalogRelationHandler
 from relations.trino_coordinator import TrinoCoordinator
+from relations.trino_gateway_integration import TrinoGatewayRelationHandler
 from relations.trino_worker import TrinoWorker
 from sql_catalog import RedshiftCatalog, SqlCatalog
 from state import State
 from utils import (
     ProxyConfigError,
     SecretReadError,
-    add_users_to_password_db,
     content_hash,
     generate_password,
+    invalid_usernames,
     jvm_proxy_options,
     oauth_proxy_properties,
     parse_proxy_url,
@@ -192,6 +195,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         self.trino_worker = TrinoWorker(self)
         self.trino_catalog = TrinoCatalogRelationHandler(self)
         self.oauth = OAuthRelationHandler(self)
+        self.trino_gateway = TrinoGatewayRelationHandler(self)
 
         # Every hook converges through a single idempotent reconciler; unit
         # status is derived separately by collect-unit-status.
@@ -213,6 +217,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             TRINO_WORKER_RELATION_NAME,
             POLICY_RELATION_NAME,
             POSTGRESQL_RELATION_NAME,
+            TRINO_GATEWAY_RELATION_NAME,
         ):
             self.framework.observe(self.on[endpoint].relation_created, self._reconcile_hook)
             self.framework.observe(self.on[endpoint].relation_changed, self._reconcile_hook)
@@ -404,11 +409,19 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
+        if self.trino_gateway.is_related and cfg.charm_function == "worker":
+            event.add_status(BlockedStatus(GATEWAY_WORKER_BLOCKED_MESSAGE))
+            return
+
         try:
             self.opensearch_relation_handler.gather_connection()
             self.opensearch_relation_handler.gather_certificate()
         except SecretReadError as err:
             event.add_status(BlockedStatus(str(err)))
+            return
+
+        if self.trino_gateway.read_error is not None:
+            event.add_status(BlockedStatus(str(self.trino_gateway.read_error)))
             return
 
         if self.oauth.is_related:
@@ -432,9 +445,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 return
 
         try:
-            self._compute_credentials()
+            configured_credentials = self._configured_credentials()
         except ValueError as err:
             event.add_status(BlockedStatus(str(err)))
+            return
+        invalid_users = invalid_usernames(configured_credentials)
+        if invalid_users:
+            event.add_status(
+                BlockedStatus(f"invalid users in user secret: {', '.join(invalid_users)}")
+            )
             return
 
         if cfg.charm_function in ("coordinator", "all"):
@@ -502,7 +521,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if secret_id:
             try:
                 content = self._get_secret_content(secret_id)
-                configured_users = list(yaml.safe_load(content["users"]).keys())
+                configured_users = [str(user) for user in yaml.safe_load(content["users"]).keys()]
             except Exception:
                 configured_users = ["(error reading secret)"]
         else:
@@ -510,12 +529,21 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         relation_creds = self.trino_catalog.get_relation_credentials()
 
+        try:
+            plan = self.trino_gateway.plan(
+                self.unit.get_container(self.name), self._compute_credentials()
+            )
+            gateway_users = ", ".join(plan.gateway_users) or "(none)"
+        except ValueError:
+            gateway_users = "(error reading secret)"
+
         event.set_results(
             {
                 "configured-users": ", ".join(configured_users),
                 "relation-users": (
                     ", ".join(relation_creds.keys()) if relation_creds else "(none)"
                 ),
+                "gateway-users": gateway_users,
             }
         )
 
@@ -636,16 +664,31 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         return content
 
     def _compute_credentials(self):
-        """Return the full set of authentication credentials for `password.db`.
+        """Return the configured or default users plus the `trino-catalog` users.
 
-        Merges the configured system users (or defaults) with per-relation
-        trino-catalog users.
+        These are the users written to `password.db` besides the Trino Gateway users.
 
         Returns:
             Mapping of username to plaintext password.
 
         Raises:
-            ValueError: if the configured user secret is malformed.
+            ValueError: if the configured user secret is unreadable or malformed.
+        """
+        credentials = self._configured_credentials()
+        credentials.update(self.trino_catalog.get_relation_credentials())
+        return credentials
+
+    def _configured_credentials(self):
+        """Return the users from `user-secret-id`, or the default users without it.
+
+        Invalid users are returned as they are; `password.db` skips them and the charm is
+        blocked.
+
+        Returns:
+            Mapping of username to plaintext password.
+
+        Raises:
+            ValueError: if the configured user secret is unreadable or malformed.
         """
         secret_id = self._effective_user_secret_id()
         if secret_id:
@@ -658,19 +701,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 raise ValueError(f"invalid user secret {secret_id!r}: 'users' must be a mapping")
         else:
             credentials = dict(DEFAULT_CREDENTIALS)
-
-        credentials.update(self.trino_catalog.get_relation_credentials())
         return credentials
-
-    def _write_password_db(self, container, credentials):
-        """Write the authentication database file.
-
-        Args:
-            container: The Trino container.
-            credentials: Mapping of username to plaintext password.
-        """
-        db_path = str(self.trino_abs_path.joinpath(PASSWORD_DB))
-        add_users_to_password_db(container, credentials, db_path)
 
     def _render_catalogs(self, truststore_pwd):
         """Render the desired static catalog properties, credentials and certs.
@@ -1108,6 +1139,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "CATALOG_MANAGEMENT": self._effective_catalog_management(),
             "APPLICATION_NAME": self.app.name,
             "PASSWORD_DB_PATH": str(db_path),
+            "PASSWORD_DB_REFRESH_SECONDS": PASSWORD_DB_REFRESH_SECONDS,
             "TRINO_HOME": str(self.trino_abs_path),
             "METRICS_PORT": METRICS_PORT,
             "JMX_PORT": JMX_PORT,
@@ -1307,6 +1339,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         function = cfg.charm_function
         is_coordinator = function in ("coordinator", "all")
 
+        # A former coordinator must not leave its Gateway reply behind, whatever stops the
+        # reconcile below.
+        if function == "worker":
+            self.trino_gateway.publish_url()
+
         # A worker with no coordinator relation has nothing to serve; drop any
         # stale catalogs and stop. This runs before relation validation, which
         # treats a missing coordinator relation as a blocking error.
@@ -1358,6 +1395,18 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # Per-relation users must exist before password.db is rebuilt.
         self.trino_catalog.reconcile_trino_catalog_relations()
 
+        # Gateway users and the reply to each Gateway follow the published
+        # trino-catalog URL, and do not depend on later configuration errors.
+        # Without readable credentials, only the URL is kept in sync.
+        try:
+            credentials = self._compute_credentials()
+        except ValueError as err:
+            logger.error(err)
+            credentials = None
+            self.trino_gateway.publish_url()
+        else:
+            self.trino_gateway.reconcile(container, credentials)
+
         # Static catalog properties, credentials and certs are rendered
         # (pure); the PG relation databag write is a pure write too and must
         # happen regardless of Trino readiness, so the provider can start
@@ -1404,13 +1453,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         file_hashes.update(self._configure_resource_groups(container, env))
         file_hashes.update(self._configure_session_property_manager(container, env))
 
-        try:
-            credentials = self._compute_credentials()
-        except ValueError as err:
-            logger.error(err)
+        # Credentials are computed before the catalogs so a bad user secret does not hold back
+        # the Gateway reconcile; returning only here lets catalogs, truststores and config
+        # files still converge, and skips only the replan.
+        if credentials is None:
             return
-        self._write_password_db(container, credentials)
-        file_hashes["HASH_PASSWORD_DB"] = content_hash(json.dumps(credentials, sort_keys=True))
 
         if is_coordinator and ranger_enabled:
             audit_key = self._hash_key(RANGER_AUDIT_FILE)
