@@ -222,7 +222,10 @@ class TestModelProxyConfiguration:
         jvm_config = _read_trino_jvm_config(juju)
         assert "-Dhttps.proxyHost=192.0.2.1" in jvm_config
         assert "-Dhttps.proxyPort=3128" in jvm_config
-        assert "-Dhttp.nonProxyHosts=localhost|127.0.0.1|.svc.cluster.local" in jvm_config
+        assert (
+            "-Dhttp.nonProxyHosts=localhost|127.0.0.1|svc.cluster.local|*.svc.cluster.local"
+            in jvm_config
+        )
 
     def test_credential_bearing_proxy_blocks_without_exposing_credentials(
         self, juju: jubilant.Juju

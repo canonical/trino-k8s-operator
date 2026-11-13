@@ -1319,7 +1319,7 @@ def test_model_derived_flags_reach_jvm_options_with_defaults(ctx, monkeypatch):
 
 def test_dropped_cidr_warning_logged_on_every_reconcile(ctx, monkeypatch, caplog):
     """The dropped-CIDR warning is not suppressed on a second reconcile."""
-    monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "localhost,10.0.0.0/8")
+    monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "localhost,fd00::/8")
     state_in, _ = build_coordinator_state()
 
     with caplog.at_level(logging.WARNING):
@@ -1328,7 +1328,7 @@ def test_dropped_cidr_warning_logged_on_every_reconcile(ctx, monkeypatch, caplog
         ctx.run(ctx.on.config_changed(), mid)
 
     warnings = [
-        r for r in caplog.records if r.levelno == logging.WARNING and "10.0.0.0/8" in r.message
+        r for r in caplog.records if r.levelno == logging.WARNING and "fd00::/8" in r.message
     ]
     assert len(warnings) == 1
 
@@ -1728,6 +1728,17 @@ def test_blocked_unit_recovers_after_correction(ctx, monkeypatch):
 def test_scheme_less_model_proxy_blocks(ctx, monkeypatch):
     """A scheme-less model proxy URL blocks, naming the offending setting."""
     monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "proxy.corp:3128")
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "juju-https-proxy" in state_out.unit_status.message
+
+
+def test_malformed_ipv6_model_proxy_blocks(ctx, monkeypatch):
+    """A malformed IPv6 model proxy URL blocks instead of crashing the hook."""
+    monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://[fd00::/8]:3128")
     state_in, _ = build_coordinator_state()
 
     state_out = ctx.run(ctx.on.config_changed(), state_in)
