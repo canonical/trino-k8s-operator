@@ -266,6 +266,12 @@ above are example tuning rather than defaults: size them for your metric volume
 and restrict queries with timestamp predicates. The maximum range must be at
 least the chunk size.
 
+The charm validates Prometheus settings before applying them. Invalid settings,
+authentication fields or PEM certificates block the unit with an explanatory
+message while retaining the last working catalog files and Pebble plan. Fix the
+configuration or secret to resume reconciliation. This does not verify endpoint
+reachability or whether the server accepts the credentials.
+
 For authentication, add `secret-id: <juju-secret-id>` to `catalogs.metrics`.
 The referenced Juju secret must contain either `user` and `password` for basic
 authentication, or `bearer-token` for token authentication, never both modes.

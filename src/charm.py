@@ -44,7 +44,7 @@ from pydantic import ValidationError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, PrometheusCatalog
 from catalog_planner import DesiredCatalogs, reconcile_catalogs
-from config import CharmConfig
+from config import CharmConfig, PrometheusConfigError
 from literals import (
     CACERTS_MANIFEST,
     CACERTS_PATH,
@@ -385,7 +385,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
-        duplicates = self._duplicate_catalog_names()
+        if error := getattr(self, "_catalog_reconciliation_error", None):
+            event.add_status(BlockedStatus(error))
+            return
+
+        try:
+            duplicates = self._duplicate_catalog_names()
+        except PrometheusConfigError as err:
+            event.add_status(BlockedStatus(str(err)))
+            return
         if duplicates is None:
             event.add_status(BlockedStatus("invalid catalog configuration"))
             return
@@ -901,6 +909,8 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """
         try:
             return self._render_catalogs(truststore_pwd)
+        except PrometheusConfigError:
+            raise
         except Exception as e:
             # Rendering failures can carry secret content, so only the failure
             # type is recorded.
@@ -1296,6 +1306,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Guards return early without deferring; convergence resumes on the next
         hook and terminal status is reported by collect-unit-status.
         """
+        self._catalog_reconciliation_error = None
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             return
@@ -1366,7 +1377,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # (pure); the PG relation databag write is a pure write too and must
         # happen regardless of Trino readiness, so the provider can start
         # provisioning while the live SQL below waits for a reachable server.
-        rendered_static = self._render_catalogs_safe(truststore_pwd)
+        try:
+            rendered_static = self._render_catalogs_safe(truststore_pwd)
+        except PrometheusConfigError:
+            return
         if rendered_static is None:
             return
         static_catalogs, catalog_credentials, conf_certs = rendered_static
@@ -1375,9 +1389,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         conf_certs.update(self.postgresql_catalog_handler.get_desired_tls_certs())
         opensearch = self._read_opensearch()
-        file_hashes = self._reconcile_truststores(
-            container, truststore_pwd, conf_certs, opensearch
-        )
+        try:
+            file_hashes = self._reconcile_truststores(
+                container, truststore_pwd, conf_certs, opensearch
+            )
+        except ExecError:
+            self._catalog_reconciliation_error = (
+                "Catalog certificate import failed; check tls-ca and workload truststore access"
+            )
+            logger.error(self._catalog_reconciliation_error)
+            return
 
         # Dynamic SQL runs against the still-running service from the
         # previous replan; this cycle's replan happens only after it settles.

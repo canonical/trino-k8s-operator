@@ -15,6 +15,7 @@ from catalog_manager import (
     RenderedCatalog,
 )
 from sql_catalog import RedshiftCatalog, SqlCatalog
+from tests.unit.helpers import create_test_certificate
 
 CREDENTIAL_DIR = Path("/usr/lib/trino/etc/credentials")
 TRUSTSTORE_PATH = Path("/usr/lib/trino/etc/conf/truststore.jks")
@@ -240,7 +241,7 @@ class TestPrometheusCatalog(TestCase):
 
     def test_render_with_custom_ca(self):
         """An unauthenticated HTTPS catalog can supply a CA through its secret."""
-        certificate = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+        certificate = create_test_certificate()
         charm = FakeCharm(secrets={"secret:1": FakeSecret({"tls-ca": certificate})})
         backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
 

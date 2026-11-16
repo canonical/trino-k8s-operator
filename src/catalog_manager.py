@@ -9,8 +9,14 @@ import textwrap
 from abc import ABC, abstractmethod
 
 import yaml
+from cryptography import x509
 from ops.model import SecretNotFoundError
 
+from config import (
+    PrometheusConfigError,
+    validate_prometheus_backend,
+    validate_prometheus_headers,
+)
 from literals import BIGQUERY_BACKEND_SCHEMA, GSHEETS_BACKEND_SCHEMA, PROMETHEUS_BACKEND_SCHEMA
 from utils import validate_keys
 
@@ -229,22 +235,36 @@ class PrometheusCatalog(CatalogBase):
             ValueError: If the backend, authentication or TLS CA fields are invalid.
         """
         validate_keys(self.backend, PROMETHEUS_BACKEND_SCHEMA)
+        properties = validate_prometheus_backend(self.backend)
         if "secret-id" not in self.info:
             return {}, {}
 
-        content = self._get_secret_content(self.info["secret-id"])
+        try:
+            content = self._get_secret_content(self.info["secret-id"])
+        except Exception:
+            raise PrometheusConfigError(
+                "Prometheus secret-id must reference a readable, granted secret"
+            ) from None
         certs = {}
         if "tls-ca" in content:
             certificate = content["tls-ca"]
             if not isinstance(certificate, str) or not certificate.strip():
-                raise ValueError("Prometheus tls-ca must be a nonempty string")
+                raise PrometheusConfigError("Prometheus tls-ca must be a nonempty PEM certificate")
+            try:
+                x509.load_pem_x509_certificate(certificate.encode())
+            except ValueError:
+                raise PrometheusConfigError(
+                    "Prometheus tls-ca must be a valid PEM certificate"
+                ) from None
             certs[f"prometheus-ca-{self.name}"] = certificate
 
         auth_fields = set(content) & {"user", "password", "bearer-token"}
         if auth_fields not in (set(), {"user", "password"}, {"bearer-token"}) or (
             not auth_fields and not certs
         ):
-            raise ValueError("Prometheus requires user/password, bearer-token or tls-ca")
+            raise PrometheusConfigError(
+                "Prometheus requires user/password, bearer-token or tls-ca"
+            )
         if any(
             not isinstance(content[field], str)
             or not content[field]
@@ -252,9 +272,10 @@ class PrometheusCatalog(CatalogBase):
             or "\r" in content[field]
             for field in auth_fields
         ):
-            raise ValueError(
+            raise PrometheusConfigError(
                 "Prometheus authentication fields must be nonempty single-line strings"
             )
+        validate_prometheus_headers(properties, basic_auth="user" in auth_fields)
         return {field: content[field] for field in auth_fields}, certs
 
     def _create_properties(self, secret_content):

@@ -22,7 +22,7 @@ from ops.model import (
     SecretNotFoundError,
     WaitingStatus,
 )
-from ops.pebble import CheckLevel, CheckStartup, CheckStatus, Layer
+from ops.pebble import CheckLevel, CheckStartup, CheckStatus, ExecError, Layer
 from ops.testing import CheckInfo, Mount, PeerRelation, Relation, State
 
 from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
@@ -38,6 +38,7 @@ from tests.unit.helpers import (
     build_worker_state,
     carry_forward,
     create_single_catalog_config,
+    create_test_certificate,
     failing_secret_reads,
     ingress_relation,
     oauth_relation,
@@ -749,9 +750,10 @@ def test_resource_group_manager_files_removed(ctx, tmp_path):
     assert not (tmp_path / "resource-groups.json").exists()
 
 
-def test_prometheus_ca_uses_java_truststore(ctx):
+@pytest.mark.parametrize("import_fails", [False, True])
+def test_prometheus_ca_uses_java_truststore(ctx, import_fails):
     """The catalog CA reaches the default truststore used by the HTTP client."""
-    certificate = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+    certificate = create_test_certificate()
     secret = observer_secret({"tls-ca": certificate})
     catalog_config = yaml.safe_dump(
         {
@@ -768,8 +770,19 @@ def test_prometheus_ca_uses_java_truststore(ctx):
         config={"catalog-config": catalog_config}, extra_secrets=(secret,)
     )
 
-    with mock.patch("charm.reconcile_truststore") as reconcile:
-        ctx.run(ctx.on.config_changed(), state_in)
+    failure = (
+        ExecError(["keytool"], 1, stdout="", stderr="test import failure")
+        if import_fails
+        else None
+    )
+    with mock.patch("charm.reconcile_truststore", side_effect=failure) as reconcile:
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    if import_fails:
+        assert isinstance(state_out.unit_status, BlockedStatus)
+        assert "certificate import failed" in state_out.unit_status.message
+        assert state_out.get_container("trino").plan.to_dict() == {}
+        return
 
     java_store_calls = [
         call for call in reconcile.call_args_list if call.args[1].endswith("/lib/security/cacerts")
@@ -812,6 +825,87 @@ def test_prometheus_token_rotation_changes_restart_hash(ctx):
     token_file = workload_path(state_out, ctx, "/usr/lib/trino/etc/credentials/metrics.token")
     assert token_file.read_text() == "test-new-value"
     assert _services(state_out)["trino"]["environment"]["CATALOG_STATE_HASH"] != original_hash
+
+
+@pytest.mark.parametrize(
+    ("extra_config", "content", "message"),
+    [
+        (
+            "prometheus.query.chunk.size.duration=2h\nprometheus.max.query.range.duration=1h\n",
+            {"bearer-token": "test-old-value"},
+            "prometheus.max.query.range.duration",
+        ),
+        ("prometheus.read-timeout=0s\n", {"bearer-token": "test-old-value"}, "read-timeout"),
+        (
+            "prometheus.cache.ttl=invalid\n",
+            {"bearer-token": "test-old-value"},
+            "prometheus.cache.ttl",
+        ),
+        (
+            "prometheus.http.additional-headers=authorization:test-value\n",
+            {"bearer-token": "test-old-value"},
+            "additional-headers",
+        ),
+        (
+            "prometheus.http.additional-headers=missing-colon\n",
+            {"bearer-token": "test-old-value"},
+            "additional-headers",
+        ),
+        ("", {"user": "reader"}, "user/password"),
+        ("", {"tls-ca": "not a certificate"}, "tls-ca"),
+    ],
+)
+def test_prometheus_invalid_update_preserves_running_catalog(
+    ctx, tmp_path, extra_config, content, message
+):
+    """Invalid updates block with guidance without replacing the running catalog."""
+    secret = observer_secret({"bearer-token": "test-old-value"})
+    catalog_config = {
+        "catalogs": {"metrics": {"backend": "prometheus", "secret-id": secret.id}},
+        "backends": {
+            "prometheus": {
+                "connector": "prometheus",
+                "url": "https://prometheus.example.com",
+            }
+        },
+    }
+    state_in, _ = build_coordinator_state(
+        config={"catalog-config": yaml.safe_dump(catalog_config)},
+        extra_secrets=(secret,),
+        container=trino_container(
+            mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
+        ),
+    )
+    configured = ctx.run(ctx.on.config_changed(), state_in)
+    original_services = _services(configured)
+    properties_path = "/usr/lib/trino/etc/catalog/metrics.properties"
+    original_properties = workload_path(configured, ctx, properties_path).read_text()
+    state = refresh_catalog_execs(carry_forward(configured), ctx)
+    catalog_config["backends"]["prometheus"]["config"] = extra_config
+    updated_secret = dataclasses.replace(secret, latest_content=content)
+    state = dataclasses.replace(
+        state,
+        config={**state.config, "catalog-config": yaml.safe_dump(catalog_config)},
+        secrets={item for item in state.secrets if item.id != secret.id} | {updated_secret},
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert message in state_out.unit_status.message
+    assert "test-old-value" not in state_out.unit_status.message
+    assert _services(state_out) == original_services
+    assert workload_path(state_out, ctx, properties_path).read_text() == original_properties
+    assert (
+        workload_path(state_out, ctx, "/usr/lib/trino/etc/credentials/metrics.token").read_text()
+        == "test-old-value"
+    )
+    recovered = dataclasses.replace(
+        carry_forward(state_out), config=configured.config, secrets=configured.secrets
+    )
+    recovered = ctx.run(ctx.on.config_changed(), refresh_catalog_execs(recovered, ctx))
+    assert not isinstance(recovered.unit_status, BlockedStatus)
+    assert _services(recovered) == original_services
 
 
 def test_per_replica_params_override_backend_params(ctx):
