@@ -186,6 +186,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """
         super().__init__(*args)
         self.name = "trino"
+        self._catalog_reconciliation_error = None
         self.state = State(self.app, lambda: self.model.get_relation(PEER_RELATION_NAME))
         self.policy = PolicyRelationHandler(self)
         self.trino_coordinator = TrinoCoordinator(self)
@@ -385,14 +386,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
-        if error := getattr(self, "_catalog_reconciliation_error", None):
+        duplicates = self._duplicate_catalog_names()
+        if error := self._catalog_reconciliation_error:
             event.add_status(BlockedStatus(error))
-            return
-
-        try:
-            duplicates = self._duplicate_catalog_names()
-        except PrometheusConfigError as err:
-            event.add_status(BlockedStatus(str(err)))
             return
         if duplicates is None:
             event.add_status(BlockedStatus("invalid catalog configuration"))
@@ -905,12 +901,14 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         Returns:
             The `_render_catalogs` result, or None when rendering failed so
-            that the caller can leave the workload untouched.
+            that the caller can leave the workload untouched. A Prometheus
+            configuration error is also recorded for the unit status.
         """
         try:
             return self._render_catalogs(truststore_pwd)
-        except PrometheusConfigError:
-            raise
+        except PrometheusConfigError as e:
+            self._catalog_reconciliation_error = str(e)
+            return None
         except Exception as e:
             # Rendering failures can carry secret content, so only the failure
             # type is recorded.
@@ -1377,10 +1375,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # (pure); the PG relation databag write is a pure write too and must
         # happen regardless of Trino readiness, so the provider can start
         # provisioning while the live SQL below waits for a reachable server.
-        try:
-            rendered_static = self._render_catalogs_safe(truststore_pwd)
-        except PrometheusConfigError:
-            return
+        rendered_static = self._render_catalogs_safe(truststore_pwd)
         if rendered_static is None:
             return
         static_catalogs, catalog_credentials, conf_certs = rendered_static

@@ -265,11 +265,11 @@ class PrometheusCatalog(CatalogBase):
             raise PrometheusConfigError(
                 "Prometheus requires user/password, bearer-token or tls-ca"
             )
-        if any(
-            not isinstance(content[field], str)
-            or not content[field]
-            or "\n" in content[field]
-            or "\r" in content[field]
+        if not all(
+            isinstance(content[field], str)
+            and content[field].strip()
+            and "\n" not in content[field]
+            and "\r" not in content[field]
             for field in auth_fields
         ):
             raise PrometheusConfigError(
@@ -287,24 +287,17 @@ class PrometheusCatalog(CatalogBase):
         Returns:
             A tuple of (catalog properties, credential file contents).
         """
-        catalog_content = textwrap.dedent(
-            f"""\
-            connector.name=prometheus
-            prometheus.uri={self.backend["url"]}
-            """
-        )
+        lines = ["connector.name=prometheus", f"prometheus.uri={self.backend['url']}"]
         credentials = {}
         if "bearer-token" in secret_content:
             credential_name = f"{self.name}.token"
             token_path = self.charm.credential_abs_path.joinpath(credential_name)
-            catalog_content += f"prometheus.bearer.token.file={token_path}\n"
+            lines.append(f"prometheus.bearer.token.file={token_path}")
             credentials[credential_name] = secret_content["bearer-token"]
         elif "user" in secret_content:
-            catalog_content += (
-                f"prometheus.auth.user={secret_content['user']}\n"
-                f"prometheus.auth.password={secret_content['password']}\n"
-            )
-        catalog_content += self.backend.get("config") or ""
+            lines.append(f"prometheus.auth.user={secret_content['user']}")
+            lines.append(f"prometheus.auth.password={secret_content['password']}")
+        catalog_content = "\n".join(lines) + "\n" + (self.backend.get("config") or "")
         return {self.name: catalog_content}, credentials
 
 
