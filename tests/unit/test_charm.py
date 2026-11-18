@@ -776,13 +776,12 @@ def test_prometheus_ca_uses_java_truststore(ctx, import_fails):
         else None
     )
     with mock.patch("charm.reconcile_truststore", side_effect=failure) as reconcile:
-        state_out = ctx.run(ctx.on.config_changed(), state_in)
-
-    if import_fails:
-        assert isinstance(state_out.unit_status, BlockedStatus)
-        assert "certificate import failed" in state_out.unit_status.message
-        assert state_out.get_container("trino").plan.to_dict() == {}
-        return
+        if import_fails:
+            with pytest.raises(Exception) as exc_info:
+                ctx.run(ctx.on.config_changed(), state_in)
+            assert isinstance(exc_info.value.__cause__, ExecError)
+            return
+        ctx.run(ctx.on.config_changed(), state_in)
 
     java_store_calls = [
         call for call in reconcile.call_args_list if call.args[1].endswith("/lib/security/cacerts")

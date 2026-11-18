@@ -186,7 +186,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         """
         super().__init__(*args)
         self.name = "trino"
-        self._catalog_reconciliation_error = None
         self.state = State(self.app, lambda: self.model.get_relation(PEER_RELATION_NAME))
         self.policy = PolicyRelationHandler(self)
         self.trino_coordinator = TrinoCoordinator(self)
@@ -386,10 +385,11 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             event.add_status(BlockedStatus(str(err)))
             return
 
-        duplicates = self._duplicate_catalog_names()
-        if error := self._catalog_reconciliation_error:
+        if error := self._prometheus_config_error():
             event.add_status(BlockedStatus(error))
             return
+
+        duplicates = self._duplicate_catalog_names()
         if duplicates is None:
             event.add_status(BlockedStatus("invalid catalog configuration"))
             return
@@ -892,6 +892,24 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         dynamic_names = set(self.postgresql_catalog_handler.render_dynamic_catalogs())
         return set(static_names) & dynamic_names
 
+    def _prometheus_config_error(self):
+        """Return the actionable message for an invalid Prometheus catalog.
+
+        Recomputed from the model on every call because a hook's status cannot
+        rely on state carried over from an earlier hook.
+
+        Returns:
+            The error message, or None when no Prometheus catalog is invalid.
+        """
+        try:
+            self._render_catalogs(self.state.java_truststore_pwd or "")
+        except PrometheusConfigError as e:
+            return str(e)
+        except Exception:
+            # Other failures are logged by `_render_catalogs_safe`.
+            return None
+        return None
+
     def _render_catalogs_safe(self, truststore_pwd):
         """Render the static catalogs, reporting failure instead of raising.
 
@@ -901,14 +919,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         Returns:
             The `_render_catalogs` result, or None when rendering failed so
-            that the caller can leave the workload untouched. A Prometheus
-            configuration error is also recorded for the unit status.
+            that the caller can leave the workload untouched.
         """
         try:
             return self._render_catalogs(truststore_pwd)
-        except PrometheusConfigError as e:
-            self._catalog_reconciliation_error = str(e)
-            return None
         except Exception as e:
             # Rendering failures can carry secret content, so only the failure
             # type is recorded.
@@ -1304,7 +1318,6 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         Guards return early without deferring; convergence resumes on the next
         hook and terminal status is reported by collect-unit-status.
         """
-        self._catalog_reconciliation_error = None
         container = self.unit.get_container(self.name)
         if not container.can_connect():
             return
@@ -1384,16 +1397,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         conf_certs.update(self.postgresql_catalog_handler.get_desired_tls_certs())
         opensearch = self._read_opensearch()
-        try:
-            file_hashes = self._reconcile_truststores(
-                container, truststore_pwd, conf_certs, opensearch
-            )
-        except ExecError:
-            self._catalog_reconciliation_error = (
-                "Catalog certificate import failed; check tls-ca and workload truststore access"
-            )
-            logger.error(self._catalog_reconciliation_error)
-            return
+        file_hashes = self._reconcile_truststores(
+            container, truststore_pwd, conf_certs, opensearch
+        )
 
         # Dynamic SQL runs against the still-running service from the
         # previous replan; this cycle's replan happens only after it settles.
