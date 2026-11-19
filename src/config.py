@@ -9,7 +9,11 @@
 
 import json
 import re
+from configparser import ConfigParser
+from configparser import Error as ConfigParserError
+from decimal import Decimal
 from typing import Optional
+from urllib.parse import urlparse
 
 import yaml
 from charms.data_platform_libs.v0.data_models import BaseConfigModel
@@ -23,6 +27,133 @@ _TRINO_MEMORY_RE = re.compile(r"^\d+(\.\d+)?(B|kB|MB|GB|TB|PB)$")
 
 # Kubernetes resource quantity: plain number or number + binary/decimal suffix
 _K8S_QUANTITY_RE = re.compile(r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|Ei|K|M|G|T|P|E|m)?$")
+
+
+class PrometheusConfigError(ValueError):
+    """An operator-facing Prometheus validation error containing no secret values."""
+
+
+def _prometheus_duration(value, property_name):
+    """Convert a Prometheus duration to seconds without echoing its value."""
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(ns|us|ms|s|m|h|d)\s*", value)
+    if not match:
+        raise PrometheusConfigError(f"{property_name} must be a duration such as 10s or 5m")
+    scales = {
+        "ns": "0.000000001",
+        "us": "0.000001",
+        "ms": "0.001",
+        "s": "1",
+        "m": "60",
+        "h": "3600",
+        "d": "86400",
+    }
+    return Decimal(match[1]) * Decimal(scales[match[2]])
+
+
+def _validate_prometheus_url(backend):
+    """Reject invalid endpoints without exposing any embedded credentials."""
+    endpoint = backend.get("url")
+    try:
+        uri = urlparse(endpoint) if isinstance(endpoint, str) else None
+        valid_uri = (
+            uri is not None
+            and uri.scheme in {"http", "https"}
+            and bool(uri.hostname)
+            and uri.username is None
+            and uri.password is None
+            and (uri.port is None or uri.port > 0)
+            and not any(character.isspace() for character in endpoint)
+        )
+    except ValueError:
+        valid_uri = False
+    if not valid_uri:
+        raise PrometheusConfigError(
+            "Prometheus url must be an HTTP(S) endpoint without credentials"
+        )
+
+
+def validate_prometheus_headers(properties, basic_auth=False):
+    """Validate HTTP header syntax and prevent authentication-header conflicts."""
+    auth_header = properties.get("prometheus.auth.http.header.name", "Authorization")
+    header_pattern = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+    if not re.fullmatch(header_pattern, auth_header):
+        raise PrometheusConfigError("prometheus.auth.http.header.name must be an HTTP header name")
+    reserved = {auth_header.lower()}
+    if basic_auth:
+        reserved.add("authorization")
+    if "prometheus.http.additional-headers" not in properties:
+        return
+    for header in re.split(r"(?<!\\),", properties["prometheus.http.additional-headers"]):
+        pair = re.split(r"(?<!\\):", header, maxsplit=1)
+        if len(pair) != 2 or not re.fullmatch(header_pattern, pair[0].strip()):
+            raise PrometheusConfigError(
+                "prometheus.http.additional-headers must contain comma-separated name:value pairs"
+            )
+        if pair[0].strip().lower() in reserved:
+            raise PrometheusConfigError(
+                "prometheus.http.additional-headers must not duplicate the authentication header"
+            )
+        if any(ord(character) < 32 or ord(character) > 126 for character in pair[1].strip()):
+            raise PrometheusConfigError(
+                "prometheus.http.additional-headers values must contain printable ASCII characters"
+            )
+
+
+def validate_prometheus_backend(backend):
+    """Validate Prometheus settings before rendering or applying workload files."""
+    _validate_prometheus_url(backend)
+
+    parser = ConfigParser(interpolation=None, delimiters=("=",), comment_prefixes=("#", "!"))
+    parser.optionxform = str
+    try:
+        parser.read_string("[prometheus]\n" + (backend.get("config") or ""))
+    except (ConfigParserError, TypeError):
+        raise PrometheusConfigError(
+            "Prometheus config must contain unique key=value properties"
+        ) from None
+    if parser.sections() != ["prometheus"] or parser.defaults():
+        raise PrometheusConfigError("Prometheus config must contain only key=value properties")
+    properties = dict(parser["prometheus"])
+    durations = {
+        "prometheus.query.chunk.size.duration": ("1d", Decimal("0.001")),
+        "prometheus.max.query.range.duration": ("21d", Decimal("0.001")),
+        "prometheus.cache.ttl": ("30s", Decimal("1")),
+        "prometheus.read-timeout": ("10s", Decimal("1")),
+    }
+    allowed = set(durations) | {
+        "prometheus.case-insensitive-name-matching",
+        "prometheus.auth.http.header.name",
+        "prometheus.http.additional-headers",
+    }
+    if set(properties) - allowed:
+        raise PrometheusConfigError(
+            "Prometheus config contains an unknown or charm-managed property; "
+            "use backend.url and the Juju secret for endpoint and authentication"
+        )
+    if any("\n" in value for value in properties.values()):
+        raise PrometheusConfigError("Prometheus config properties must each occupy one line")
+    seconds = {}
+    for property_name, (default, minimum) in durations.items():
+        seconds[property_name] = _prometheus_duration(
+            properties.get(property_name, default), property_name
+        )
+        if seconds[property_name] < minimum:
+            raise PrometheusConfigError(f"{property_name} must be at least {minimum}s")
+    if (
+        seconds["prometheus.max.query.range.duration"]
+        < seconds["prometheus.query.chunk.size.duration"]
+    ):
+        raise PrometheusConfigError(
+            "prometheus.max.query.range.duration must be at least "
+            "prometheus.query.chunk.size.duration"
+        )
+    matching = properties.get("prometheus.case-insensitive-name-matching", "false")
+    if matching.lower() not in {"true", "false"}:
+        raise PrometheusConfigError(
+            "prometheus.case-insensitive-name-matching must be true or false"
+        )
+    validate_prometheus_headers(properties)
+    return properties
 
 
 def _validate_duration(v: str, field_label: str) -> str:
@@ -258,6 +389,15 @@ class CharmConfig(BaseConfigModel):
             raise ValueError("catalog-config must be a YAML mapping")
         if "catalogs" not in parsed or "backends" not in parsed:
             raise ValueError("catalog-config must have top-level 'catalogs' and 'backends' keys")
+        backends = parsed["backends"]
+        if not isinstance(parsed["catalogs"], dict) or not isinstance(backends, dict):
+            raise ValueError("catalog-config catalogs and backends must be mappings")
+        for name, backend in backends.items():
+            if isinstance(backend, dict) and backend.get("connector") == "prometheus":
+                try:
+                    validate_prometheus_backend(backend)
+                except PrometheusConfigError as error:
+                    raise ValueError(f"Prometheus backend {name!r}: {error}") from None
         return v
 
     @validator("postgresql_catalog_config")

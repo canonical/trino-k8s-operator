@@ -7,10 +7,15 @@
 import dataclasses
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest import mock
 
 import ops.model
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import NameOID
 from ops.testing import Container, Exec, Model, PeerRelation, Relation, Secret, State
 
 from file_manager import FIND_BIN, SHA256SUM_BIN
@@ -92,6 +97,26 @@ cert: |
       CERTIFICATE CONTENT...
   -----END CERTIFICATE-----
 """  # nosec
+
+
+def create_test_certificate():
+    """Return a self-signed public certificate for TLS validation tests."""
+    signing_key = Ed25519PrivateKey.generate()
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "prometheus.test")])
+    now = datetime.now(timezone.utc)
+    return (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(signing_key.public_key())
+        .serial_number(1)
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=1))
+        .sign(signing_key, algorithm=None)
+        .public_bytes(Encoding.PEM)
+        .decode()
+    )
+
 
 POSTGRESQL_1_CATALOG_PATH = "/usr/lib/trino/etc/catalog/postgresql-1.properties"
 POSTGRESQL_1_DEVELOPER_CATALOG_PATH = (

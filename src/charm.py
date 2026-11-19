@@ -41,9 +41,9 @@ from ops.model import (
 from ops.pebble import CheckStatus, ExecError, PathError
 from pydantic import ValidationError
 
-from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog
+from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, PrometheusCatalog
 from catalog_planner import DesiredCatalogs, reconcile_catalogs
-from config import CharmConfig
+from config import CharmConfig, PrometheusConfigError
 from literals import (
     CACERTS_MANIFEST,
     CACERTS_PATH,
@@ -388,6 +388,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             self._validate_relations()
         except (RuntimeError, ValueError) as err:
             event.add_status(BlockedStatus(str(err)))
+            return
+
+        if error := self._prometheus_config_error():
+            event.add_status(BlockedStatus(error))
             return
 
         duplicates = self._duplicate_catalog_names()
@@ -763,6 +767,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             "bigquery": BigqueryCatalog,
             "gsheets": GsheetCatalog,
             "hive": HiveCatalog,
+            "prometheus": PrometheusCatalog,
         }
         catalog_cls = catalog_map.get(backend["connector"], None)
 
@@ -917,6 +922,24 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         static_names, _, _ = static
         dynamic_names = set(self.postgresql_catalog_handler.render_dynamic_catalogs())
         return set(static_names) & dynamic_names
+
+    def _prometheus_config_error(self):
+        """Return the actionable message for an invalid Prometheus catalog.
+
+        Recomputed from the model on every call because a hook's status cannot
+        rely on state carried over from an earlier hook.
+
+        Returns:
+            The error message, or None when no Prometheus catalog is invalid.
+        """
+        try:
+            self._render_catalogs(self.state.java_truststore_pwd or "")
+        except PrometheusConfigError as e:
+            return str(e)
+        except Exception:
+            # Other failures are logged by `_render_catalogs_safe`.
+            return None
+        return None
 
     def _render_catalogs_safe(self, truststore_pwd):
         """Render the static catalogs, reporting failure instead of raising.
@@ -1215,6 +1238,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             container: The Trino container.
             truststore_pwd: The stable truststore password.
             conf_certs: Desired {alias: PEM} certificates for `conf/truststore.jks`.
+                Prometheus CA aliases are also installed in the JVM default store.
             opensearch: `_read_opensearch()`; None keeps the deployed `cacerts`.
 
         Returns:
@@ -1236,7 +1260,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return hashes
 
         connection, certificate = opensearch or ({}, None)
-        cacerts_certs = {}
+        cacerts_certs = {
+            alias: cert for alias, cert in conf_certs.items() if alias.startswith("prometheus-ca-")
+        }
         if connection.get("is_enabled") and certificate:
             cacerts_certs[CERTIFICATE_NAME] = certificate
 
