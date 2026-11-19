@@ -7,10 +7,15 @@
 import dataclasses
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest import mock
 
 import ops.model
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import NameOID
 from ops.testing import Container, Exec, Model, PeerRelation, Relation, Secret, State
 
 from file_manager import FIND_BIN, SHA256SUM_BIN
@@ -96,13 +101,6 @@ cert: |
 
 def create_test_certificate():
     """Return a self-signed public certificate for TLS validation tests."""
-    from datetime import datetime, timedelta, timezone
-
-    from cryptography import x509
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding
-    from cryptography.x509.oid import NameOID
-
     signing_key = Ed25519PrivateKey.generate()
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "prometheus.test")])
     now = datetime.now(timezone.utc)
