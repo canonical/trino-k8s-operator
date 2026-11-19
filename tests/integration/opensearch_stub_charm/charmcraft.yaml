@@ -1,0 +1,16 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+type: charm
+
+platforms:
+  ubuntu-22.04-amd64:
+    build-on:
+      - ubuntu@22.04:amd64
+    build-for:
+      - ubuntu@22.04:amd64
+
+parts:
+  charm:
+    charm-binary-python-packages:
+      - ops>=2.0

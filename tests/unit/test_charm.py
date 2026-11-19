@@ -234,6 +234,89 @@ def test_invalid_config_value(ctx):
     assert state_out.unit_status == BlockedStatus("config: invalid log level 'all-logs'")
 
 
+LOG_PROPERTIES_PATH = "/usr/lib/trino/etc/log.properties"
+RANGER_AUDIT_LOGGER = "org.apache.ranger.audit.provider.BaseAuditHandler"
+
+
+def _log_property_lines(state_out, ctx):
+    """Return the non-comment, non-blank lines of the rendered log.properties."""
+    content = workload_path(state_out, ctx, LOG_PROPERTIES_PATH).read_text()
+    return [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+@pytest.mark.parametrize("build_state", [build_coordinator_state, build_worker_state])
+def test_log_properties_suppress_ranger_audit_dump_by_default(ctx, build_state):
+    """By default, Ranger's failed-audit-event dump logger is raised to ERROR."""
+    state_in, _ = build_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _log_property_lines(state_out, ctx) == ["io.trino=info", f"{RANGER_AUDIT_LOGGER}=error"]
+
+
+def test_log_level_overrides_replace_defaults(ctx):
+    """Overrides are rendered and take precedence over the charm's logger defaults."""
+    overrides = f"{RANGER_AUDIT_LOGGER}=WARN, io.airlift=debug"
+    state_in, _ = build_coordinator_state(
+        config={"log-level": "error", "log-level-overrides": overrides}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert _log_property_lines(state_out, ctx) == [
+        "io.trino=error",
+        f"{RANGER_AUDIT_LOGGER}=warn",
+        "io.airlift=debug",
+    ]
+
+
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        ("io.airlift", "log-level-overrides: invalid entry 'io.airlift'; expected logger=level"),
+        ("=info", "log-level-overrides: invalid logger name ''"),
+        ("io.air#lift=info", "log-level-overrides: invalid logger name 'io.air#lift'"),
+        (
+            "io.airlift=verbose",
+            "log-level-overrides: invalid log level 'verbose' for 'io.airlift'",
+        ),
+        (
+            "io.airlift=info=debug",
+            "log-level-overrides: invalid log level 'info=debug' for 'io.airlift'",
+        ),
+        ("io.airlift=info,io.airlift=warn", "log-level-overrides: duplicate logger 'io.airlift'"),
+        ("io.trino=debug", "log-level-overrides: use log-level to set the io.trino level"),
+    ],
+)
+def test_invalid_log_level_overrides_block(ctx, overrides, message):
+    """Malformed overrides, unknown levels and io.trino overrides block the charm."""
+    state_in, _ = build_coordinator_state(config={"log-level-overrides": overrides})
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    assert state_out.unit_status == BlockedStatus(message)
+    assert state_out.get_container("trino").plan.to_dict() == {}
+
+
+def test_log_level_overrides_change_triggers_restart_via_hash_change(ctx):
+    """Changing the overrides changes log.properties' hash in the Pebble plan."""
+    state_in, _ = build_coordinator_state()
+    before = carry_forward(ctx.run(ctx.on.config_changed(), state_in))
+    before_env = _services(before)["trino"]["environment"]
+
+    changed = dataclasses.replace(
+        before, config={**before.config, "log-level-overrides": f"{RANGER_AUDIT_LOGGER}=warn"}
+    )
+    after = ctx.run(ctx.on.config_changed(), changed)
+    after_env = _services(after)["trino"]["environment"]
+
+    assert before_env["HASH_LOG_PROPERTIES"] != after_env["HASH_LOG_PROPERTIES"]
+
+
 def test_incorrect_relation(ctx):
     """The charm blocks if the coordinator relation is not added."""
     state_in, _ = build_coordinator_state(config={"charm-function": "worker"})
