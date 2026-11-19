@@ -4,24 +4,28 @@
 
 """Collection of helper methods for Trino Charm."""
 
+import base64
 import hashlib
+import hmac
+import ipaddress
 import json
 import logging
 import os
 import re
 import secrets
 import string
-import subprocess  # nosec B404
 import textwrap
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+import bcrypt
 from cerberus import Validator
 from jinja2 import Environment, FileSystemLoader
 from ops.pebble import Error as PebbleError
-from ops.pebble import ExecError
+from ops.pebble import ExecError, PathError
 
-from literals import REPLICA_SCHEMA
+from literals import BCRYPT_COST, BCRYPT_MAX_PASSWORD_BYTES, REPLICA_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -439,40 +443,136 @@ def add_cert_to_truststore(container, name, cert, storepass, conf_path):
         raise
 
 
-def add_users_to_password_db(container, credentials, db_path):
-    """Create necessary db users for authentication.
+def is_valid_username(username: object) -> bool:
+    """Report whether a username can be written safely to `password.db`.
+
+    The file holds one `user:hash` entry per line, so a name with a colon, whitespace or a
+    control character could corrupt an entry or inject another one.
+
+    Args:
+        username: The username to check. YAML can produce non-string names, which are invalid.
+
+    Returns:
+        True if the username is a non-empty string with no colon, whitespace or control
+        character.
+    """
+    return (
+        isinstance(username, str)
+        and bool(username)
+        and not any(char == ":" or char.isspace() or not char.isprintable() for char in username)
+    )
+
+
+def has_valid_password_length(password: object) -> bool:
+    """Report whether bcrypt can hash the password without truncating it.
+
+    Args:
+        password: The plaintext password. YAML can produce non-string passwords, which are
+            invalid.
+
+    Returns:
+        True if the password is a string of at most 72 bytes in UTF-8.
+    """
+    return isinstance(password, str) and len(password.encode()) <= BCRYPT_MAX_PASSWORD_BYTES
+
+
+def invalid_usernames(credentials: Mapping) -> list[str]:
+    """Return the users that cannot be written to `password.db`.
+
+    Args:
+        credentials: A mapping of username to plaintext password.
+
+    Returns:
+        The offending usernames as strings, sorted. Passwords are never included.
+    """
+    return sorted(
+        str(user)
+        for user, password in credentials.items()
+        if not is_valid_username(user) or not has_valid_password_length(password)
+    )
+
+
+# Standard base64 and bcrypt's base64 use the same 64 characters in a different order.
+_BCRYPT_BASE64 = bytes.maketrans(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    b"./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+)
+
+
+def _derive_bcrypt_salt(key: str, username: str) -> bytes:
+    """Derive the bcrypt salt for a user from a per-deployment key.
+
+    The salt is deterministic so that rebuilding `password.db` from unchanged credentials gives
+    the same file, which lets the charm detect real changes. This is safe because a salt only
+    has to be unique, not secret, and the key makes it unique per user and per deployment.
+
+    Args:
+        key: A value unique to the deployment, such as the model UUID and application name.
+        username: The user the salt is for.
+
+    Returns:
+        A bcrypt salt, as accepted by `bcrypt.hashpw`.
+    """
+    digest = hmac.new(key.encode(), username.encode(), hashlib.sha256).digest()
+    encoded = base64.b64encode(digest[:16]).rstrip(b"=").translate(_BCRYPT_BASE64)
+    return f"$2b${BCRYPT_COST:02d}$".encode() + encoded
+
+
+@dataclass(frozen=True)
+class PasswordDbWrite:
+    """The outcome of `write_password_db`.
+
+    Attributes:
+        written: The usernames in the file.
+        pushed: Whether the file content changed and was pushed.
+    """
+
+    written: list[str]
+    pushed: bool
+
+
+def write_password_db(container, credentials, db_path, salt_key, hashes=None) -> PasswordDbWrite:
+    """Write the authentication database from the full set of credentials.
+
+    The file is built in memory and pushed once, which replaces it atomically, and only if its
+    content changed. Users whose name or password cannot be stored are skipped.
 
     Args:
         container: The trino container.
         credentials: A dictionary of user/password.
         db_path: The path to the `password.db`.
+        salt_key: The per-deployment key the bcrypt salts are derived from.
+        hashes: Users written with an already hashed password, as {username: hash}.
 
-    Raises:
-        ExecError: in case the container exec is unsuccessful.
+    Returns:
+        The usernames written to the file, and whether the file was pushed.
     """
-    if container.exists(db_path):
-        container.remove_path(db_path)
-
-    db_exists = False
+    lines = []
+    written = []
     for user, password in credentials.items():
-        command = [
-            "htpasswd",
-            "-b",
-            "-B",
-            "-C",
-            "10",
-            db_path,
-            user,
-            password,
-        ]
-        if not db_exists:
-            command.insert(2, "-c")
-        try:
-            container.exec(command).wait_output()
-            db_exists = True
-        except (subprocess.CalledProcessError, ExecError) as e:
-            logger.error(f"unable to add user credentials {e.stderr}")
-            raise
+        if not is_valid_username(user):
+            logger.warning("Skipping user with an invalid name: %r", user)
+            continue
+        if not has_valid_password_length(password):
+            logger.warning("Skipping user %r: password not a string or longer than 72 bytes", user)
+            continue
+        password_hash = bcrypt.hashpw(password.encode(), _derive_bcrypt_salt(salt_key, user))
+        lines.append(f"{user}:{password_hash.decode()}\n")
+        written.append(user)
+    for user, password_hash in (hashes or {}).items():
+        lines.append(f"{user}:{password_hash}\n")
+        written.append(user)
+    content = "".join(lines)
+
+    try:
+        current = container.pull(db_path).read()
+    except PathError:
+        current = None
+    if content == current:
+        return PasswordDbWrite(written=written, pushed=False)
+
+    container.push(db_path, content, make_dirs=True, permissions=0o644)
+    return PasswordDbWrite(written=written, pushed=True)
 
 
 class SecretReadError(Exception):
@@ -528,14 +628,18 @@ def parse_proxy_url(value, setting_name):
         A `ParsedProxy`, or None if `value` is unset/empty.
 
     Raises:
-        ProxyConfigError: If the URL has no explicit http(s) scheme, no host,
+        ProxyConfigError: If the URL cannot be parsed at all (e.g. a malformed
+            bracketed IPv6 host), has no explicit http(s) scheme, no host,
             a non-numeric port, a path/query/fragment, or embedded credentials.
-            The message never includes the credential values.
+            The message never includes the URL or its credential values.
     """
     if not value:
         return None
 
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        raise ProxyConfigError(f"{setting_name} is not a valid URL") from None
 
     if parsed.scheme not in ("http", "https"):
         raise ProxyConfigError(f"{setting_name} must have an explicit http:// or https:// scheme")
@@ -562,42 +666,140 @@ def parse_proxy_url(value, setting_name):
     return ParsedProxy(host=parsed.hostname, port=port, secure=parsed.scheme == "https")
 
 
-def _convert_no_proxy(no_proxy_value):
-    """Convert a comma-separated `juju-no-proxy` value to a pipe-separated list.
+def _ipv4_network_to_patterns(network):
+    """Express an IPv4 network exactly as `-Dhttp.nonProxyHosts` patterns.
 
-    CIDR entries cannot be expressed by `-Dhttp.nonProxyHosts`, which only
-    supports literal hosts and `*` wildcards, so they are dropped with a
-    single aggregated warning naming all of them, rather than one log
-    line per entry.
+    The JVM only supports leading/trailing `*` wildcards, so the prefix is
+    rounded up to the next octet boundary and the network is expanded into
+    one `a.b.*`-style pattern per resulting subnet (a literal IP for /32).
+
+    Args:
+        network: An `ipaddress.IPv4Network` with a non-zero prefix length.
+
+    Returns:
+        The list of patterns covering exactly `network`.
+    """
+    rounded = ((network.prefixlen + 7) // 8) * 8
+    patterns = []
+    for subnet in network.subnets(new_prefix=rounded):
+        if rounded == 32:
+            patterns.append(str(subnet.network_address))
+        else:
+            octets = str(subnet.network_address).split(".")[: rounded // 8]
+            patterns.append(".".join(octets) + ".*")
+    return patterns
+
+
+def _parse_ipv4_cidr(entry):
+    """Parse a `juju-no-proxy` CIDR entry as an IPv4 network.
+
+    Host bits are allowed and masked off (`10.1.2.3/8` is `10.0.0.0/8`).
+
+    Args:
+        entry: A single `juju-no-proxy` entry containing a `/`.
+
+    Returns:
+        The parsed `ipaddress.IPv4Network`.
+
+    Raises:
+        ValueError: If `entry` is not a valid CIDR, or is an IPv6 CIDR.
+    """
+    network = ipaddress.ip_network(entry, strict=False)
+    if not isinstance(network, ipaddress.IPv4Network):
+        raise ValueError(f"{entry} is not an IPv4 network")
+    return network
+
+
+def _host_entry_to_patterns(entry):
+    """Translate a non-CIDR `juju-no-proxy` entry to `-Dhttp.nonProxyHosts` patterns.
+
+    Args:
+        entry: A single, non-empty `juju-no-proxy` entry without a `/`.
+
+    Returns:
+        The list of patterns: a bare IPv6 address bracketed in its compressed
+        form, a leading-dot domain as both the domain and its `*.` wildcard,
+        nothing for a lone `.`, else `entry` itself.
+    """
+    try:
+        address = ipaddress.ip_address(entry)
+    except ValueError:
+        pass
+    else:
+        if isinstance(address, ipaddress.IPv6Address):
+            # URL hosts are usually written in compressed form, e.g. `[fd00::1]`.
+            return [f"[{address}]"]
+    if entry.startswith("."):
+        domain = entry[1:]
+        return [domain, f"*{entry}"] if domain else []
+    return [entry]
+
+
+def _convert_no_proxy(no_proxy_value):
+    """Convert a comma-separated `juju-no-proxy` value to `-Dhttp.nonProxyHosts`.
+
+    The JVM matches host strings as written in the URL, case-insensitively,
+    with `*` wildcards only at the start and/or end of a pattern. Entries are
+    translated as follows:
+
+    - IPv4 CIDRs become octet wildcards, expanded exactly when the prefix is
+      not octet-aligned (e.g. `172.16.0.0/12` yields 16 `172.N.*` patterns);
+      a /32 becomes the literal IP.
+    - IPv4 /0 CIDRs are dropped with a dedicated warning, since they would
+      bypass the proxy for every destination.
+    - IPv6 and invalid CIDRs are dropped with one aggregated warning.
+    - Bare IPv6 addresses are bracketed in compressed form, as the JVM
+      matches `[::1]`.
+    - Leading-dot entries (`.example.com`) yield both `example.com` and
+      `*.example.com`, matching the domain and its subdomains. A lone `.`
+      is dropped like an empty segment.
+    - Anything else is passed through verbatim.
+
+    Duplicates are removed, keeping the first occurrence.
 
     Args:
         no_proxy_value: The raw comma-separated value, or None/empty.
 
     Returns:
-        The pipe-separated string of literal hosts (possibly empty).
+        The pipe-separated string of patterns (possibly empty).
     """
     if not no_proxy_value:
         return ""
 
-    kept = []
-    dropped = []
+    patterns = []
+    unconvertible = []
+    match_all = []
     for entry in no_proxy_value.split(","):
         entry = entry.strip()
         if not entry:
             continue
-        if "/" in entry:
-            dropped.append(entry)
+        if "/" not in entry:
+            patterns.extend(_host_entry_to_patterns(entry))
             continue
-        kept.append(entry)
+        try:
+            network = _parse_ipv4_cidr(entry)
+        except ValueError:
+            unconvertible.append(entry)
+            continue
+        if network.prefixlen == 0:
+            match_all.append(entry)
+        else:
+            patterns.extend(_ipv4_network_to_patterns(network))
 
-    if dropped:
+    if unconvertible:
         logger.warning(
-            "Dropping unsupported CIDR entries from juju-no-proxy (not expressible by "
-            "-Dhttp.nonProxyHosts): %s",
-            ", ".join(dropped),
+            "Dropping juju-no-proxy entries not expressible by -Dhttp.nonProxyHosts "
+            "(IPv6 or invalid CIDR): %s",
+            ", ".join(unconvertible),
+        )
+    if match_all:
+        logger.warning(
+            "Ignoring %s in juju-no-proxy: it would bypass the proxy for all destinations. "
+            "Use '*' if that is intended.",
+            ", ".join(match_all),
         )
 
-    return "|".join(kept)
+    return "|".join(dict.fromkeys(patterns))
 
 
 def jvm_proxy_options(http_proxy_url, https_proxy_url, no_proxy_value):

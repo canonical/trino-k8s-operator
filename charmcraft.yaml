@@ -52,6 +52,9 @@ requires:
   postgresql:
     interface: postgresql_client
     optional: true
+  trino-gateway-integration:
+    interface: trino_gateway_integration
+    optional: true
 
 provides:
   metrics-endpoint:

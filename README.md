@@ -26,6 +26,8 @@ For deployments where workers cannot reach the coordinator through the cluster-l
 juju config trino-k8s discovery-uri=https://trino-coordinator.example.com
 ```
 
+A coordinator application runs a single unit: only that unit authenticates clients, and the charm confirms users to [Trino Gateway](#trino-gateway-relation) based on that unit. Scale the worker application to add capacity.
+
 ## HTTPS
 The Trino Charm is configured to secure communications via a load balancer or proxy server that
 terminates TLS. The ingress provider accepts TLS connections from clients and forwards plain HTTP
@@ -401,6 +403,8 @@ juju relate trino-k8s <requirer-app>
 
 No manual secret granting is required. Each requirer gets a unique username in the format `app-<requirer-app-name>-<relation-id>` with an auto-generated password. This works across both same-model and cross-model relations.
 
+New and removed relation users take effect within a few seconds (Trino reloads `password.db` every 5 seconds), without restarting Trino.
+
 ## User management
 By default, password authentication is enabled for Charmed Trino. Trino can use
 OAuth and password authentication at the same time. We recommend passwords for
@@ -456,6 +460,40 @@ Where the `user-secrets.yaml` has the below format:
 <user>:<password>
 <another-user>:<another-password>
 ```
+
+Credential changes for any user (added, removed or rotated) take effect within a few seconds of the charm's next hook, without restarting Trino. The charm writes the bcrypt hashes to `password.db`, and Trino reloads the file every 5 seconds. A removed or rotated password keeps working until Trino reloads the file.
+
+Notes:
+- The `gw-` username prefix is reserved for [Trino Gateway](#trino-gateway-relation) users. Do not create users with this prefix in `user-secret-id`: a configured user with the same name as a Gateway user is kept, whichever was created first, and the Gateway user is refused and removed from Trino.
+- Users whose name is invalid (empty, or containing a colon, whitespace or a control character) or whose password is longer than 72 bytes (bcrypt limit) are not written. The charm is `blocked` and lists them, and every other user still works.
+
+## Trino Gateway relation
+The `trino-gateway-integration` relation lets [Trino Gateway](https://github.com/canonical/trino-gateway-k8s-operator) request the users it needs to authenticate against this Trino. The relation is optional, and Trino can be related to several Gateways.
+
+```bash
+juju integrate trino-k8s:trino-gateway-integration trino-gateway-k8s:trino-gateway-integration
+```
+
+The Gateway requests users and grants each user's credentials as a Juju secret. Trino:
+- writes each requested user to `password.db`;
+- confirms the users it wrote and refuses, with a reason, the ones it cannot register;
+- publishes its URL to the Gateway, the same one it publishes on `trino-catalog`. The two always match, including while the `user-secret-id` secret cannot be read.
+
+Trino keeps no record of who owns a username; every hook recomputes the outcome from the current configuration and relation data. A request is refused when:
+- the name already belongs to a `user-secret-id`, default or `trino-catalog` user ("username already exists on this Trino");
+- the same name is requested by more than one Gateway ("username requested by more than one Trino Gateway"), in which case it is refused on all of them;
+- the name is empty or contains a colon, whitespace or a control character ("invalid username");
+- the password is longer than 72 bytes ("password longer than 72 bytes").
+
+A user whose secret cannot be read yet is neither confirmed nor refused until a later hook can read it.
+
+Gateway users are subject to the same access control rules and Ranger policies as any other user.
+
+Trino confirms a user only after it has had time to reload `password.db`, so a confirmed user can log in immediately; the charm waits a few seconds after a change before confirming. Changes on the Gateway are applied on the next hook.
+
+Only coordinator (or `all`) applications can be related. A relation to a worker application is not supported: the worker is `blocked` and publishes nothing.
+
+The `list-system-users` action reports the Gateway users in `gateway-users` when run on a coordinator (or `all`) unit. On a worker it is always `(none)`.
 
 ## Policy
 ### Ranger
@@ -558,10 +596,27 @@ unit, coordinator and worker alike, since workers open their own connections to 
 | ------------------ | -------------------------------------------------------------------------- |
 | `juju-http-proxy`  | `-Dhttp.proxyHost`, `-Dhttp.proxyPort`                                     |
 | `juju-https-proxy` | `-Dhttps.proxyHost`, `-Dhttps.proxyPort`                                   |
-| `juju-no-proxy`    | `-Dhttp.nonProxyHosts` (comma-separated value converted to pipe-separated) |
+| `juju-no-proxy`    | `-Dhttp.nonProxyHosts` (entries converted as below, then pipe-separated)   |
 
-`-Dhttp.nonProxyHosts` accepts literal hosts and `*` wildcards only. CIDR entries such as
-`10.0.0.0/8` are dropped, with a warning naming them written to the unit log.
+`-Dhttp.nonProxyHosts` accepts literal hosts and leading/trailing `*` wildcards only, so
+`juju-no-proxy` entries are converted:
+
+- IPv4 CIDRs become wildcards: an octet-aligned range becomes a single wildcard
+  (`10.0.0.0/8` becomes `10.*`), a non-aligned range is expanded exactly into several entries
+  (`172.16.0.0/12` becomes `172.16.*` to `172.31.*`) and a `/32` becomes the literal IP.
+- `0.0.0.0/0` is ignored with a warning in the unit log. Use `*` to bypass the proxy for all
+  destinations.
+- IPv6 CIDRs and invalid CIDRs are dropped with a warning in the unit log.
+- Bare IPv6 addresses are wrapped in brackets in compressed form (`::1` becomes `[::1]`,
+  `fd00:0::1` becomes `[fd00::1]`).
+- Bare IPv6 exclusions are matched literally, so IPv6 addresses in application URLs must use the
+  same compressed form.
+- Entries with a leading dot match the domain and its subdomains (`.example.com` becomes
+  `example.com` and `*.example.com`).
+- Other entries are passed through unchanged.
+
+Matching is done on the host as written in the URL, without DNS resolution: a hostname that
+resolves into a listed CIDR range is still proxied.
 
 Nothing is added to `juju-no-proxy` implicitly. If you set a proxy but leave `juju-no-proxy`
 unset, in-cluster traffic such as worker-to-coordinator communication is routed through the
