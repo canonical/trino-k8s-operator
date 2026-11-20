@@ -228,6 +228,9 @@ juju refresh --path="./trino-k8s_ubuntu-22.04-amd64.charm" trino-k8s-worker --re
 ```bash
 # Enable DEBUG logging
 juju config trino-k8s log-level=debug
+
+# Set the level of other loggers (io.trino is only set by log-level)
+juju config trino-k8s log-level-overrides="io.airlift=debug,org.apache.ranger=warn"
 ```
 
 ## Trino actions

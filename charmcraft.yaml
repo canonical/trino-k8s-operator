@@ -135,6 +135,22 @@ config:
         Valid values: info, debug, warn, error.
       default: info
       type: string
+    log-level-overrides:
+      description: |
+        Per-logger log levels, as comma- or whitespace-separated
+        `logger=level` entries. Valid levels (case-insensitive): off, trace,
+        debug, info, warn, error.
+        Example:
+          org.apache.ranger.audit.provider.BaseAuditHandler=warn,io.airlift=debug
+        An entry replaces the charm's default for the same logger.
+        By default the charm sets
+        org.apache.ranger.audit.provider.BaseAuditHandler to error, because
+        Ranger logs the full contents of failed audit events (user, client IP
+        and query text) at warn. Setting this logger below error re-enables
+        those dumps in Trino's logs.
+        The io.trino logger can only be set with `log-level`; an io.trino
+        entry here blocks the charm.
+      type: string
     ranger-service-name:
       description: |
         The service name for Trino in Apache Ranger when related. Defaults to relation id.
