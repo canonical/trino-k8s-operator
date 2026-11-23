@@ -277,6 +277,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
                 Path(__file__).parent / "dashboard_templates" / "trino-monitoring.json.tmpl",
                 self.model.name,
                 self.model.uuid,
+                self.meta.name,
             )
         )
 
