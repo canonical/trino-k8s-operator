@@ -43,7 +43,7 @@ from pydantic import ValidationError
 
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, PrometheusCatalog
 from catalog_planner import DesiredCatalogs, reconcile_catalogs
-from config import CharmConfig, PrometheusConfigError
+from config import CharmConfig, PrometheusConfigError, parse_log_level_overrides
 from literals import (
     CACERTS_MANIFEST,
     CACERTS_PATH,
@@ -798,9 +798,13 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             Mapping of per-file content-hash env vars for the Pebble plan.
         """
         hashes = {}
+        context = {
+            **env,
+            "LOG_LEVEL_OVERRIDES": parse_log_level_overrides(self.config.log_level_overrides),
+        }
         for template, file in CONFIG_FILES.items():
             path = self.trino_abs_path.joinpath(file)
-            content = render(template, env)
+            content = render(template, context)
             container.push(path, content, make_dirs=True, permissions=0o644)
             hashes[self._hash_key(file)] = content_hash(content)
         return hashes

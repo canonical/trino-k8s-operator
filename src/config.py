@@ -28,6 +28,46 @@ _TRINO_MEMORY_RE = re.compile(r"^\d+(\.\d+)?(B|kB|MB|GB|TB|PB)$")
 # Kubernetes resource quantity: plain number or number + binary/decimal suffix
 _K8S_QUANTITY_RE = re.compile(r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|Ei|K|M|G|T|P|E|m)?$")
 
+# Java logger name; excludes characters with meaning in a .properties file.
+_LOGGER_NAME_RE = re.compile(r"^[A-Za-z0-9_$.\-]+$")
+
+# Levels accepted by Airlift's log.properties parser (io.airlift.log.Level).
+AIRLIFT_LOG_LEVELS = ("off", "trace", "debug", "info", "warn", "error")
+
+
+def parse_log_level_overrides(value: Optional[str]) -> dict:
+    """Parse `log-level-overrides` into an ordered logger-to-level mapping.
+
+    Args:
+        value: Comma- or whitespace-separated `logger=level` entries.
+
+    Returns:
+        Mapping of logger name to lower-case level, in input order.
+
+    Raises:
+        ValueError: If an entry is malformed, repeated, targets `io.trino`,
+            or uses a level Airlift does not accept.
+    """
+    overrides: dict = {}
+    for entry in re.split(r"[,\s]+", (value or "").strip()):
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(
+                f"log-level-overrides: invalid entry {entry!r}; expected logger=level"
+            )
+        name, level = entry.split("=", 1)
+        if not _LOGGER_NAME_RE.match(name):
+            raise ValueError(f"log-level-overrides: invalid logger name {name!r}")
+        if name == "io.trino":
+            raise ValueError("log-level-overrides: use log-level to set the io.trino level")
+        if level.lower() not in AIRLIFT_LOG_LEVELS:
+            raise ValueError(f"log-level-overrides: invalid log level {level!r} for {name!r}")
+        if name in overrides:
+            raise ValueError(f"log-level-overrides: duplicate logger {name!r}")
+        overrides[name] = level.lower()
+    return overrides
+
 
 class PrometheusConfigError(ValueError):
     """An operator-facing Prometheus validation error containing no secret values."""
@@ -216,6 +256,7 @@ class CharmConfig(BaseConfigModel):
     """Typed configuration for the charm."""
 
     log_level: str = "info"
+    log_level_overrides: Optional[str] = None
     ranger_service_name: Optional[str] = None
     external_hostname: Optional[str] = None
     tls_secret_name: Optional[str] = None
@@ -257,6 +298,12 @@ class CharmConfig(BaseConfigModel):
         if normalized not in {"info", "debug", "warn", "error"}:
             raise ValueError(f"config: invalid log level {str(v)!r}")
         return normalized
+
+    @validator("log_level_overrides")
+    def validate_log_level_overrides(cls, v):
+        """Validate log_level_overrides entries and levels."""
+        parse_log_level_overrides(v)
+        return v
 
     @validator("charm_function")
     def validate_charm_function(cls, v):

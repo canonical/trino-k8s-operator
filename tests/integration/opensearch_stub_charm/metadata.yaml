@@ -1,0 +1,13 @@
+# Copyright 2023 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: opensearch-stub
+title: OpenSearch Stub Provider
+summary: Fake opensearch_client provider that points clients at an unreachable endpoint
+description: |
+  A minimal test charm that publishes OpenSearch credentials and an endpoint
+  on which nothing listens, so that Ranger audit delivery from Trino fails.
+
+provides:
+  opensearch-client:
+    interface: opensearch_client

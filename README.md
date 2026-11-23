@@ -548,6 +548,17 @@ Finally, relate the applications:
 juju relate trino-k8s opensearch
 ```
 
+When Ranger fails to deliver an audit event, it logs the full event (user, client IP and query
+text) at `WARN` through the `org.apache.ranger.audit.provider.BaseAuditHandler` logger. To keep
+this personal data out of Trino's logs, the charm sets that logger to `error` by default. Failed
+deliveries still log an `ERROR` line ("Error sending message to ElasticSearch") without the event
+contents. You can change the level of any logger except `io.trino`, which only `log-level`
+controls, with `log-level-overrides`. Setting `BaseAuditHandler` below `error` turns the event
+dumps back on:
+```
+juju config trino-k8s log-level-overrides="org.apache.ranger.audit.provider.BaseAuditHandler=warn"
+```
+
 ## Egress proxy
 
 Trino's outbound connections are configured from the **Juju model** proxy settings:

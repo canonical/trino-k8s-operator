@@ -1,1 +1,9 @@
 io.trino={{ LOG_LEVEL | default("INFO") }}
+{%- set overrides = LOG_LEVEL_OVERRIDES | default({}) %}
+{%- if "org.apache.ranger.audit.provider.BaseAuditHandler" not in overrides %}
+# Ranger dumps failed audit events, including PII (user, client IP, query text), at WARN.
+org.apache.ranger.audit.provider.BaseAuditHandler=error
+{%- endif %}
+{%- for logger, level in overrides.items() %}
+{{ logger }}={{ level }}
+{%- endfor %}
