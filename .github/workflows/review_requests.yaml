@@ -1,0 +1,21 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: Review requests
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  retain-reviewers:
+    uses: canonical/business-data-actions/.github/workflows/retain-reviewers.yaml@db0c527013d6bf32a260652e0f2428ac68dd28c9 # main
+    with:
+      required-approvals: 2
+      team-reviewers: business-data-data-lake
+    secrets:
+      REVIEW_REASSIGN_TOKEN: ${{ secrets.REVIEW_REASSIGN_TOKEN }}
