@@ -44,6 +44,7 @@ from pydantic import ValidationError
 from catalog_manager import BigqueryCatalog, GsheetCatalog, HiveCatalog, PrometheusCatalog
 from catalog_planner import DesiredCatalogs, reconcile_catalogs
 from config import CharmConfig, PrometheusConfigError, parse_log_level_overrides
+from dashboard import render_dashboard
 from literals import (
     CACERTS_MANIFEST,
     CACERTS_PATH,
@@ -268,6 +269,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # Grafana
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
+        )
+        # Drop dashboards kept in stored state by earlier renders.
+        self._grafana_dashboards.remove_non_builtin_dashboards()
+        self._grafana_dashboards.add_dashboard(
+            render_dashboard(
+                Path(__file__).parent / "dashboard_templates" / "trino-monitoring.json.tmpl",
+                self.model.name,
+                self.model.uuid,
+                self.meta.name,
+            )
         )
 
         self.opensearch_relation = OpenSearchRequires(

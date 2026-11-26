@@ -49,7 +49,7 @@ def _secret(suffix=""):
     )
 
 
-def _provider_relation(app, secret=None, drop=None, **overrides):
+def _provider_relation(app, secret=None, drop=None, relation_id=None, **overrides):
     """Return a relation to `app` whose credentials live in `secret`, minus the `drop` field."""
     data = {
         "trino_url": f"{app}.example.com:8080",
@@ -58,7 +58,8 @@ def _provider_relation(app, secret=None, drop=None, **overrides):
     }
     data.update(overrides)
     data.pop(drop, None)
-    return Relation(ENDPOINT, remote_app_name=app, remote_app_data=data)
+    extra = {} if relation_id is None else {"id": relation_id}
+    return Relation(ENDPOINT, remote_app_name=app, remote_app_data=data, **extra)
 
 
 def _run(ctx, state, check):
@@ -262,8 +263,8 @@ def test_backward_compatible_get_trino_info(requirer_ctx):
 def test_backward_compatible_incomplete_first_relation(requirer_ctx):
     """The no-argument accessors do not fall through to later relations."""
     secret = _secret()
-    first = _provider_relation("trino-a", secret, drop="trino_url")
-    second = _provider_relation("trino-b", secret)
+    first = _provider_relation("trino-a", secret, drop="trino_url", relation_id=1)
+    second = _provider_relation("trino-b", secret, relation_id=2)
     state = State(relations=[first, second], secrets=[secret])
 
     assert _run(requirer_ctx, state, lambda r: r.get_trino_info()) is None
