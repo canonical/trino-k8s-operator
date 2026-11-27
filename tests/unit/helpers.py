@@ -91,6 +91,14 @@ ro:
   user: trino_ro
   password: pwd4
 """  # nosec
+# The passwords of the default catalog config, keyed by the service
+# environment variable that each catalog's properties reference.
+CATALOG_PASSWORD_ENV = {
+    "CATALOG_PASS_POSTGRESQL_2D1__DEVELOPER": "pwd1",
+    "CATALOG_PASS_POSTGRESQL_2D1": "pwd2",
+    "CATALOG_PASS_MYSQL": "pwd3",
+    "CATALOG_PASS_REDSHIFT": "pwd4",
+}  # nosec
 POSTGRESQL_REPLICA_CERT = """\
 cert: |
   -----BEGIN CERTIFICATE-----
@@ -148,6 +156,7 @@ DEFAULT_JVM_STRING = " ".join(
         "-Dfile.encoding=UTF-8",
         "-XX:+ExitOnOutOfMemoryError",
         "-XX:+HeapDumpOnOutOfMemoryError",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
     ]
 )
 
@@ -169,6 +178,7 @@ UPDATED_JVM_OPTIONS = " ".join(
         "-Dfile.encoding=UTF-8",
         "-XX:+ExitOnOutOfMemoryError",
         "-XX:+HeapDumpOnOutOfMemoryError",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
         f"-Dhttps.proxyHost={MODEL_HTTPS_PROXY_HOST}",
         f"-Dhttps.proxyPort={MODEL_HTTPS_PROXY_PORT}",
         "-Xxs10G",

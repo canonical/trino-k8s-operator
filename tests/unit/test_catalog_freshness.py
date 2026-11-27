@@ -18,6 +18,7 @@ from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from tests.unit.helpers import (
     BIGQUERY_SECRET,
     CATALOG_INVENTORY_PATH,
+    CATALOG_PASSWORD_ENV,
     MODEL_HTTPS_PROXY,
     MODEL_HTTPS_PROXY_HOST,
     MODEL_HTTPS_PROXY_PORT,
@@ -123,6 +124,7 @@ def test_config_changed(ctx, monkeypatch):
                 "QUERY_MAX_TOTAL_MEMORY": None,
                 "MEMORY_HEAP_HEADROOM_PER_NODE": None,
                 "QUERY_MAX_RUN_TIME": None,
+                **CATALOG_PASSWORD_ENV,
             },
         }
     }
@@ -379,7 +381,11 @@ def test_failed_inventory_blocks_mutation_and_plan(ctx, tmp_path):
 
 
 def test_plan_size_is_independent_of_catalog_count(ctx, tmp_path):
-    """The plan carries a single catalog hash regardless of how many catalogs exist."""
+    """The plan carries a single catalog hash regardless of how many catalogs exist.
+
+    Only the password variables grow with the catalogs, one for each catalog
+    that has a password.
+    """
     container = trino_container(
         mounts={"home": Mount(location="/usr/lib/trino/etc", source=tmp_path)}
     )
@@ -404,7 +410,11 @@ def test_plan_size_is_independent_of_catalog_count(ctx, tmp_path):
     second_env = _plan_environment(second)
 
     assert not [key for key in first_env if key.startswith("HASH_CATALOG")]
-    assert first_env.keys() == second_env.keys()
+    assert second_env.keys() - first_env.keys() == {
+        "CATALOG_PASS_POSTGRESQL_2D2",
+        "CATALOG_PASS_POSTGRESQL_2D2__DEVELOPER",
+    }
+    assert first_env.keys() - second_env.keys() == set()
     assert "CATALOG_STATE_HASH" in first_env
 
 

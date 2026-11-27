@@ -707,20 +707,17 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             credentials = dict(DEFAULT_CREDENTIALS)
         return credentials
 
-    def _render_catalogs(self, truststore_pwd):
-        """Render the desired static catalog properties, credentials and certs.
+    def _render_catalogs(self):
+        """Render the desired static catalog properties, credentials, certs and env.
 
         Pure: never touches the container. The catalog planner applies the
         result to the workload filesystem.
 
-        Args:
-            truststore_pwd: The stable truststore password embedded in catalog
-                property files.
-
         Returns:
             A tuple of (desired `.properties` text keyed by catalog name,
             desired credential file content keyed by file name, desired
-            truststore certificates keyed by alias).
+            truststore certificates keyed by alias, catalog passwords keyed
+            by the environment variable their properties reference).
         """
         catalog_index = yaml.safe_load(self._effective_catalog_config() or "")
         if catalog_index is None:
@@ -733,23 +730,23 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             catalog_index["backends"],
         )
 
-        static, credentials, certs = {}, {}, {}
+        static, credentials, certs, env = {}, {}, {}, {}
         for name, info in catalogs.items():
             validate_keys(info, CATALOG_SCHEMA)
             backend = backends[info["backend"]]
-            catalog_instance = self._create_catalog_instance(truststore_pwd, name, info, backend)
+            catalog_instance = self._create_catalog_instance(name, info, backend)
             rendered = catalog_instance.render()
             static.update(rendered.properties)
             credentials.update(rendered.credentials)
             certs.update(rendered.certs)
+            env.update(rendered.env)
 
-        return static, credentials, certs
+        return static, credentials, certs, env
 
-    def _create_catalog_instance(self, truststore_pwd, name, info, backend):
+    def _create_catalog_instance(self, name, info, backend):
         """Create catalog instances based on connector type.
 
         Args:
-            truststore_pwd: the truststore password.
             name: the catalog name.
             info: the catalog specific information.
             backend: the backend template for configuration.
@@ -772,7 +769,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         catalog_cls = catalog_map.get(backend["connector"], None)
 
         if catalog_cls is not None:
-            return catalog_cls(self, truststore_pwd, name, info, backend)
+            return catalog_cls(self, name, info, backend)
 
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -913,17 +910,16 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         Static names are taken from the rendered desired state so that
         connectors which expand into several catalogs, such as SQL replicas,
-        are compared under the names they actually claim. Only names are
-        derived here, so the rendered truststore password is irrelevant.
+        are compared under the names they actually claim.
 
         Returns:
             The set of catalog names claimed by both sources, or None when the
             static catalogs could not be rendered.
         """
-        static = self._render_catalogs_safe(self.state.java_truststore_pwd or "")
+        static = self._render_catalogs_safe()
         if static is None:
             return None
-        static_names, _, _ = static
+        static_names = static[0]
         dynamic_names = set(self.postgresql_catalog_handler.render_dynamic_catalogs())
         return set(static_names) & dynamic_names
 
@@ -937,7 +933,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             The error message, or None when no Prometheus catalog is invalid.
         """
         try:
-            self._render_catalogs(self.state.java_truststore_pwd or "")
+            self._render_catalogs()
         except PrometheusConfigError as e:
             return str(e)
         except Exception:
@@ -945,19 +941,15 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
             return None
         return None
 
-    def _render_catalogs_safe(self, truststore_pwd):
+    def _render_catalogs_safe(self):
         """Render the static catalogs, reporting failure instead of raising.
-
-        Args:
-            truststore_pwd: The stable truststore password embedded in catalog
-                property files.
 
         Returns:
             The `_render_catalogs` result, or None when rendering failed so
             that the caller can leave the workload untouched.
         """
         try:
-            return self._render_catalogs(truststore_pwd)
+            return self._render_catalogs()
         except Exception as e:
             # Rendering failures can carry secret content, so only the failure
             # type is recorded.
@@ -1130,13 +1122,17 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         properties = oauth_proxy_properties(http_proxy, https_proxy)
         return flags, properties
 
-    def _build_base_environment(self, truststore_pwd, int_comms_secret, ranger_enabled):
+    def _build_base_environment(
+        self, truststore_pwd, int_comms_secret, ranger_enabled, catalog_env
+    ):
         """Build the Trino service environment without per-file hash triggers.
 
         Args:
             truststore_pwd: The stable truststore password.
             int_comms_secret: The internal communication shared secret value.
             ranger_enabled: Whether a Ranger policy relation is active.
+            catalog_env: `catalog-config` passwords keyed by the environment
+                variable their catalog properties reference.
 
         Returns:
             env: a dictionary of trino environment variables.
@@ -1205,6 +1201,7 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         if pg_secrets:
             env.update(pg_secrets)
 
+        env.update(catalog_env)
         return env
 
     def _get_oauth_config(self):
@@ -1441,10 +1438,10 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
         # (pure); the PG relation databag write is a pure write too and must
         # happen regardless of Trino readiness, so the provider can start
         # provisioning while the live SQL below waits for a reachable server.
-        rendered_static = self._render_catalogs_safe(truststore_pwd)
+        rendered_static = self._render_catalogs_safe()
         if rendered_static is None:
             return
-        static_catalogs, catalog_credentials, conf_certs = rendered_static
+        static_catalogs, catalog_credentials, conf_certs, catalog_env = rendered_static
         if is_coordinator:
             self.postgresql_catalog_handler._write_databag()
 
@@ -1475,7 +1472,9 @@ class TrinoK8SCharm(TypedCharmBase[CharmConfig]):
 
         # Render and push managed config files, hashing each for the plan.
         try:
-            env = self._build_base_environment(truststore_pwd, int_comms_secret, ranger_enabled)
+            env = self._build_base_environment(
+                truststore_pwd, int_comms_secret, ranger_enabled, catalog_env
+            )
         except ProxyConfigError as err:
             logger.error(str(err))
             return

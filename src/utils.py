@@ -938,6 +938,9 @@ def update_opts(default_opts, user_opts):
         patterns_index = [
             (r"^-X[a-z]+", 0),
             (r"^-XX:[+-](\w+)", 1),
+            # `--add-opens=<module>/<package>=<target>` is keyed by its package,
+            # so options for different packages do not replace each other.
+            (r"^(--add-(?:opens|exports|reads)=[^=]+)=", 1),
             (r"^(.*?)=", 1),
         ]
         for pi in patterns_index:

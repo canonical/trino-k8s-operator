@@ -5,6 +5,7 @@
 
 import dataclasses
 import logging
+import string
 import textwrap
 from abc import ABC, abstractmethod
 
@@ -22,10 +23,64 @@ from utils import validate_keys
 
 logger = logging.getLogger(__name__)
 
+CATALOG_PASS_ENV_VAR_PREFIX = "CATALOG_PASS_"  # nosec
+ENV_VAR_PLAIN_CHARS = frozenset(string.ascii_lowercase + string.digits)
+
+
+def password_env_var(catalog_name):
+    """Return the environment variable that carries a catalog's password.
+
+    Lowercase letters and digits are uppercased, `_` is doubled, and every
+    other byte of the UTF-8 name becomes `_` followed by its two hex digits,
+    so distinct catalog names such as `a-b` and `a_b` never share a variable.
+
+    Args:
+        catalog_name: the name of the rendered catalog.
+
+    Returns:
+        The variable name, e.g. `CATALOG_PASS_PG_2D1__RO` for `pg-1_ro`.
+    """
+    encoded = "".join(_encode_env_var_byte(byte) for byte in catalog_name.encode())
+    return CATALOG_PASS_ENV_VAR_PREFIX + encoded
+
+
+def _encode_env_var_byte(byte):
+    """Encode one byte of a catalog name for `password_env_var`.
+
+    Args:
+        byte: the byte value.
+
+    Returns:
+        The characters that stand for it in an environment variable name.
+    """
+    char = chr(byte)
+    if char in ENV_VAR_PLAIN_CHARS:
+        return char.upper()
+    if char == "_":
+        return "__"
+    return f"_{byte:02X}"
+
+
+def password_reference(catalog_name):
+    """Return the property value that makes Trino read a catalog's password.
+
+    Args:
+        catalog_name: the name of the rendered catalog.
+
+    Returns:
+        The `${ENV:...}` reference to `password_env_var(catalog_name)`.
+    """
+    return f"${{ENV:{password_env_var(catalog_name)}}}"
+
 
 @dataclasses.dataclass(frozen=True)
 class RenderedCatalog:
     """The desired state produced by rendering a single catalog.
+
+    With `catalog.management=dynamic` Trino copies catalog properties into
+    every query plan, so passwords are never written into `properties`: they
+    are `${ENV:...}` references resolved from `env`, which goes into the
+    Trino service environment.
 
     Attrs:
         properties: Mapping of catalog file stem to `.properties` text.
@@ -33,28 +88,29 @@ class RenderedCatalog:
             to text content.
         certs: Certificates the catalog wants present in the truststore,
             keyed by alias, collected for central truststore reconciliation.
+        env: Mapping of environment variable name to the secret value that a
+            `${ENV:...}` reference in `properties` resolves to.
     """
 
     properties: dict
     credentials: dict
     certs: dict
+    env: dict
 
 
 class CatalogBase(ABC):
     """The base class for all catalog configurations."""
 
-    def __init__(self, charm, truststore_pwd, name, info, backend):
+    def __init__(self, charm, name, info, backend):
         """Construct.
 
         Args:
             charm: the Trino charm.
-            truststore_pwd: the truststore password.
             name: the catalog name.
             info: the catalog specific information.
             backend: the backend template for configuration.
         """
         self.charm = charm
-        self.truststore_pwd = truststore_pwd
         self.name = name
         self.info = info
         self.backend = backend
@@ -66,11 +122,13 @@ class CatalogBase(ABC):
             catalogs: mapping of catalog file stem to `.properties` text.
 
         Returns:
-            A new mapping with `{SSL_PATH}` and `{SSL_PWD}` substituted.
+            A new mapping with `{SSL_PATH}` replaced by the truststore path and
+            `{SSL_PWD}` by a reference to the `JAVA_TRUSTSTORE_PWD` service
+            environment variable, so that the password stays out of the file.
         """
         return {
             key: value.replace("{SSL_PATH}", str(self.charm.truststore_abs_path)).replace(
-                "{SSL_PWD}", self.truststore_pwd
+                "{SSL_PWD}", "${ENV:JAVA_TRUSTSTORE_PWD}"
             )
             for key, value in catalogs.items()
         }
@@ -113,8 +171,8 @@ class CatalogBase(ABC):
 
         Returns:
             A tuple of (catalog properties keyed by file stem, credential
-            file contents keyed by file name, empty for connectors with
-            none).
+            file contents keyed by file name, environment variables keyed by
+            name), the last two empty for connectors without them.
         """
 
     def render(self):
@@ -128,9 +186,11 @@ class CatalogBase(ABC):
         """
         try:
             secret_content, certs = self._get_credentials()
-            properties, credentials = self._create_properties(secret_content)
+            properties, credentials, env = self._create_properties(secret_content)
             properties = self._resolve_placeholders(properties)
-            return RenderedCatalog(properties=properties, credentials=credentials, certs=certs)
+            return RenderedCatalog(
+                properties=properties, credentials=credentials, certs=certs, env=env
+            )
         except Exception as e:
             # Secret content can be echoed back in parser and lookup errors,
             # so only the failure type is recorded.
@@ -164,7 +224,7 @@ class BigqueryCatalog(CatalogBase):
 
         Returns:
             A tuple of (catalog name to configuration, credential file name
-            to content).
+            to content, an empty environment mapping).
         """
         credential_name = f"{self.name}.json"
         sa_creds_path = self.charm.credential_abs_path.joinpath(credential_name)
@@ -177,7 +237,7 @@ class BigqueryCatalog(CatalogBase):
             """
         )
         catalog_content += self.backend.get("config", "")
-        return {self.name: catalog_content}, {credential_name: sa_string}
+        return {self.name: catalog_content}, {credential_name: sa_string}, {}
 
 
 class GsheetCatalog(CatalogBase):
@@ -206,7 +266,7 @@ class GsheetCatalog(CatalogBase):
 
         Returns:
             A tuple of (catalog name to configuration, credential file name
-            to content).
+            to content, an empty environment mapping).
         """
         credential_name = f"{self.name}.json"
         sa_creds_path = self.charm.credential_abs_path.joinpath(credential_name)
@@ -219,7 +279,7 @@ class GsheetCatalog(CatalogBase):
             """
         )
         catalog_content += self.backend.get("config", "")
-        return {self.name: catalog_content}, {credential_name: sa_string}
+        return {self.name: catalog_content}, {credential_name: sa_string}, {}
 
 
 class PrometheusCatalog(CatalogBase):
@@ -285,10 +345,11 @@ class PrometheusCatalog(CatalogBase):
             secret_content: Validated basic or bearer authentication fields.
 
         Returns:
-            A tuple of (catalog properties, credential file contents).
+            A tuple of (catalog properties, credential file contents, the
+            Basic authentication password keyed by its environment variable).
         """
         lines = ["connector.name=prometheus", f"prometheus.uri={self.backend['url']}"]
-        credentials = {}
+        credentials, env = {}, {}
         if "bearer-token" in secret_content:
             credential_name = f"{self.name}.token"
             token_path = self.charm.credential_abs_path.joinpath(credential_name)
@@ -296,9 +357,10 @@ class PrometheusCatalog(CatalogBase):
             credentials[credential_name] = secret_content["bearer-token"]
         elif "user" in secret_content:
             lines.append(f"prometheus.auth.user={secret_content['user']}")
-            lines.append(f"prometheus.auth.password={secret_content['password']}")
+            lines.append(f"prometheus.auth.password={password_reference(self.name)}")
+            env[password_env_var(self.name)] = secret_content["password"]
         catalog_content = "\n".join(lines) + "\n" + (self.backend.get("config") or "")
-        return {self.name: catalog_content}, credentials
+        return {self.name: catalog_content}, credentials, env
 
 
 class HiveCatalog(CatalogBase):
@@ -319,8 +381,8 @@ class HiveCatalog(CatalogBase):
             secret_content: unused argument.
 
         Returns:
-            A tuple of (catalog name to configuration, an empty credentials
-            mapping).
+            A tuple of (catalog name to configuration, empty credentials and
+            environment mappings).
         """
         catalog_content = textwrap.dedent(
             f"""\
@@ -328,4 +390,4 @@ class HiveCatalog(CatalogBase):
             hive.metastore.uri={self.backend["url"]}
             """
         )
-        return {self.name: catalog_content}, {}
+        return {self.name: catalog_content}, {}, {}

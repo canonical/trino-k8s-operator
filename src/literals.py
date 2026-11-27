@@ -91,6 +91,8 @@ DEFAULT_JVM_OPTIONS = [
     "-Dfile.encoding=UTF-8",
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+HeapDumpOnOutOfMemoryError",
+    # Required by the BigQuery connector, which refuses to load without it.
+    "--add-opens=java.base/java.nio=ALL-UNNAMED",
 ]
 USER_SECRET_LABEL = "trino-user-management"  # nosec
 TRINO_CATALOG_SECRET_PREFIX = "trino-catalog-user-"  # nosec
