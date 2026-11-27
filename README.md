@@ -224,7 +224,7 @@ backends:
 
 Note: the allowed fields change significantly by connector, see the Trino documentation on this [here](https://trino.io/docs/current/connector.html).
 
-The `{SSL_PATH}` and `{SSL PWD}` variables will be replaced with the truststore path and password by the charm.
+The charm replaces `{SSL_PATH}` with the truststore path and `{SSL_PWD}` with `${ENV:JAVA_TRUSTSTORE_PWD}`, a reference that Trino resolves to the truststore password.
 
 The catalog-config can be applied with the following:
 
@@ -237,7 +237,15 @@ written to `/usr/lib/trino/etc/catalog/` and connector credential files, such as
 Google Sheets service accounts, to `/usr/lib/trino/etc/credentials/`. Both directories are
 managed by the charm: files that are no longer described by `catalog-config` are removed, and
 manual edits are reverted on the next configuration change. Trino is restarted only when the
-rendered catalog content actually changes.
+rendered catalog content or a catalog password actually changes.
+
+Catalog files hold no passwords. A replica's `password`, and a Prometheus catalog's basic
+authentication `password`, are written as `${ENV:CATALOG_PASS_<NAME>}`, which Trino resolves from
+the service environment that the charm sets. `<NAME>` is the catalog name in upper case, with `_`
+doubled and any other character that is not a letter or digit written as `_` and its hex code:
+the password of `postgresql-1_developer` is in `CATALOG_PASS_POSTGRESQL_2D1__DEVELOPER`. Anything
+written literally into a backend's `params` or `config` is stored as written, so keep secrets out
+of both (see [Catalog management mode](#catalog-management-mode)).
 
 ### Prometheus catalogs
 
@@ -267,9 +275,10 @@ backends:
   secret, never both. These are direct fields, not the SQL connectors' `replicas` YAML, and must be
   nonempty single-line strings. Set the secret's ID as `secret-id` under `catalogs.metrics` and
   grant it to every Trino application with `juju grant-secret <secret-id> <application>`.
-- **Credential storage:** basic credentials are rendered in the managed properties file and
-  bearer tokens in `/usr/lib/trino/etc/credentials/metrics.token`. Keep credentials out of
-  `catalog-config` and use HTTPS for authenticated remote endpoints.
+- **Credential storage:** the basic authentication user is rendered in the managed properties
+  file and its password is read from the Trino service environment; bearer tokens are rendered in
+  `/usr/lib/trino/etc/credentials/metrics.token`. Keep credentials out of `catalog-config`,
+  including `prometheus.http.additional-headers`, and use HTTPS for authenticated remote endpoints.
 - **Private CA (optional):** add a `tls-ca` field with the PEM certificate to the same secret. A
   secret containing only `tls-ca` works for HTTPS without authentication. The certificate is
   installed in the JVM default truststore, which is shared across the workload; TLS verification

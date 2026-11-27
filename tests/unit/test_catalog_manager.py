@@ -13,6 +13,7 @@ from catalog_manager import (
     HiveCatalog,
     PrometheusCatalog,
     RenderedCatalog,
+    password_env_var,
 )
 from sql_catalog import RedshiftCatalog, SqlCatalog
 from tests.unit.helpers import create_test_certificate
@@ -97,7 +98,7 @@ class TestBigqueryCatalog(TestCase):
         info = {"project": "my-project", "secret-id": "secret:1"}
         backend = {"connector": "bigquery", "config": "bigquery.extra=true\n"}
 
-        instance = BigqueryCatalog(charm, "trustpwd", "bq1", info, backend)
+        instance = BigqueryCatalog(charm, "bq1", info, backend)
         rendered = instance.render()
 
         self.assertIsInstance(rendered, RenderedCatalog)
@@ -121,7 +122,7 @@ class TestBigqueryCatalog(TestCase):
         backend = {"connector": "bigquery", "config": ""}
         info_before, backend_before = copy.deepcopy(info), copy.deepcopy(backend)
 
-        BigqueryCatalog(charm, "trustpwd", "bq1", info, backend).render()
+        BigqueryCatalog(charm, "bq1", info, backend).render()
 
         self.assertEqual(info, info_before)
         self.assertEqual(backend, backend_before)
@@ -134,7 +135,7 @@ class TestBigqueryCatalog(TestCase):
         backend = {"connector": "bigquery", "config": ""}
 
         with self.assertNoLogs("catalog_manager", level="INFO"):
-            BigqueryCatalog(charm, "trustpwd", "bq1", info, backend).render()
+            BigqueryCatalog(charm, "bq1", info, backend).render()
 
     def test_render_failure_keeps_secret_content_out_of_logs(self):
         """A malformed secret is reported without echoing its content."""
@@ -145,7 +146,7 @@ class TestBigqueryCatalog(TestCase):
 
         with self.assertLogs("catalog_manager", level="ERROR") as logs:
             with self.assertRaises(Exception):
-                BigqueryCatalog(charm, "trustpwd", "bq1", info, backend).render()
+                BigqueryCatalog(charm, "bq1", info, backend).render()
 
         self.assertNotIn("super-secret-token", "\n".join(logs.output))
 
@@ -160,7 +161,7 @@ class TestGsheetCatalog(TestCase):
         info = {"metasheet-id": "sheet-123", "secret-id": "secret:2"}
         backend = {"connector": "gsheets", "config": ""}
 
-        instance = GsheetCatalog(charm, "trustpwd", "gsheets-1", info, backend)
+        instance = GsheetCatalog(charm, "gsheets-1", info, backend)
         rendered = instance.render()
 
         properties = rendered.properties["gsheets-1"]
@@ -185,7 +186,7 @@ class TestPrometheusCatalog(TestCase):
             "config": "prometheus.read-timeout=20s\n",
         }
 
-        rendered = PrometheusCatalog(FakeCharm(), "trustpwd", "metrics", {}, backend).render()
+        rendered = PrometheusCatalog(FakeCharm(), "metrics", {}, backend).render()
 
         self.assertEqual(
             rendered,
@@ -199,6 +200,7 @@ class TestPrometheusCatalog(TestCase):
                 },
                 credentials={},
                 certs={},
+                env={},
             ),
         )
 
@@ -208,17 +210,18 @@ class TestPrometheusCatalog(TestCase):
         charm = FakeCharm(secrets={"secret:1": secret})
         backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
 
-        rendered = PrometheusCatalog(
-            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
-        ).render()
+        rendered = PrometheusCatalog(charm, "metrics", {"secret-id": "secret:1"}, backend).render()
 
         self.assertIn("prometheus.auth.user=metrics-reader\n", rendered.properties["metrics"])
         self.assertIn(
-            "prometheus.auth.password=test-basic-value\n", rendered.properties["metrics"]
+            "prometheus.auth.password=${ENV:CATALOG_PASS_METRICS}\n",
+            rendered.properties["metrics"],
         )
+        self.assertNotIn(AUTH_VALUE, rendered.properties["metrics"])
         self.assertNotIn("prometheus.bearer.token.file", rendered.properties["metrics"])
         self.assertEqual(rendered.credentials, {})
         self.assertEqual(rendered.certs, {})
+        self.assertEqual(rendered.env, {"CATALOG_PASS_METRICS": AUTH_VALUE})
 
     def test_render_with_bearer_authentication(self):
         """The catalog references a managed file instead of embedding the token."""
@@ -226,9 +229,7 @@ class TestPrometheusCatalog(TestCase):
         charm = FakeCharm(secrets={"secret:1": secret})
         backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
 
-        rendered = PrometheusCatalog(
-            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
-        ).render()
+        rendered = PrometheusCatalog(charm, "metrics", {"secret-id": "secret:1"}, backend).render()
 
         self.assertIn(
             f"prometheus.bearer.token.file={CREDENTIAL_DIR}/metrics.token\n",
@@ -238,6 +239,7 @@ class TestPrometheusCatalog(TestCase):
         self.assertNotIn("prometheus.auth.user", rendered.properties["metrics"])
         self.assertEqual(rendered.credentials, {"metrics.token": "test-bearer-value"})
         self.assertEqual(rendered.certs, {})
+        self.assertEqual(rendered.env, {})
 
     def test_render_with_custom_ca(self):
         """An unauthenticated HTTPS catalog can supply a CA through its secret."""
@@ -245,9 +247,7 @@ class TestPrometheusCatalog(TestCase):
         charm = FakeCharm(secrets={"secret:1": FakeSecret({"tls-ca": certificate})})
         backend = {"connector": "prometheus", "url": "https://prometheus.example.com"}
 
-        rendered = PrometheusCatalog(
-            charm, "trustpwd", "metrics", {"secret-id": "secret:1"}, backend
-        ).render()
+        rendered = PrometheusCatalog(charm, "metrics", {"secret-id": "secret:1"}, backend).render()
 
         self.assertEqual(rendered.certs, {"prometheus-ca-metrics": certificate})
         self.assertEqual(rendered.credentials, {})
@@ -265,7 +265,6 @@ class TestPrometheusCatalog(TestCase):
                 with self.assertRaises(ValueError):
                     PrometheusCatalog(
                         charm,
-                        "trustpwd",
                         "metrics",
                         {"secret-id": "secret:1"},
                         {"connector": "prometheus", "url": "http://prometheus:9090"},
@@ -280,7 +279,7 @@ class TestHiveCatalog(TestCase):
         charm = FakeCharm()
         backend = {"connector": "hive", "url": "thrift://metastore:9083"}
 
-        instance = HiveCatalog(charm, "trustpwd", "hive1", {}, backend)
+        instance = HiveCatalog(charm, "hive1", {}, backend)
         rendered = instance.render()
 
         properties = rendered.properties["hive1"]
@@ -310,17 +309,46 @@ class TestSqlCatalog(TestCase):
         info = {"database": "mydb", "secret-id": "secret:3"}
         backend = {"connector": "postgresql", "url": "jdbc:postgresql://host:5432", "config": ""}
 
-        instance = SqlCatalog(charm, "trustpwd", "pg1", info, backend)
+        instance = SqlCatalog(charm, "pg1", info, backend)
         rendered = instance.render()
 
         self.assertEqual(set(rendered.properties), {"pg1_developer", "pg1"})
         developer_properties = rendered.properties["pg1_developer"]
         self.assertIn("connection-url=jdbc:postgresql://host:5432/mydb", developer_properties)
         self.assertIn("connection-user=trino", developer_properties)
+        self.assertIn(
+            "connection-password=${ENV:CATALOG_PASS_PG1__DEVELOPER}\n", developer_properties
+        )
+        self.assertIn("connection-password=${ENV:CATALOG_PASS_PG1}\n", rendered.properties["pg1"])
+        self.assertEqual(
+            rendered.env,
+            {"CATALOG_PASS_PG1__DEVELOPER": "pwd1", "CATALOG_PASS_PG1": "pwd2"},  # nosec B105
+        )
         self.assertEqual(rendered.credentials, {})
         self.assertEqual(
             rendered.certs,
             {"cert": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"},
+        )
+
+    def test_render_keeps_truststore_password_out_of_properties(self):
+        """`{SSL_PWD}` becomes a reference to the truststore password variable."""
+        replicas = "ro:\n  user: trino_ro\n  password: pwd2\n"
+        secret = FakeSecret({"replicas": replicas, "cert": ""})
+        charm = FakeCharm(secrets={"secret:4": secret})
+        info = {"database": "mydb", "secret-id": "secret:4"}
+        backend = {
+            "connector": "postgresql",
+            "url": "jdbc:postgresql://host:5432",
+            "params": "ssl=true&sslrootcert={SSL_PATH}&sslrootcertpassword={SSL_PWD}",
+            "config": "",
+        }
+
+        rendered = SqlCatalog(charm, "pg1", info, backend).render()
+
+        self.assertIn(
+            "connection-url=jdbc:postgresql://host:5432/mydb?ssl=true"
+            f"&sslrootcert={TRUSTSTORE_PATH}&sslrootcertpassword=${{ENV:JAVA_TRUSTSTORE_PWD}}\n",
+            rendered.properties["pg1"],
         )
 
     def test_render_does_not_mutate_secret_content(self):
@@ -332,7 +360,7 @@ class TestSqlCatalog(TestCase):
         backend = {"connector": "postgresql", "url": "jdbc:postgresql://host:5432", "config": ""}
         info_before, backend_before = copy.deepcopy(info), copy.deepcopy(backend)
 
-        SqlCatalog(charm, "trustpwd", "pg1", info, backend).render()
+        SqlCatalog(charm, "pg1", info, backend).render()
 
         self.assertEqual(info, info_before)
         self.assertEqual(backend, backend_before)
@@ -349,9 +377,30 @@ class TestRedshiftCatalog(TestCase):
         info = {"secret-id": "secret:5"}
         backend = {"connector": "redshift", "url": "jdbc:redshift://host:5439/db", "config": ""}
 
-        instance = RedshiftCatalog(charm, "trustpwd", "redshift", info, backend)
+        instance = RedshiftCatalog(charm, "redshift", info, backend)
         rendered = instance.render()
 
         properties = rendered.properties["redshift"]
         self.assertIn("connection-url=jdbc:redshift://host:5439/db", properties)
+        self.assertIn("connection-password=${ENV:CATALOG_PASS_REDSHIFT}\n", properties)
+        self.assertEqual(rendered.env, {"CATALOG_PASS_REDSHIFT": "pwd4"})  # nosec B105
         self.assertEqual(rendered.credentials, {})
+
+
+class TestPasswordEnvVar(TestCase):
+    """Tests for `password_env_var`."""
+
+    def test_names_are_distinct_and_valid(self):
+        """Names that differ only in separators get distinct, valid variable names."""
+        names = ["pg", "pg_ro", "pg-ro", "pg__ro", "pg_5Fro", "pg.ro", "PG", "pg_2Dro", "pgé"]
+
+        variables = [password_env_var(name) for name in names]
+
+        self.assertEqual(len(set(variables)), len(names))
+        for variable in variables:
+            self.assertRegex(variable, r"^CATALOG_PASS_[A-Z0-9_]+$")
+
+    def test_common_names_stay_readable(self):
+        """Lowercase names keep their letters, digits and underscores."""
+        self.assertEqual(password_env_var("pgdata_developer"), "CATALOG_PASS_PGDATA__DEVELOPER")
+        self.assertEqual(password_env_var("postgresql-1"), "CATALOG_PASS_POSTGRESQL_2D1")

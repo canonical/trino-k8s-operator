@@ -28,6 +28,7 @@ from ops.testing import CheckInfo, Mount, PeerRelation, Relation, State
 from relations.postgresql_catalog import PostgresqlCatalogRelationHandler
 from tests.unit.helpers import (
     BIGQUERY_CATALOG_PATH,
+    CATALOG_PASSWORD_ENV,
     DEFAULT_JVM_STRING,
     POSTGRESQL_1_CATALOG_PATH,
     POSTGRESQL_1_DEVELOPER_CATALOG_PATH,
@@ -145,6 +146,7 @@ def test_ready(ctx):
                     "QUERY_MAX_TOTAL_MEMORY": None,
                     "MEMORY_HEAP_HEADROOM_PER_NODE": None,
                     "QUERY_MAX_RUN_TIME": None,
+                    **CATALOG_PASSWORD_ENV,
                 },
             }
         },
@@ -521,6 +523,37 @@ def test_trino_worker_relation_created(ctx):
 
     assert workload_path(state_out, ctx, BIGQUERY_CATALOG_PATH).exists()
     assert workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).exists()
+
+
+def test_catalog_files_hold_no_passwords(ctx):
+    """Catalog files reference passwords that the service environment carries."""
+    state_in, _ = build_coordinator_state()
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    secrets = [*CATALOG_PASSWORD_ENV.values(), environment["JAVA_TRUSTSTORE_PWD"]]
+    catalog_dir = workload_path(state_out, ctx, "/usr/lib/trino/etc/catalog")
+    for path in catalog_dir.iterdir():
+        content = path.read_text()
+        assert not [secret for secret in secrets if secret in content], path.name
+    assert "connection-password=${ENV:CATALOG_PASS_MYSQL}\n" in (
+        (catalog_dir / "mysql.properties").read_text()
+    )
+    assert "sslrootcertpassword=${ENV:JAVA_TRUSTSTORE_PWD}" in (
+        workload_path(state_out, ctx, POSTGRESQL_1_CATALOG_PATH).read_text()
+    )
+    assert CATALOG_PASSWORD_ENV.items() <= environment.items()
+
+
+def test_worker_sets_catalog_passwords(ctx):
+    """A worker puts the coordinator's catalog passwords in its own environment."""
+    state_in, ids = build_worker_state()
+
+    state_out = ctx.run(ctx.on.relation_changed(ids.worker_relation), state_in)
+
+    environment = _services(state_out)["trino"]["environment"]
+    assert CATALOG_PASSWORD_ENV.items() <= environment.items()
 
 
 def test_worker_uses_password_authentication(ctx):
@@ -1567,7 +1600,7 @@ def test_dropped_cidr_warning_logged_on_every_reconcile(ctx, monkeypatch, caplog
     with caplog.at_level(logging.WARNING):
         mid = ctx.run(ctx.on.config_changed(), state_in)
         caplog.clear()
-        ctx.run(ctx.on.config_changed(), mid)
+        ctx.run(ctx.on.config_changed(), carry_forward(mid))
 
     warnings = [
         r for r in caplog.records if r.levelno == logging.WARNING and "fd00::/8" in r.message
@@ -1576,6 +1609,19 @@ def test_dropped_cidr_warning_logged_on_every_reconcile(ctx, monkeypatch, caplog
 
 
 # --- Batch 4: precedence with additional-jvm-options -----------------------
+
+
+def test_add_opens_options_for_other_packages_keep_the_default(ctx):
+    """A user `--add-opens` for another package does not drop the BigQuery default."""
+    state_in, _ = build_coordinator_state(
+        config={"additional-jvm-options": "--add-opens=java.base/java.lang=ALL-UNNAMED"}
+    )
+
+    state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+    jvm_config = workload_path(state_out, ctx, JVM_CONFIG_PATH).read_text().splitlines()
+    assert "--add-opens=java.base/java.nio=ALL-UNNAMED" in jvm_config
+    assert "--add-opens=java.base/java.lang=ALL-UNNAMED" in jvm_config
 
 
 def test_override_changes_jvm_only_oauth_property_unchanged(ctx, monkeypatch):

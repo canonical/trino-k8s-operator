@@ -8,7 +8,7 @@ import textwrap
 
 import yaml
 
-from catalog_manager import CatalogBase
+from catalog_manager import CatalogBase, password_env_var, password_reference
 from literals import REPLICA_SCHEMA, SQL_BACKEND_SCHEMA
 from utils import validate_keys
 
@@ -48,9 +48,10 @@ class SqlCatalog(CatalogBase):
 
         Returns:
             A tuple of (catalog name to configuration, an empty credentials
-            mapping).
+            mapping, each catalog's password keyed by its environment
+            variable).
         """
-        catalogs = {}
+        catalogs, env = {}, {}
         for replica_info in replicas.values():
             validate_keys(replica_info, REPLICA_SCHEMA)
             user_name = replica_info.get("user")
@@ -68,12 +69,13 @@ class SqlCatalog(CatalogBase):
                 connector.name={self.backend["connector"]}
                 connection-url={url}
                 connection-user={user_name}
-                connection-password={user_pwd}
+                connection-password={password_reference(catalog_name)}
                 """
             )
             catalog_content += self.backend.get("config", "")
             catalogs[catalog_name] = catalog_content
-        return catalogs, {}
+            env[password_env_var(catalog_name)] = user_pwd
+        return catalogs, {}, env
 
 
 class RedshiftCatalog(SqlCatalog):
